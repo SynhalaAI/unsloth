@@ -16,7 +16,7 @@ import { mapBackendModelConfigToTrainingPatch } from "../lib/model-defaults";
 import { isRawTextDatasetFormat } from "../lib/training-methods";
 import { validateS3Source } from "../lib/validation";
 import type { BackendModelConfig } from "../api/models-api";
-import type { TrainingConfigState, TrainingConfigStore } from "../types/config";
+import type { TrainingConfigState, TrainingConfigStore, TrainingDatasetSelection } from "../types/config";
 
 const MIN_STEP: StepNumber = 1;
 const MAX_STEP: StepNumber = STEPS.length as StepNumber;
@@ -62,6 +62,7 @@ const initialState: TrainingConfigState = {
   projectName: "",
   trainingMethod: "qlora",
   hfToken: "",
+  trainingDatasets: [],
   datasetSource: "huggingface",
   datasetFormat: "auto",
   dataset: null,
@@ -69,6 +70,7 @@ const initialState: TrainingConfigState = {
   datasetSplit: null,
   datasetEvalSplit: null,
   datasetStreaming: false,
+  portableResumeData: "metadata",
   datasetManualMapping: emptyManualMapping(),
   datasetSystemPrompt: "",
   datasetUserTemplate: "",
@@ -156,6 +158,9 @@ function canProceedForStep(state: TrainingConfigState): boolean {
     case 2:
       return state.selectedModel !== null;
     case 3:
+      if (state.trainingDatasets.length > 0) {
+        return state.trainingDatasets.every((entry) => entry.path.trim().length > 0);
+      }
       if (state.datasetSource === "upload") {
         return state.uploadedFile !== null;
       }
@@ -164,6 +169,8 @@ function canProceedForStep(state: TrainingConfigState): boolean {
       }
       return state.dataset !== null;
     case 4:
+      return !state.enableAutoCheckpointUpload ||
+        (state.saveSteps > 0 && /^[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*$/.test(state.checkpointRepoId.trim()));
     case 5:
       return true;
     default:
@@ -642,6 +649,32 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
         },
         setHfToken: (hfToken) => useHfTokenStore.getState().setToken(hfToken),
         setDatasetSource: (datasetSource) => set({ datasetSource }),
+        addTrainingDataset: (dataset = {}) => set((state) => ({
+          trainingDatasets: [...state.trainingDatasets, {
+            source: dataset.source ?? state.datasetSource,
+            path: dataset.path ?? "",
+            subset: dataset.subset ?? null,
+            split: dataset.split ?? null,
+            format: dataset.format ?? state.datasetFormat,
+            columnMapping: dataset.columnMapping ?? {},
+            samplingWeight: dataset.samplingWeight ?? null,
+          }],
+        })),
+        removeTrainingDataset: (index) => set((state) => {
+          const trainingDatasets = state.trainingDatasets.filter((_, i) => i !== index);
+          if (trainingDatasets.length > 0) return { trainingDatasets };
+          return {
+            trainingDatasets,
+            dataset: null,
+            uploadedFile: null,
+            datasetSubset: null,
+            datasetSplit: null,
+          };
+        }),
+        updateTrainingDataset: (index, patch) => set((state) => ({
+          trainingDatasets: state.trainingDatasets.map((entry, i) =>
+            i === index ? { ...entry, ...patch } : entry),
+        })),
         selectHfDataset: (dataset) => {
           _datasetCheckController?.abort();
           _datasetCheckController = null;
@@ -649,6 +682,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
           set({
             datasetSource: "huggingface",
             dataset,
+            trainingDatasets: dataset ? [{ source: "huggingface", path: dataset, subset: null, split: null }] : [],
             uploadedFile: null,
             ...resetDatasetState(),
           });
@@ -661,6 +695,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             datasetSource: "upload",
             dataset: null,
             uploadedFile,
+            trainingDatasets: uploadedFile ? [{ source: "upload", path: uploadedFile }] : [],
             ...resetDatasetState(),
           });
           if (uploadedFile) {
@@ -704,6 +739,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
           _trainOnCompletionsManuallySet = false;
           set({
             dataset,
+            trainingDatasets: dataset ? [{ source: "huggingface", path: dataset, subset: null, split: null }] : [],
             datasetSubset: null,
             datasetSplit: null,
             datasetEvalSplit: null,
@@ -721,6 +757,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
           _trainOnCompletionsManuallySet = false;
           set({
             datasetSubset,
+            trainingDatasets: get().trainingDatasets.map((entry, index) => index === 0 ? { ...entry, subset: datasetSubset, split: null } : entry),
             datasetSplit: null,
             datasetEvalSplit: null,
             datasetManualMapping: emptyManualMapping(),
@@ -735,6 +772,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
           const streamingPatch = streamingCompatiblePatch(nextState);
           set({
             datasetSplit,
+            trainingDatasets: state.trainingDatasets.map((entry, index) => index === 0 ? { ...entry, split: datasetSplit } : entry),
             datasetManualMapping: emptyManualMapping(),
             isDatasetImage: null,
             isDatasetAudio: false,
@@ -840,6 +878,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
           _trainOnCompletionsManuallySet = false;
           set({
             uploadedFile,
+            trainingDatasets: uploadedFile ? [{ source: "upload", path: uploadedFile }] : [],
             datasetSubset: null,
             datasetSplit: null,
             datasetEvalSplit: null,
@@ -887,7 +926,15 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
           });
           notifyStreamingCompat(streamingPatch);
         },
-        setSaveSteps: (saveSteps) => set({ saveSteps }),
+        setSaveSteps: (saveSteps) =>
+          set({
+            saveSteps,
+            ...(saveSteps === 0 ? { enableAutoCheckpointUpload: false } : {}),
+          }),
+        setSaveTotalLimit: (saveTotalLimit) => set({ saveTotalLimit }),
+        setEnableAutoCheckpointUpload: (enableAutoCheckpointUpload) =>
+          set({ enableAutoCheckpointUpload }),
+        setCheckpointRepoId: (checkpointRepoId) => set({ checkpointRepoId }),
         setEvalSteps: (evalSteps) => {
           const state = get();
           const streamingPatch = streamingCompatiblePatch({ ...state, evalSteps });
@@ -954,9 +1001,18 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
     },
     {
       name: "unsloth_training_config_v1",
-      version: 12,
+      version: 13,
       migrate: (persisted, version) => {
         const s = persisted as Record<string, unknown>;
+        if (version < 13 && !Array.isArray(s.trainingDatasets)) {
+          const entries: TrainingDatasetSelection[] = [];
+          if (typeof s.dataset === "string" && s.dataset) {
+            entries.push({ source: "huggingface", path: s.dataset, subset: s.datasetSubset as string | null, split: s.datasetSplit as string | null });
+          } else if (typeof s.uploadedFile === "string" && s.uploadedFile) {
+            entries.push({ source: "upload", path: s.uploadedFile });
+          }
+          s.trainingDatasets = entries;
+        }
         if (version < 2 && s.datasetSubset == null && s.datasetConfig != null) {
           s.datasetSubset = s.datasetConfig;
         }
@@ -1016,6 +1072,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
           }
           delete s.hfToken;
         }
+        s.portableResumeData ??= "metadata";
         return s as unknown as TrainingConfigStore;
       },
       partialize: partializePersistedState,

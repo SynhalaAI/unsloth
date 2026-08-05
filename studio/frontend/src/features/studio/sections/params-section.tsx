@@ -17,6 +17,7 @@ import {
   ComboboxList,
 } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
+import { InfoHint } from "@/components/ui/info-hint";
 import {
   Select,
   SelectContent,
@@ -25,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
@@ -177,13 +179,16 @@ function formatSchedulerLabel(
   }
 }
 
-export function ParamsSection(): ReactElement {
+export function ParamsSection({ disabled = false }: { disabled?: boolean }): ReactElement {
   const t = useT();
   const store = useTrainingConfigStore();
   const platformDeviceType = usePlatformStore((s) => s.deviceType);
   const isLora = isAdapterMethod(store.trainingMethod);
   const isCpt = store.trainingMethod === "cpt";
   const isRawText = isRawTextDatasetFormat(store.datasetFormat);
+  const hasNonHfDataset =
+    store.datasetSource !== "huggingface" ||
+    store.trainingDatasets.some((dataset) => dataset.source !== "huggingface");
   const showVisionLora = store.isVisionModel && store.isDatasetImage === true;
   // DeepSeek OCR uses a coupled preset; backend ignores user image size.
   const _selectedModelLower = (store.selectedModel ?? "").toLowerCase();
@@ -239,6 +244,14 @@ export function ParamsSection(): ReactElement {
     }
   }, [isMac, store.packing, setPacking]);
 
+  // Local, uploaded, and S3 datasets may disappear between notebook sessions.
+  // Always retain the processed data needed to resume when any such source is used.
+  useEffect(() => {
+    if (hasNonHfDataset && store.portableResumeData !== "snapshot") {
+      useTrainingConfigStore.setState({ portableResumeData: "snapshot" });
+    }
+  }, [hasNonHfDataset, store.portableResumeData]);
+
   const trySetContextLength = (input: string): number | null => {
     const n = Number(input);
     if (Number.isInteger(n) && n > 0) {
@@ -269,7 +282,16 @@ export function ParamsSection(): ReactElement {
         accent="orange"
         className="min-h-studio-config-column"
       >
-        <div className="flex flex-col gap-4">
+        {disabled && (
+          <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+            Training parameters are restored from the selected checkpoint and cannot be changed while resuming. Switch to <span className="font-medium text-foreground">New training</span> to edit them.
+          </div>
+        )}
+        <div
+          className={`flex flex-col gap-4 transition-opacity ${disabled ? "pointer-events-none opacity-45" : ""}`}
+          aria-disabled={disabled}
+          inert={disabled ? true : undefined}
+        >
           <div className="flex flex-col gap-2">
             <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
               {t("studio.params.projectName")}
@@ -286,6 +308,57 @@ export function ParamsSection(): ReactElement {
             <p className="text-ui-10 text-muted-foreground">
               {t("studio.params.projectNameDescription")}
             </p>
+          </div>
+
+          <div className="flex flex-col gap-2 rounded-lg border border-border/50 bg-muted/15 p-3">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              Portable resume data
+              <InfoHint>
+                Controls which dataset information travels with a checkpoint. This helps a future Colab or Kaggle session reproduce the original training data.
+              </InfoHint>
+            </span>
+            <Select
+              value={store.portableResumeData}
+              disabled={hasNonHfDataset}
+              onValueChange={(value) =>
+                useTrainingConfigStore.setState({
+                  portableResumeData: value as "metadata" | "pinned" | "snapshot",
+                })
+              }
+            >
+              <SelectTrigger className="h-auto min-h-11 w-full rounded-xl px-3.5 py-2.5" aria-label="Portable resume data">
+                <SelectValue>
+                  {store.portableResumeData === "metadata" && "Metadata only"}
+                  {store.portableResumeData === "pinned" && "Pin Hub revisions"}
+                  {store.portableResumeData === "snapshot" && "Save a processed data snapshot"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent align="start" className="w-[var(--radix-select-trigger-width)] min-w-[280px] p-1.5">
+                <SelectItem className="items-start py-2.5" value="metadata">
+                  <span className="flex flex-col items-start gap-0.5"><span className="font-medium">Metadata only</span><span className="text-xs font-normal text-muted-foreground">Smallest · redownload data when resuming</span></span>
+                </SelectItem>
+                <SelectItem className="items-start py-2.5" value="pinned">
+                  <span className="flex flex-col items-start gap-0.5"><span className="font-medium">Pin Hub revisions</span><span className="text-xs font-normal text-muted-foreground">Small · reproduce the same Hub dataset version</span></span>
+                </SelectItem>
+                <SelectItem className="items-start py-2.5" value="snapshot">
+                  <span className="flex flex-col items-start gap-0.5"><span className="font-medium">Save a processed data snapshot</span><span className="text-xs font-normal text-muted-foreground">Largest · best for offline or ephemeral sessions</span></span>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-ui-10 leading-relaxed text-muted-foreground">
+              {hasNonHfDataset
+                ? "A full processed snapshot is required because at least one dataset is local, uploaded, or stored outside Hugging Face."
+                : store.portableResumeData === "metadata"
+                  ? "Saves configuration only. The dataset must still be available when you resume."
+                  : store.portableResumeData === "pinned"
+                    ? "Records exact Hugging Face revisions. Resume still needs network access and any required token."
+                    : "Copies the processed train and evaluation data into the run output. Uses the most storage."}
+            </p>
+            {store.portableResumeData === "snapshot" && store.datasetStreaming && (
+              <p className="rounded-md bg-amber-500/10 px-2.5 py-2 text-ui-10 leading-relaxed text-amber-700 dark:text-amber-300">
+                Streaming data needs a bounded row range before Studio can create an offline snapshot.
+              </p>
+            )}
           </div>
 
           {/* Max Steps / Epochs */}
@@ -796,6 +869,12 @@ export function ParamsSection(): ReactElement {
                     {t("studio.params.schedule")}
                   </TabsTrigger>
                   <TabsTrigger
+                    value="checkpoints"
+                    className="flex-1 text-xs cursor-pointer"
+                  >
+                    {t("studio.params.checkpoints")}
+                  </TabsTrigger>
+                  <TabsTrigger
                     value="memory"
                     className="flex-1 text-xs cursor-pointer"
                   >
@@ -994,31 +1073,6 @@ export function ParamsSection(): ReactElement {
                     />
                   )}
                   <Row
-                    label={t("studio.params.saveSteps")}
-                    tooltip={
-                      <>
-                        {t("studio.params.saveStepsTooltip")}{" "}
-                        <a
-                          href="https://unsloth.ai/docs/get-started/fine-tuning-llms-guide/lora-hyperparameters-guide"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary underline"
-                        >
-                          {t("studio.params.readMore")}
-                        </a>
-                      </>
-                    }
-                  >
-                    <Input
-                      type="number"
-                      value={store.saveSteps}
-                      onChange={(e) =>
-                        store.setSaveSteps(Number(e.target.value))
-                      }
-                      className="w-28 font-mono"
-                    />
-                  </Row>
-                  <Row
                     label={t("studio.params.evalSteps")}
                     tooltip={t("studio.params.evalStepsTooltip")}
                   >
@@ -1047,6 +1101,23 @@ export function ParamsSection(): ReactElement {
                       className="w-28 font-mono"
                     />
                   </Row>
+                </TabsContent>
+
+                <TabsContent value="checkpoints" className="mt-3 flex flex-col gap-3">
+                  <Row label={t("studio.params.saveSteps")} tooltip={t("studio.params.saveStepsTooltip")}>
+                    <Input type="number" min="0" value={store.saveSteps} onChange={(e) => store.setSaveSteps(Math.max(0, Number(e.target.value)))} className="w-28 font-mono" />
+                  </Row>
+                  <Row label={t("studio.params.saveTotalLimit")} tooltip={t("studio.params.saveTotalLimitTooltip")}>
+                    <Input type="number" min="0" value={store.saveTotalLimit} onChange={(e) => store.setSaveTotalLimit(Math.max(0, Number(e.target.value)))} className="w-28 font-mono" />
+                  </Row>
+                  <Row label={t("studio.params.enableAutoCheckpointUpload")} tooltip={t("studio.params.enableAutoCheckpointUploadTooltip")}>
+                    <Switch checked={store.enableAutoCheckpointUpload} disabled={store.saveSteps === 0} onCheckedChange={store.setEnableAutoCheckpointUpload} />
+                  </Row>
+                  {store.enableAutoCheckpointUpload && store.saveSteps > 0 && (
+                    <Row label={t("studio.params.checkpointRepoId")} tooltip={t("studio.params.checkpointRepoIdTooltip")}>
+                      <Input required value={store.checkpointRepoId} placeholder="owner/repository" onChange={(e) => store.setCheckpointRepoId(e.target.value)} className="w-48 font-mono" aria-invalid={!store.checkpointRepoId.trim()} />
+                    </Row>
+                  )}
                 </TabsContent>
 
                 <TabsContent

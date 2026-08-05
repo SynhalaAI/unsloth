@@ -64,7 +64,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable
 import pandas as pd
-from datasets import Dataset
+from datasets import Dataset, concatenate_datasets
 from utils.datasets.cache_safe import load_dataset_cache_safe as load_dataset
 
 from utils.models import is_vision_model, detect_audio_type
@@ -92,6 +92,7 @@ from .training import (
 )
 
 logger = get_logger(__name__)
+
 
 # A streaming eval dataset has no __len__, so a streaming evaluation would
 # iterate the entire (potentially unbounded) source on every eval step. Cap it
@@ -308,6 +309,145 @@ class UnslothTrainer:
 
         return _ProgressCallback()
 
+    def _create_checkpoint_upload_callback(self, push_to_hub: bool, repository_id: str | None):
+        """Upload each checkpoint under its own Hub folder and report safe state."""
+        from transformers import TrainerCallback
+        from huggingface_hub import HfApi
+
+        trainer_ref = self
+
+        def emit(**payload):
+            trainer_ref._update_progress(checkpoint_upload = payload)
+
+        def safe_upload_error(exc: Exception) -> str:
+            """Map Hub failures without putting tokens, URLs, or raw responses in events."""
+            name = type(exc).__name__.lower()
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status == 401 or "authentication" in name:
+                return "Hugging Face authentication failed. Check your token."
+            if status == 403 or "permission" in name or "gated" in name:
+                return "You do not have permission to upload to this repository."
+            if status == 404 or "repositorynotfound" in name or "validation" in name:
+                return "The Hugging Face repository is invalid or unavailable."
+            if status == 429 or "ratelimit" in name:
+                return "Hugging Face rate limit reached. Try again later."
+            if (
+                isinstance(exc, (ConnectionError, TimeoutError))
+                or "connection" in name
+                or "timeout" in name
+            ):
+                return "The upload could not connect to Hugging Face. Try again later."
+            return "The checkpoint upload failed."
+
+        class _CheckpointUploadCallback(TrainerCallback):
+            def on_save(self, args, state, control, **kwargs):
+                checkpoint = Path(args.output_dir) / f"checkpoint-{state.global_step}"
+                common = {
+                    "checkpoint": checkpoint.name,
+                    "repository_id": repository_id,
+                    "repository_url": (
+                        f"https://huggingface.co/{repository_id}" if repository_id else None
+                    ),
+                }
+                if not push_to_hub:
+                    # A disabled optional upload is not a checkpoint event. In
+                    # particular, Transformers may invoke ``on_save`` for the
+                    # checkpoint being resumed, which otherwise leaves a
+                    # misleading "Not uploaded" banner above the live charts.
+                    return
+                if not repository_id:
+                    emit(
+                        state = "error",
+                        message = "Checkpoint upload failed",
+                        error = "The Hugging Face repository is invalid or unavailable.",
+                        **common,
+                    )
+                    return
+                if not checkpoint.is_dir():
+                    emit(state = "skipped", message = "No checkpoint was produced", **common)
+                    return
+                files = [path for path in checkpoint.rglob("*") if path.is_file()]
+                total = sum(path.stat().st_size for path in files)
+                emit(
+                    state = "preparing",
+                    total_bytes = total,
+                    total_files = len(files),
+                    message = "Preparing checkpoint upload",
+                    **common,
+                )
+                emit(
+                    state = "uploading",
+                    uploaded_bytes = 0,
+                    total_bytes = total,
+                    uploaded_files = 0,
+                    total_files = len(files),
+                    percentage = 0,
+                    message = f"Uploading {checkpoint.name}",
+                    **common,
+                )
+                try:
+                    api = HfApi()
+                    api.create_repo(repo_id = repository_id, repo_type = "model", exist_ok = True)
+                    # path_in_repo is essential: without it upload_folder flattens
+                    # checkpoint contents into the repository root.
+                    api.upload_folder(
+                        repo_id = repository_id,
+                        repo_type = "model",
+                        folder_path = str(checkpoint),
+                        path_in_repo = checkpoint.name,
+                        commit_message = f"Upload {checkpoint.name}",
+                    )
+                except Exception as exc:
+                    safe_error = safe_upload_error(exc)
+                    logger.warning(
+                        "Checkpoint Hub upload failed",
+                        checkpoint = checkpoint.name,
+                        repository_id = repository_id,
+                        error_category = type(exc).__name__,
+                    )
+                    emit(
+                        state = "error",
+                        total_bytes = total,
+                        total_files = len(files),
+                        message = "Checkpoint upload failed",
+                        error = safe_error,
+                        **common,
+                    )
+                    return
+                emit(
+                    state = "completed",
+                    uploaded_bytes = total,
+                    total_bytes = total,
+                    uploaded_files = len(files),
+                    total_files = len(files),
+                    percentage = 100,
+                    message = f"{checkpoint.name} uploaded",
+                    **common,
+                )
+
+        return _CheckpointUploadCallback()
+
+    def _add_shared_callbacks(self, training_args):
+        """Install callbacks consistently for every Transformers trainer variant."""
+        from transformers import TrainerCallback
+        from core.training.manifest import write_checkpoint_manifests
+
+        class _ManifestCallback(TrainerCallback):
+            def on_save(self, args, state, control, **kwargs):
+                # Transformers calls on_save only after trainer_state and model
+                # files have landed. The durable manifest is therefore the final
+                # checkpoint-completion marker and precedes upload/progress events.
+                write_checkpoint_manifests(args.output_dir)
+
+        self.trainer.add_callback(self._create_progress_callback())
+        self.trainer.add_callback(_ManifestCallback())
+        self.trainer.add_callback(
+            self._create_checkpoint_upload_callback(
+                bool(training_args.get("push_to_hub", False)),
+                training_args.get("hub_model_id"),
+            )
+        )
+
     def _calculate_total_steps(self, num_samples, batch_size, grad_accum, num_epochs, max_steps):
         """Calculate total training steps from dataset size and training params."""
         if max_steps and max_steps > 0:
@@ -370,6 +510,11 @@ class UnslothTrainer:
         if save_steps_val and save_steps_val > 0:
             config["save_steps"] = save_steps_val
             config["save_strategy"] = "steps"
+        config["save_total_limit"] = training_args.get("save_total_limit") or None
+        # Studio owns uploads so checkpoints land at checkpoint-N/ rather than
+        # Transformers flattening their files into the repository root.
+        config["push_to_hub"] = False
+        config["hub_model_id"] = None
 
         # Apply per-branch overrides
         if extra_args:
@@ -1409,7 +1554,7 @@ class UnslothTrainer:
 
         result_dataset = Dataset.from_list(processed_examples)
         logger.info(
-            f"CSM preprocessing complete: {len(result_dataset)} examples " f"({skipped} skipped)\n"
+            f"CSM preprocessing complete: {len(result_dataset)} examples ({skipped} skipped)\n"
         )
         return result_dataset
 
@@ -1665,7 +1810,7 @@ class UnslothTrainer:
 
         result_dataset = Dataset.from_list(processed_examples)
         logger.info(
-            f"SNAC preprocessing complete: {len(result_dataset)} examples " f"({skipped} skipped)\n"
+            f"SNAC preprocessing complete: {len(result_dataset)} examples ({skipped} skipped)\n"
         )
         return result_dataset
 
@@ -1883,8 +2028,7 @@ class UnslothTrainer:
 
         result_dataset = Dataset.from_list(processed_examples)
         logger.info(
-            f"BiCodec preprocessing complete: {len(result_dataset)} examples "
-            f"({skipped} skipped)\n"
+            f"BiCodec preprocessing complete: {len(result_dataset)} examples ({skipped} skipped)\n"
         )
         # Debug: first example text (truncated)
         sample = result_dataset[0]["text"]
@@ -2094,7 +2238,7 @@ class UnslothTrainer:
 
         result_dataset = HFDataset.from_list(processed_examples)
         logger.info(
-            f"DAC preprocessing complete: {len(result_dataset)} examples " f"({skipped} skipped)\n"
+            f"DAC preprocessing complete: {len(result_dataset)} examples ({skipped} skipped)\n"
         )
         sample = result_dataset[0]["text"]
         logger.info(f"Sample text (first 200 chars): {sample[:200]}...\n")
@@ -2245,6 +2389,7 @@ class UnslothTrainer:
         dataset_source: Optional[str],
         format_type: str = "auto",
         local_datasets: Optional[List[str]] = None,
+        training_datasets: Optional[List[Dict[str, Any]]] = None,
         local_eval_datasets: Optional[List[str]] = None,
         custom_format_mapping: Optional[Dict[str, Any]] = None,
         subset: Optional[str] = None,
@@ -2256,6 +2401,8 @@ class UnslothTrainer:
         dataset_slice_end: Optional[int] = None,
         is_cpt: bool = False,
         s3_config: dict = None,
+        training_seed: int = 3407,
+        dataset_revision: Optional[str] = None,
     ) -> Optional[tuple]:
         """
         Load and prepare a dataset for training.
@@ -2320,7 +2467,48 @@ class UnslothTrainer:
                     return None
                 logger.info(f"Downloaded {len(local_datasets)} file(s) from S3\n")
 
-            if local_datasets:
+            if training_datasets:
+                if dataset_streaming and len(training_datasets) > 1:
+                    raise ValueError("Streaming multiple datasets is not supported")
+                loaded, labels = [], []
+                from core.training.dataset_progress import training_dataset_entries_with_progress
+
+                for entry in training_dataset_entries_with_progress(self, training_datasets):
+                    label = entry.get("hf_dataset") or entry.get("local_path")
+                    labels.append(label)
+                    try:
+                        if entry.get("hf_dataset"):
+                            kwargs = {
+                                "path": entry["hf_dataset"],
+                                "split": entry.get("split") or "train",
+                            }
+                            if entry.get("subset"):
+                                kwargs["name"] = entry["subset"]
+                            if entry.get("revision"):
+                                kwargs["revision"] = entry["revision"]
+                            loaded.append(load_dataset(**kwargs, streaming = dataset_streaming))
+                        else:
+                            files = self._resolve_local_files([entry["local_path"]])
+                            loaded.append(
+                                load_dataset(
+                                    self._loader_for_files(files), data_files = files, split = "train"
+                                )
+                            )
+                    except Exception as exc:
+                        raise ValueError(
+                            f"Failed to load training dataset '{label}': {exc}"
+                        ) from exc
+                try:
+                    dataset = (
+                        loaded[0]
+                        if len(loaded) == 1
+                        else concatenate_datasets(loaded).shuffle(seed = training_seed)
+                    )
+                except Exception as exc:
+                    raise ValueError(
+                        f"Training dataset schemas cannot be reconciled for {labels}: {exc}"
+                    ) from exc
+            elif local_datasets:
                 # Use load_dataset() for an Arrow-backed result; in-memory
                 # Dataset.from_list() has no cache and forces num_proc=1 during
                 # tokenization/map (sharding needs Arrow files).
@@ -2360,6 +2548,8 @@ class UnslothTrainer:
                 load_kwargs = {"path": dataset_source, "split": split_name}
                 if subset:
                     load_kwargs["name"] = subset
+                if dataset_revision:
+                    load_kwargs["revision"] = dataset_revision
 
                 if dataset_streaming:
                     self._update_progress(status_message = f"Streaming dataset: {dataset_source}...")
@@ -2453,6 +2643,8 @@ class UnslothTrainer:
                         eval_load_kwargs = {"path": dataset_source, "split": eval_split}
                         if subset:
                             eval_load_kwargs["name"] = subset
+                        if dataset_revision:
+                            eval_load_kwargs["revision"] = dataset_revision
 
                         if dataset_streaming:
                             # Probe available splits before the streaming load.
@@ -2464,6 +2656,8 @@ class UnslothTrainer:
                             probe_kwargs = {"path": dataset_source}
                             if subset:
                                 probe_kwargs["config_name"] = subset
+                            if dataset_revision:
+                                probe_kwargs["revision"] = dataset_revision
                             try:
                                 available_splits = get_dataset_split_names(**probe_kwargs)
                             except Exception as probe_err:
@@ -2520,6 +2714,7 @@ class UnslothTrainer:
                         eval_dataset = self._auto_detect_eval_split_from_hf(
                             dataset_source = dataset_source,
                             subset = subset,
+                            dataset_revision = dataset_revision,
                         )
                         if eval_dataset is not None:
                             has_separate_eval_source = True
@@ -2710,7 +2905,7 @@ class UnslothTrainer:
                 s3_download.cleanup()
 
     def _auto_detect_eval_split_from_hf(
-        self, dataset_source: str, subset: str
+        self, dataset_source: str, subset: str, dataset_revision: Optional[str] = None
     ) -> Optional[Dataset]:
         """Auto-detect an eval split from an HF dataset (named split only)."""
         try:
@@ -2719,6 +2914,8 @@ class UnslothTrainer:
             load_kwargs = {"path": dataset_source}
             if subset:
                 load_kwargs["config_name"] = subset
+            if dataset_revision:
+                load_kwargs["revision"] = dataset_revision
             available_splits = get_dataset_split_names(**load_kwargs)
             logger.info(f"Available splits: {available_splits}\n")
 
@@ -2728,6 +2925,8 @@ class UnslothTrainer:
                     eval_load_kwargs = {"path": dataset_source, "split": candidate}
                     if subset:
                         eval_load_kwargs["name"] = subset
+                    if dataset_revision:
+                        eval_load_kwargs["revision"] = dataset_revision
                     candidate_ds = load_dataset(**eval_load_kwargs)
                     if len(candidate_ds) >= 16:
                         logger.info(
@@ -2990,7 +3189,7 @@ class UnslothTrainer:
                     train_dataset = dataset,
                     args = TrainingArguments(**config),
                 )
-                self.trainer.add_callback(self._create_progress_callback())
+                self._add_shared_callbacks(training_args)
 
                 batch_size = training_args.get("batch_size", 2)
                 total = self._calculate_total_steps(
@@ -3029,7 +3228,7 @@ class UnslothTrainer:
                         pad_to_multiple_of = 8,
                     ),
                 )
-                self.trainer.add_callback(self._create_progress_callback())
+                self._add_shared_callbacks(training_args)
 
                 batch_size = training_args.get("batch_size", 2)
                 total = self._calculate_total_steps(
@@ -3073,7 +3272,7 @@ class UnslothTrainer:
                     trainer_kwargs["eval_dataset"] = eval_dataset
 
                 self.trainer = Seq2SeqTrainer(**trainer_kwargs)
-                self.trainer.add_callback(self._create_progress_callback())
+                self._add_shared_callbacks(training_args)
 
                 batch_size = training_args.get("batch_size", 2)
                 total = self._calculate_total_steps(
@@ -3287,6 +3486,11 @@ class UnslothTrainer:
             if save_steps_val and save_steps_val > 0:
                 config_args["save_steps"] = save_steps_val
                 config_args["save_strategy"] = "steps"
+            config_args["save_total_limit"] = training_args.get("save_total_limit") or None
+            # The shared callback uploads the complete checkpoint directory to
+            # checkpoint-N/; disable Transformers' root-level model push.
+            config_args["push_to_hub"] = False
+            config_args["hub_model_id"] = None
 
             # If max_steps is specified, use it instead of epochs
             max_steps_val = training_args.get("max_steps", 0)
@@ -3602,7 +3806,7 @@ class UnslothTrainer:
                     logger.info("Training on full sequences (including prompts)\n")
 
             # ========== PROGRESS TRACKING ==========
-            self.trainer.add_callback(self._create_progress_callback())
+            self._add_shared_callbacks(training_args)
 
             train_dataset_obj = dataset["dataset"] if isinstance(dataset, dict) else dataset
             is_streaming_dataset = detect_streaming_dataset(train_dataset_obj)

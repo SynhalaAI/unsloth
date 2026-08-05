@@ -12,6 +12,8 @@ import { getTrainingRun } from "../api/history-api";
 import { buildTrainingStartPayload } from "../api/mappers";
 import { resetTraining, startTraining, stopTraining } from "../api/train-api";
 import { isRawTextDatasetFormat } from "../lib/training-methods";
+import { getTrainingDatasetRepositoryIds } from "../lib/dataset-start-progress";
+import { withImportedResumeCheckpoint } from "../lib/resume-start-payload";
 import { syncTrainingRuntimeFromBackend } from "../lib/sync-runtime";
 import { validateTrainingConfig } from "../lib/validation";
 import { useDatasetPreviewDialogStore } from "../stores/dataset-preview-dialog-store";
@@ -39,18 +41,23 @@ function normalizeTrainingStartError(message: string): string {
   return message;
 }
 
+/** Return only Hub repository IDs, preserving request order and legacy payloads. */
 export function useTrainingActions() {
   const isStarting = useTrainingRuntimeStore((state) => state.isStarting);
   const startError = useTrainingRuntimeStore((state) => state.startError);
 
-  const startTrainingRun = useCallback(async (): Promise<boolean> => {
+  const startTrainingRun = useCallback(async (options?: {
+    resumeCheckpointPath?: string | null;
+    resumeConfig?: Partial<TrainingStartRequest> | null;
+  }): Promise<boolean> => {
     let config = useTrainingConfigStore.getState();
     const runtimeStore = useTrainingRuntimeStore.getState();
     const dialogStore = useDatasetPreviewDialogStore.getState();
 
     runtimeStore.setStartError(null);
+    const isResume = Boolean(options?.resumeCheckpointPath);
     const validation = validateTrainingConfig(config);
-    if (!validation.ok) {
+    if (!isResume && !validation.ok) {
       runtimeStore.setStartError(validation.message);
       return false;
     }
@@ -66,7 +73,7 @@ export function useTrainingActions() {
 
     runtimeStore.setStartResources(
       config.selectedModel ?? null,
-      getHfDatasetName(config),
+      getHfDatasetName(config) ? [getHfDatasetName(config)!] : [],
       false,
       config.projectName || "",
     );
@@ -76,7 +83,7 @@ export function useTrainingActions() {
       const datasetName = getDatasetName(config);
       let isVlm = config.isVisionModel && config.isDatasetImage === true;
 
-      if (datasetName) {
+      if (!isResume && datasetName) {
         const check = await checkDatasetFormat({
           datasetName,
           hfToken: config.hfToken.trim() || null,
@@ -141,30 +148,60 @@ export function useTrainingActions() {
         return false;
       }
 
-      // Consent gate for the selected model's custom (auto_map) code.
-      if (config.selectedModel) {
+      // Re-read config after potential store updates from dataset check
+      const freshPayload = buildTrainingStartPayload(useTrainingConfigStore.getState());
+      let payload: TrainingStartRequest = {
+        ...freshPayload,
+        ...options?.resumeConfig,
+        // Credentials are never restored from a portable manifest.
+        hf_token: freshPayload.hf_token,
+        wandb_token: null,
+      };
+      if (options?.resumeCheckpointPath) {
+        // A portable manifest describes the original run and older manifests
+        // may contain a resume source of their own. The API deliberately
+        // accepts exactly one source, so make the checkpoint just inspected by
+        // the user authoritative instead of intermittently submitting two.
+        payload = withImportedResumeCheckpoint(
+          payload,
+          options.resumeCheckpointPath,
+        );
+      }
+
+      // Use the finalized payload rather than the editable form. On checkpoint
+      // resume the saved model and trust settings come from resumeConfig and can
+      // differ from (or be absent in) the current form.
+      if (payload.model_name) {
+        let trustRemoteCode = Boolean(payload.trust_remote_code);
+        let approvedRemoteCodeFingerprint =
+          payload.approved_remote_code_fingerprint ?? null;
         const remoteCodeOk = await confirmRemoteCodeIfNeeded({
-          modelName: config.selectedModel,
-          hfToken: config.hfToken.trim() || null,
-          requiresTrustRemoteCode: config.trustRemoteCode,
-          onApprove: (fingerprint) =>
-            useTrainingConfigStore.setState({
-              trustRemoteCode: true,
-              approvedRemoteCodeFingerprint: fingerprint,
-            }),
+          modelName: payload.model_name,
+          hfToken: payload.hf_token ?? null,
+          requiresTrustRemoteCode: trustRemoteCode,
+          onApprove: (fingerprint) => {
+            trustRemoteCode = true;
+            approvedRemoteCodeFingerprint = fingerprint;
+            if (!isResume) {
+              useTrainingConfigStore.setState({
+                trustRemoteCode: true,
+                approvedRemoteCodeFingerprint: fingerprint,
+              });
+            }
+          },
         });
         if (!remoteCodeOk) {
           runtimeStore.setStarting(false);
           return false;
         }
+        payload.trust_remote_code = trustRemoteCode;
+        payload.approved_remote_code_fingerprint = approvedRemoteCodeFingerprint;
       }
 
-      // Re-read config after potential store updates from dataset check
-      const payload = buildTrainingStartPayload(useTrainingConfigStore.getState());
       runtimeStore.setStartResources(
         payload.model_name,
-        payload.hf_dataset,
-        false,
+        getTrainingDatasetRepositoryIds(payload),
+        Boolean(options?.resumeCheckpointPath),
         payload.project_name ?? "",
       );
       const response = await startTraining(payload);
@@ -214,7 +251,7 @@ export function useTrainingActions() {
   const resumeTrainingRunFromHistory = useCallback(async (runId: string): Promise<boolean> => {
     const runtimeStore = useTrainingRuntimeStore.getState();
     runtimeStore.setStartError(null);
-    runtimeStore.setStartResources(null, null, true, null);
+    runtimeStore.setStartResources(null, [], true, null);
     runtimeStore.setStarting(true);
 
     try {
@@ -236,6 +273,7 @@ export function useTrainingActions() {
             : config.hfToken.trim() || null,
         wandb_token: null,
         resume_from_checkpoint: outputDir,
+        in_place_continuation: true,
       } as TrainingStartRequest;
 
       const preparedToken = await prepareHfTokenForUse(payload.hf_token);
@@ -247,7 +285,7 @@ export function useTrainingActions() {
 
       runtimeStore.setStartResources(
         payload.model_name,
-        payload.hf_dataset,
+        getTrainingDatasetRepositoryIds(payload),
         true,
         payload.project_name ?? "",
       );

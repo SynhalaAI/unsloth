@@ -35,6 +35,7 @@ import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState, type ReactElement } from "react";
 import { useT } from "@/i18n";
+import { resolveActiveDataset } from "@/features/training/lib/dataset-start-progress";
 
 const HF_REPO_REGEX = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
@@ -258,7 +259,12 @@ export function TrainingStartOverlay({
   const phase = useTrainingRuntimeStore((s) => s.phase);
   const jobId = useTrainingRuntimeStore((s) => s.jobId);
   const startModelName = useTrainingRuntimeStore((s) => s.startModelName);
-  const startDatasetName = useTrainingRuntimeStore((s) => s.startDatasetName);
+  const startDatasetNames = useTrainingRuntimeStore((s) => s.startDatasetNames);
+  const currentDatasetIndex = useTrainingRuntimeStore((s) => s.currentDatasetIndex);
+  const currentDatasetTotal = useTrainingRuntimeStore((s) => s.currentDatasetTotal);
+  const currentDatasetRepositoryId = useTrainingRuntimeStore(
+    (s) => s.currentDatasetRepositoryId,
+  );
   const startFromResume = useTrainingRuntimeStore((s) => s.startFromResume);
   const configuredModel = useTrainingConfigStore((s) => s.selectedModel);
   const datasetSource = useTrainingConfigStore((s) => s.datasetSource);
@@ -279,15 +285,23 @@ export function TrainingStartOverlay({
     : useConfiguredResources
       ? configuredModel
       : null;
-  const datasetName = hasStartResources
-    ? startDatasetName
+  const datasetNames = hasStartResources
+    ? startDatasetNames
     : useConfiguredResources
-      ? hfDatasetName
-      : null;
-  const displayMessage =
-    startFromResume && !isDownloadPhase && /^download/i.test(message)
-      ? t("studio.trainingStart.resumingTraining")
-      : message || t("studio.trainingStart.startingTraining");
+      ? hfDatasetName ? [hfDatasetName] : []
+      : [];
+  // Backend progress is authoritative: a cached first repository can complete
+  // without ever producing a useful 100% cache-poll transition.
+  const activeDataset = resolveActiveDataset(
+    datasetNames,
+    currentDatasetIndex,
+    currentDatasetTotal,
+    currentDatasetRepositoryId,
+  );
+  const datasetIndex = activeDataset.index;
+  const datasetTotal = activeDataset.total;
+  const datasetName = activeDataset.repositoryId;
+  const displayMessage = message || t("studio.trainingStart.startingTraining");
   const rawModelDownload = useModelDownloadProgress(modelName);
   const rawDatasetDownload = useDatasetDownloadProgress(datasetName);
   const modelDownload = isDownloadPhase
@@ -367,7 +381,9 @@ export function TrainingStartOverlay({
             duration={36}
             className="bg-gradient-to-r from-emerald-300 via-lime-300 to-teal-300 bg-clip-text font-semibold text-transparent"
           >
-            {t("studio.trainingStart.terminalStart")}
+            {startFromResume
+              ? `> ${t("studio.trainingStart.resumingTraining")}`
+              : t("studio.trainingStart.terminalStart")}
           </TypingAnimation>
           <AnimatedSpan className="my-2">
             <pre className="whitespace-pre text-muted-foreground inline-block">{`==((====))==\n   \\\\   /|\nO^O/ \\_/ \\\n\\        /\n "-____-"`}</pre>
@@ -378,11 +394,21 @@ export function TrainingStartOverlay({
           <TypingAnimation duration={44}>
             {t("studio.trainingStart.gettingReady")}
           </TypingAnimation>
-          <AnimatedSpan className="mt-2 text-muted-foreground">
-            {t("studio.trainingStart.waitingForFirstStep", {
-              message: displayMessage,
-              step: currentStep,
-            })}
+          <AnimatedSpan
+            className={
+              startFromResume
+                ? "mt-2 text-emerald-300"
+                : "mt-2 text-muted-foreground"
+            }
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {startFromResume
+              ? `> ${message.trim() || t("studio.trainingStart.resumingTraining")}`
+              : t("studio.trainingStart.waitingForFirstStep", {
+                  message: displayMessage,
+                  step: currentStep,
+                })}
           </AnimatedSpan>
           {datasetStreaming ? (
             <AnimatedSpan className="mt-3 text-muted-foreground">
@@ -391,7 +417,14 @@ export function TrainingStartOverlay({
           ) : datasetDownload.downloadedBytes > 0 || datasetDownload.cachePath ? (
             <AnimatedSpan className="mt-3">
               <DownloadRow
-                label={t("studio.trainingStart.dataset")}
+                label={
+                  datasetTotal > 1
+                    ? t("studio.trainingStart.datasetProgress", {
+                        current: datasetIndex,
+                        total: datasetTotal,
+                      })
+                    : t("studio.trainingStart.dataset")
+                }
                 state={datasetDownload}
               />
             </AnimatedSpan>

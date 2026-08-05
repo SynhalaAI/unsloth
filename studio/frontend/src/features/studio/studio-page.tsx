@@ -47,9 +47,11 @@ export function StudioPage(): ReactElement {
   const dialogOpen = useDatasetPreviewDialogStore((s) => s.open);
   const dialogMode = useDatasetPreviewDialogStore((s) => s.mode);
   const dialogInitial = useDatasetPreviewDialogStore((s) => s.initialData);
+  const previewTarget = useDatasetPreviewDialogStore((s) => s.previewTarget);
   const closeDialog = useDatasetPreviewDialogStore((s) => s.close);
 
   const [requestedTab, setRequestedTab] = useState("configure");
+  const [isCheckpointResumeSelected, setIsCheckpointResumeSelected] = useState(false);
   const selectedHistoryRunId = useTrainingRuntimeStore((s) => s.selectedHistoryRunId);
   const setSelectedHistoryRunId = useTrainingRuntimeStore((s) => s.setSelectedHistoryRunId);
 
@@ -126,6 +128,12 @@ export function StudioPage(): ReactElement {
   }, [selectedModel, ensureModelDefaultsLoaded, ensureDatasetChecked]);
 
   function handleTabChange(value: string) {
+    // The configure panel is unmounted while another tab is active, so its
+    // checkpoint picker returns to "New training" when the user comes back.
+    // Keep the lifted disabled-state in sync with that reset; otherwise the
+    // dataset and parameter panels remain inert until "New training" is
+    // clicked a second time.
+    setIsCheckpointResumeSelected(false);
     setRequestedTab(value);
     if (value !== "history") {
       setSelectedHistoryRunId(null);
@@ -152,13 +160,14 @@ export function StudioPage(): ReactElement {
           onOpenChange={(open) => {
             if (!open) closeDialog();
           }}
-          datasetSource={config.datasetSource}
+          datasetSource={previewTarget?.source ?? config.datasetSource}
           datasetName={
-            config.datasetSource === "huggingface" ? config.dataset : config.uploadedFile
+            previewTarget?.path ??
+            (config.datasetSource === "huggingface" ? config.dataset : config.uploadedFile)
           }
           hfToken={config.hfToken.trim() || null}
-          datasetSubset={config.datasetSubset}
-          datasetSplit={config.datasetSplit}
+          datasetSubset={previewTarget ? previewTarget.subset : config.datasetSubset}
+          datasetSplit={previewTarget ? previewTarget.split : config.datasetSplit}
           mode={dialogMode}
           initialData={dialogInitial}
           isVlm={config.isVisionModel && config.isDatasetImage === true}
@@ -204,9 +213,9 @@ export function StudioPage(): ReactElement {
               <div className="flex min-w-0 flex-col gap-4 md:gap-6">
                 <ModelSection />
                 <div className="grid min-w-0 grid-cols-1 items-start gap-4 md:grid-cols-2 md:gap-6 xl:grid-cols-3 xl:gap-6">
-                  <DatasetSection />
-                  <ParamsSection />
-                  <TrainingSection />
+                  <DatasetSection disabled={isCheckpointResumeSelected} />
+                  <ParamsSection disabled={isCheckpointResumeSelected} />
+                  <TrainingSection onResumeSelectedChange={setIsCheckpointResumeSelected} />
                 </div>
               </div>
             </TabsContent>

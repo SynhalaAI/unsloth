@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
-import type { TrainingConfigState } from "../types/config";
+import type {
+  TrainingConfigState,
+  TrainingDatasetSelection,
+} from "../types/config";
 import type { TrainingStartRequest } from "../types/api";
 import {
   isRawTextDatasetFormat,
@@ -53,6 +56,17 @@ export function buildTrainingStartPayload(
       ? [config.uploadedFile]
       : [];
   const s3Config = buildS3PayloadConfig(config);
+  const legacyDatasets: TrainingDatasetSelection[] = hfDataset
+    ? [{
+        source: "huggingface",
+        path: hfDataset,
+        subset: config.datasetSubset,
+        split: config.datasetSplit,
+      }]
+    : localDatasets.map((path) => ({ source: "upload", path }));
+  const structuredDatasets = config.trainingDatasets.length > 0
+    ? config.trainingDatasets
+    : legacyDatasets;
   let customFormatMapping: Record<string, unknown> | undefined =
     Object.keys(config.datasetManualMapping).length > 0
       ? { ...config.datasetManualMapping }
@@ -72,6 +86,15 @@ export function buildTrainingStartPayload(
   }
 
   return {
+    training_datasets: structuredDatasets.map((entry) => ({
+      hf_dataset: entry.source === "huggingface" ? entry.path : null,
+      local_path: entry.source === "upload" ? entry.path : null,
+      subset: entry.subset ?? null,
+      split: entry.split ?? "train",
+      format_type: entry.format ?? config.datasetFormat,
+      column_mapping: entry.columnMapping ?? null,
+      sampling_weight: entry.samplingWeight ?? null,
+    })),
     model_name: config.selectedModel ?? "",
     project_name: (config.projectName || "").trim() || null,
     training_type: toBackendTrainingType(config.trainingMethod),
@@ -89,6 +112,7 @@ export function buildTrainingStartPayload(
     train_split: hfDataset ? config.datasetSplit : null,
     eval_split: hfDataset ? config.datasetEvalSplit : null,
     dataset_streaming: hfDataset ? config.datasetStreaming : false,
+    portable_resume_data: config.portableResumeData,
     dataset_slice_start: parseSliceValue(config.datasetSliceStart),
     dataset_slice_end: parseSliceValue(config.datasetSliceEnd),
     local_datasets: localDatasets,
@@ -111,6 +135,12 @@ export function buildTrainingStartPayload(
     warmup_ratio: isEmbedding ? 0.03 : null,
     max_steps: config.maxSteps,
     save_steps: config.saveSteps,
+    save_total_limit: config.saveTotalLimit > 0 ? config.saveTotalLimit : null,
+    push_to_hub: config.saveSteps > 0 && config.enableAutoCheckpointUpload,
+    hub_model_id:
+      config.saveSteps > 0 && config.enableAutoCheckpointUpload
+        ? config.checkpointRepoId.trim() || null
+        : null,
     eval_steps: config.evalSteps,
     weight_decay: config.weightDecay,
     max_grad_norm: 0.0,
