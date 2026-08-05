@@ -214,11 +214,6 @@ export function ResourcesTab() {
     useState<CheckpointLocationSettings | null>(null);
   const [checkpointBrowserOpen, setCheckpointBrowserOpen] = useState(false);
   const [checkpointSaving, setCheckpointSaving] = useState(false);
-  const [checkpointLocation, setCheckpointLocation] =
-    useState<CheckpointLocationSettings | null>(null);
-  const [checkpointBrowserOpen, setCheckpointBrowserOpen] = useState(false);
-  const [checkpointSaving, setCheckpointSaving] = useState(false);
->>>>>>> origin/main
 
   useEffect(() => {
     let cancelled = false;
@@ -554,7 +549,7 @@ export function ResourcesTab() {
                         : `${t("settings.resources.gpu.deviceWithIndex", {
                             index: ordinal,
                           })}, ${backendLabel}`}
-                    </span>
+                    </div>
                     {/* Same accent pill as the New tags, which stays legible
                         on the light background. */}
                     <span className="shrink-0 rounded-full bg-control-accent/10 px-2 py-1 text-ui-10 leading-none font-semibold tabular-nums text-control-accent">
