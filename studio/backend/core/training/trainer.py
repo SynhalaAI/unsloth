@@ -2949,6 +2949,12 @@ class UnslothTrainer:
 
         Returns (train_dataset, eval_dataset), or None if too small.
         """
+        from datasets import Dataset
+        
+        # Convert list to Dataset if needed (e.g., for vision datasets)
+        if isinstance(dataset, list):
+            dataset = Dataset.from_list(dataset)
+        
         MIN_EVAL_ROWS = 16
         MIN_TOTAL_ROWS = 32  # Need at least 16 train + 16 eval
 
