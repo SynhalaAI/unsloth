@@ -15,6 +15,23 @@ export type TrainingPhase =
   | "error"
   | "stopped";
 
+export type CheckpointUploadState =
+  | "idle" | "preparing" | "uploading" | "completed" | "skipped" | "error";
+
+export interface CheckpointUploadProgress {
+  state: CheckpointUploadState;
+  checkpoint?: string | null;
+  repository_id?: string | null;
+  repository_url?: string | null;
+  uploaded_bytes?: number | null;
+  total_bytes?: number | null;
+  uploaded_files?: number | null;
+  total_files?: number | null;
+  percentage?: number | null;
+  message: string;
+  error?: string | null;
+}
+
 export interface TrainingStatusResponse {
   job_id: string;
   phase: TrainingPhase;
@@ -30,6 +47,7 @@ export interface TrainingStatusResponse {
     learning_rate?: number;
     // null = explicit clear (run stopped without saving); absent = unchanged.
     output_dir?: string | null;
+    checkpoint_upload?: CheckpointUploadProgress;
   } | null;
   metric_history?: {
     steps?: number[];
@@ -66,6 +84,9 @@ export interface TrainingProgressPayload {
   grad_norm: number | null;
   num_tokens: number | null;
   eval_loss: number | null;
+  current_dataset_index?: number | null;
+  current_dataset_total?: number | null;
+  current_dataset_repository_id?: string | null;
 }
 
 export interface TrainingSeriesPoint {
@@ -85,7 +106,11 @@ export interface TrainingRuntimeState {
   isStarting: boolean;
   startError: string | null;
   startModelName: string | null;
-  startDatasetName: string | null;
+  /** Immutable HF repository-id snapshot captured from the request for this run. */
+  startDatasetNames: string[];
+  currentDatasetIndex: number | null;
+  currentDatasetTotal: number | null;
+  currentDatasetRepositoryId: string | null;
   startProjectName: string | null;
   startFromResume: boolean;
   sseConnected: boolean;
@@ -103,6 +128,7 @@ export interface TrainingRuntimeState {
   currentGradNorm: number | null;
   currentNumTokens: number | null;
   outputDir: string | null;
+  checkpointUpload: CheckpointUploadProgress;
   lossHistory: TrainingSeriesPoint[];
   lrHistory: TrainingSeriesPoint[];
   gradNormHistory: TrainingSeriesPoint[];
@@ -123,7 +149,7 @@ export interface TrainingRuntimeActions {
   setStartError: (value: string | null) => void;
   setStartResources: (
     modelName: string | null,
-    datasetName: string | null,
+    datasetNames: string[],
     fromResume?: boolean,
     projectName?: string | null,
   ) => void;
@@ -133,6 +159,7 @@ export interface TrainingRuntimeActions {
   applyStatus: (payload: TrainingStatusResponse) => void;
   applyMetrics: (payload: TrainingMetricsResponse) => void;
   applyProgress: (payload: TrainingProgressPayload, eventId?: number) => void;
+  applyCheckpointUpload: (payload: CheckpointUploadProgress) => void;
   setStartQueued: (jobId: string, message: string) => void;
   setRuntimeError: (message: string) => void;
   setSelectedHistoryRunId: (id: string | null) => void;

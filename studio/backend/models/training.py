@@ -86,10 +86,39 @@ def _parse_lr(v: Any) -> float:
         raise ValueError(f"learning_rate must be > 0 (got {lr!r}); typical range is 1e-6 .. 1e-3")
     if lr >= _MAX_LR_VALUE:
         raise ValueError(
-            f"learning_rate must be < 1.0 (got {lr!r}); "
-            "values that large always diverge training"
+            f"learning_rate must be < 1.0 (got {lr!r}); values that large always diverge training"
         )
     return lr
+
+
+class TrainingDatasetSelection(BaseModel):
+    """One independently configured training source."""
+
+    hf_dataset: Optional[str] = None
+    local_path: Optional[str] = None
+    subset: Optional[str] = None
+    split: str = "train"
+    format_type: Optional[str] = None
+    column_mapping: Optional[Dict[str, Any]] = None
+    sampling_weight: Optional[float] = Field(None, gt = 0)
+
+    @model_validator(mode = "after")
+    def _source(self):
+        if sum(bool(x and x.strip()) for x in (self.hf_dataset, self.local_path)) != 1:
+            raise ValueError(
+                "each training dataset must identify exactly one of hf_dataset or local_path"
+            )
+        if not self.split.strip():
+            raise ValueError("each training dataset requires a split")
+        if self.local_path and self.subset:
+            raise ValueError("subset is only supported for Hugging Face datasets")
+        return self
+
+
+class ResumeImportRequest(BaseModel):
+    """An explicitly selected checkpoint directory (not a history run)."""
+
+    directory: str = Field(..., min_length = 1, max_length = 4096)
 
 
 class TrainingStartRequest(BaseModel):
@@ -125,6 +154,7 @@ class TrainingStartRequest(BaseModel):
     )
 
     # Dataset parameters
+    training_datasets: List[TrainingDatasetSelection] = Field(default_factory = list)
     hf_dataset: Optional[str] = Field(None, description = "HuggingFace dataset identifier")
     local_datasets: List[str] = Field(
         default_factory = list, description = "List of local dataset paths"
@@ -139,6 +169,10 @@ class TrainingStartRequest(BaseModel):
     dataset_streaming: bool = Field(
         False,
         description = "Whether to load the Hugging Face dataset in streaming mode",
+    )
+    portable_resume_data: Literal["metadata", "pinned", "snapshot"] = Field(
+        "metadata",
+        description = "Dataset storage for resume: metadata, immutable Hub pins, or processed snapshot.",
     )
     eval_steps: float = Field(0.00, description = "Fraction of total steps between evals (0-1)")
     dataset_slice_start: Optional[int] = Field(
@@ -160,6 +194,28 @@ class TrainingStartRequest(BaseModel):
         """Accept legacy 'split' field as alias for 'train_split'."""
         if isinstance(values, dict) and "split" in values:
             values.setdefault("train_split", values.pop("split"))
+        if isinstance(values, dict) and not values.get("training_datasets"):
+            entries = []
+            if values.get("hf_dataset"):
+                entries.append(
+                    {
+                        "hf_dataset": values["hf_dataset"],
+                        "subset": values.get("subset"),
+                        "split": values.get("train_split") or "train",
+                        "format_type": values.get("format_type"),
+                        "column_mapping": values.get("custom_format_mapping"),
+                    }
+                )
+            entries.extend(
+                {
+                    "local_path": path,
+                    "split": "train",
+                    "format_type": values.get("format_type"),
+                    "column_mapping": values.get("custom_format_mapping"),
+                }
+                for path in values.get("local_datasets") or []
+            )
+            values["training_datasets"] = entries
         return values
 
     @field_validator("project_name")
@@ -254,7 +310,7 @@ class TrainingStartRequest(BaseModel):
             return 1
         if v < 1 or v > _MAX_GRAD_ACCUM:
             raise ValueError(
-                f"gradient_accumulation_steps must be in [1, {_MAX_GRAD_ACCUM}] " f"(got {v!r})"
+                f"gradient_accumulation_steps must be in [1, {_MAX_GRAD_ACCUM}] (got {v!r})"
             )
         return v
 
@@ -324,9 +380,7 @@ class TrainingStartRequest(BaseModel):
         if v is None:
             return v
         if not isinstance(v, int) or v < 0 or v > _MAX_STEPS:
-            raise ValueError(
-                f"warmup_steps must be a non-negative int <= {_MAX_STEPS} " f"(got {v!r})"
-            )
+            raise ValueError(f"warmup_steps must be a non-negative int <= {_MAX_STEPS} (got {v!r})")
         return v
 
     @field_validator("warmup_ratio")
@@ -413,6 +467,14 @@ class TrainingStartRequest(BaseModel):
     warmup_ratio: Optional[float] = Field(None, description = "Warmup ratio")
     max_steps: Optional[int] = Field(None, description = "Maximum training steps")
     save_steps: int = Field(100, description = "Steps between checkpoints")
+    save_total_limit: Optional[int] = Field(
+        None,
+        ge = 0,
+        le = _MAX_STEPS,
+        description = "Maximum retained checkpoints; 0 or null means unlimited",
+    )
+    push_to_hub: bool = Field(False, description = "Upload checkpoints to the Hub")
+    hub_model_id: Optional[str] = Field(None, description = "Hub repository ID (owner/name)")
     weight_decay: float = Field(0.001, description = "Weight decay")
     max_grad_norm: float = Field(
         0.0,
@@ -493,6 +555,39 @@ class TrainingStartRequest(BaseModel):
     resume_from_checkpoint: Optional[str] = Field(
         None, description = "Saved training output directory to resume from"
     )
+    resume_checkpoint_path: Optional[str] = Field(
+        None, description = "Read-only source checkpoint used for continuation"
+    )
+    output_dir: Optional[str] = Field(
+        None, description = "Writable destination for the continued run"
+    )
+    in_place_continuation: bool = Field(
+        False, description = "Explicitly allow a supported history run to continue in place"
+    )
+    copy_checkpoint_to_local: bool = Field(
+        False, description = "Stage the resume checkpoint on local working storage"
+    )
+    imported_resume_checkpoint: Optional[str] = Field(
+        None,
+        description = "Checkpoint directory explicitly inspected with /resume/import/inspect",
+    )
+    confirm_import_differences: bool = Field(
+        False,
+        description = "Explicitly accept safe noncritical manifest differences on external import",
+    )
+
+    @model_validator(mode = "after")
+    def _distinct_resume_flows(self) -> "TrainingStartRequest":
+        selected = [
+            self.resume_from_checkpoint,
+            self.resume_checkpoint_path,
+            self.imported_resume_checkpoint,
+        ]
+        if sum(bool(value) for value in selected) > 1:
+            raise ValueError(
+                "Choose only one resume checkpoint source"
+            )
+        return self
 
     # GPU selection
     gpu_ids: Optional[List[int]] = Field(
@@ -540,10 +635,41 @@ class TrainingStartRequest(BaseModel):
         return self
 
     @model_validator(mode = "after")
+    def _require_snapshot_for_non_hf_datasets(self) -> "TrainingStartRequest":
+        """Ephemeral/non-Hub inputs need their processed data bundled for resume."""
+        has_non_hf_dataset = bool(
+            self.local_datasets
+            or self.local_eval_datasets
+            or self.s3_config
+            or any(dataset.local_path for dataset in self.training_datasets)
+        )
+        if has_non_hf_dataset:
+            self.portable_resume_data = "snapshot"
+        return self
+
+    @model_validator(mode = "after")
     def _check_steps_or_epochs(self) -> "TrainingStartRequest":
         # Each accepts 0 as "use the other"; both 0 means nothing to train.
         if (self.max_steps is None or self.max_steps == 0) and self.num_epochs == 0:
             raise ValueError("Either num_epochs or max_steps must be > 0; both cannot be 0.")
+        return self
+
+    @model_validator(mode = "after")
+    def _validate_checkpoint_upload(self) -> "TrainingStartRequest":
+        # Transformers cannot push checkpoints when no checkpoints are saved.
+        if self.save_steps == 0:
+            self.push_to_hub = False
+        if self.push_to_hub:
+            repo_id = (self.hub_model_id or "").strip()
+            if not re.fullmatch(r"[A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*", repo_id):
+                raise ValueError(
+                    "hub_model_id must be a valid non-empty owner/repository ID when push_to_hub is enabled"
+                )
+            self.hub_model_id = repo_id
+        else:
+            self.hub_model_id = None
+        if self.save_total_limit == 0:
+            self.save_total_limit = None
         return self
 
     @model_validator(mode = "after")
@@ -585,6 +711,22 @@ class TrainingJobResponse(BaseModel):
     status: Literal["queued", "error"] = Field(..., description = "Initial job status")
     message: str = Field(..., description = "Human-readable status message")
     error: Optional[str] = Field(None, description = "Error details if status is 'error'")
+
+
+class CheckpointUploadProgress(BaseModel):
+    """Credential-free checkpoint upload lifecycle shared with Studio clients."""
+
+    state: Literal["idle", "preparing", "uploading", "completed", "skipped", "error"] = "idle"
+    checkpoint: Optional[str] = None
+    repository_id: Optional[str] = None
+    repository_url: Optional[str] = None
+    uploaded_bytes: Optional[int] = Field(None, ge = 0)
+    total_bytes: Optional[int] = Field(None, ge = 0)
+    uploaded_files: Optional[int] = Field(None, ge = 0)
+    total_files: Optional[int] = Field(None, ge = 0)
+    percentage: Optional[float] = Field(None, ge = 0, le = 100)
+    message: str = ""
+    error: Optional[str] = None
 
 
 class TrainingStatus(BaseModel):
@@ -639,6 +781,19 @@ class TrainingProgress(BaseModel):
     num_tokens: Optional[int] = Field(None, description = "Total number of tokens processed so far")
     eval_loss: Optional[float] = Field(
         None, description = "Eval loss from the most recent evaluation step"
+    )
+    current_dataset_index: Optional[int] = Field(
+        None, description = "One-based index of the dataset currently being loaded"
+    )
+    current_dataset_total: Optional[int] = Field(
+        None, description = "Total number of training datasets being loaded"
+    )
+    current_dataset_repository_id: Optional[str] = Field(
+        None, description = "Hugging Face repository ID of the dataset currently being loaded"
+    )
+    checkpoint_upload: CheckpointUploadProgress = Field(
+        default_factory = CheckpointUploadProgress,
+        description = "Latest checkpoint upload state; errors do not fail local training",
     )
 
 

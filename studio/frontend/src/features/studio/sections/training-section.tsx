@@ -16,6 +16,7 @@ import {
   useTrainingActions,
   useTrainingConfigStore,
   validateTrainingConfig,
+  CheckpointResumePicker,
 } from "@/features/training";
 import {
   Archive04Icon,
@@ -25,7 +26,8 @@ import {
   Rocket01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import type { CheckpointInspection } from "@/features/training/types/api";
 import { toast } from "@/lib/toast";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import { useT } from "@/i18n";
@@ -40,7 +42,11 @@ const placeholderData = [
   { step: 50, loss: 0.8 },
 ];
 
-export function TrainingSection() {
+export function TrainingSection({
+  onResumeSelectedChange,
+}: {
+  onResumeSelectedChange?: (selected: boolean) => void;
+}) {
   const t = useT();
   const chartConfig = {
     loss: { label: t("studio.charts.loss"), color: "#3b82f6" },
@@ -55,6 +61,16 @@ export function TrainingSection() {
       (!store.isAudioModel && store.isDatasetAudio === true));
   const configValidation = validateTrainingConfig(store);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [resumeInspection, setResumeInspection] = useState<CheckpointInspection | null>(null);
+  const [resumeConfirmed, setResumeConfirmed] = useState(false);
+  const [resumeSelected, setResumeSelected] = useState(false);
+  const resumeBlocked = resumeSelected && (!resumeInspection || (
+    (resumeInspection.external && !resumeConfirmed) ||
+    !resumeInspection.optimizerComplete || !resumeInspection.schedulerComplete ||
+    !resumeInspection.trainerStateComplete || !resumeInspection.bundledConfigurationFound ||
+    resumeInspection.incompatibilities.length > 0 ||
+    resumeInspection.missingDatasets.length > 0
+  ));
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -171,12 +187,19 @@ export function TrainingSection() {
           </div>
         </div>
 
+        <CheckpointResumePicker disabled={isStarting} onInspectionChange={(value, confirmed, selected) => {
+          setResumeInspection(value);
+          setResumeConfirmed(confirmed);
+          setResumeSelected(selected);
+          onResumeSelectedChange?.(selected);
+        }} />
+
         {/* Start/Stop */}
         <Button
           data-tour="studio-start"
           className="w-full cursor-pointer bg-primary text-primary-foreground hover:bg-primary/90"
-          onClick={() => void startTrainingRun()}
-          disabled={isStarting || isIncompatible || store.isCheckingDataset || isLoadingModel || !configValidation.ok}
+          onClick={() => void startTrainingRun({ resumeCheckpointPath: resumeInspection?.checkpointPath, resumeConfig: resumeInspection?.resumeConfig })}
+          disabled={isStarting || resumeBlocked || (!resumeSelected && (isIncompatible || store.isCheckingDataset || isLoadingModel || !configValidation.ok))}
         >
           <HugeiconsIcon icon={Rocket01Icon} className="size-4" />
           {isStarting
@@ -197,7 +220,7 @@ export function TrainingSection() {
               : t("studio.training.visionIncompatible")}
           </p>
         )}
-        {!configValidation.ok && configValidation.message && !isIncompatible && (
+        {!resumeSelected && !configValidation.ok && configValidation.message && !isIncompatible && (
           <p className="text-xs text-red-500 leading-relaxed">{configValidation.message}</p>
         )}
 
