@@ -701,7 +701,6 @@ async def start_training(
                     message = str(exc),
                     error = "Diffusion training already active",
                 )
-            )
         except SidecarSwapInProgress as exc:
             # Expected loss of the race against a sidecar install: a retryable
             # 409 matching the route-entry guard, not an internal error.
