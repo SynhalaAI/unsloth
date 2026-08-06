@@ -206,9 +206,9 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             "ALTER TABLE training_runs ADD COLUMN resume_blocked INTEGER NOT NULL DEFAULT 0"
         )
     if "resumed_from_run_id" not in existing_cols:
-    conn.execute(
-        "ALTER TABLE training_runs ADD COLUMN resumed_from_run_id TEXT"
-    )
+        conn.execute(
+            "ALTER TABLE training_runs ADD COLUMN resumed_from_run_id TEXT"
+        )
 
     if "imported_checkpoint" not in existing_cols:
         conn.execute(
