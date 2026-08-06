@@ -680,28 +680,28 @@ async def start_training(
         from utils.transformers_version import SidecarSwapInProgress
 
         try:
-    # Offload potentially blocking GPU teardown and process startup from the
-    # FastAPI event loop. Hold diffusion admission across the spawn so LLM and
-    # diffusion training cannot both win a simultaneous start race.
-    with _diffusion_gpu_admission():
-        success = await asyncio.to_thread(
-            backend.start_training,
-            job_id = job_id,
-            before_spawn = _free_vram_for_training,
-            resume_source_run_id = resume_run["id"] if resume_run else None,
-            imported_checkpoint = imported_checkpoint,
-            import_source_output_dir = import_source_output_dir,
-            **training_kwargs,
-        )
-except _DiffusionStartInFlight as exc:
-    return TrainingJobResponse(
-        job_id = "",
-        status = "error",
-        message = str(exc),
-        error = "Diffusion training already active",
-    )
-except SidecarSwapInProgress as exc:
-    raise HTTPException(status_code = 409, detail = str(exc))
+            # Offload potentially blocking GPU teardown and process startup from the
+            # FastAPI event loop. Hold diffusion admission across the spawn so LLM and
+            # diffusion training cannot both win a simultaneous start race.
+            with _diffusion_gpu_admission():
+                success = await asyncio.to_thread(
+                    backend.start_training,
+                    job_id = job_id,
+                    before_spawn = _free_vram_for_training,
+                    resume_source_run_id = resume_run["id"] if resume_run else None,
+                    imported_checkpoint = imported_checkpoint,
+                    import_source_output_dir = import_source_output_dir,
+                    **training_kwargs,
+                )
+        except _DiffusionStartInFlight as exc:
+            return TrainingJobResponse(
+                job_id = "",
+                status = "error",
+                message = str(exc),
+                error = "Diffusion training already active",
+            )
+        except SidecarSwapInProgress as exc:
+            raise HTTPException(status_code = 409, detail = str(exc))
 
         if not success:
             progress_error = backend.trainer.training_progress.error

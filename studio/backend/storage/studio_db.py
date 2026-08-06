@@ -225,7 +225,8 @@ conn.execute(
     "ON training_runs(import_source_output_dir) "
     "WHERE status = 'running' AND import_source_output_dir IS NOT NULL"
 )
-    conn.execute(
+
+conn.execute(
         """
         CREATE TABLE IF NOT EXISTS training_metrics (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -242,75 +243,75 @@ conn.execute(
         )
         """
     )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_run_id ON training_metrics(run_id)")
-    # Windows: COLLATE NOCASE so C:\Models and c:\models dedup. Elsewhere keep
-    # case-sensitive BINARY so /Models and /models stay distinct.
-    collation = "COLLATE NOCASE" if platform.system() == "Windows" else ""
-    conn.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS scan_folders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            path TEXT NOT NULL UNIQUE {collation},
-            created_at TEXT NOT NULL
-        )
-        """
+conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_run_id ON training_metrics(run_id)")
+# Windows: COLLATE NOCASE so C:\Models and c:\models dedup. Elsewhere keep
+# case-sensitive BINARY so /Models and /models stay distinct.
+collation = "COLLATE NOCASE" if platform.system() == "Windows" else ""
+conn.execute(
+    f"""
+    CREATE TABLE IF NOT EXISTS scan_folders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        path TEXT NOT NULL UNIQUE {collation},
+        created_at TEXT NOT NULL
     )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS chat_projects (
-            id TEXT NOT NULL PRIMARY KEY,
-            name TEXT NOT NULL,
-            instructions TEXT,
-            root_path TEXT,
-            archived INTEGER NOT NULL DEFAULT 0,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
-        )
-        """
+    """
+)
+conn.execute(
+    """
+    CREATE TABLE IF NOT EXISTS chat_projects (
+        id TEXT NOT NULL PRIMARY KEY,
+        name TEXT NOT NULL,
+        instructions TEXT,
+        root_path TEXT,
+        archived INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
     )
-    chat_project_cols = {
-        row[1] for row in conn.execute("PRAGMA table_info(chat_projects)").fetchall()
-    }
-    if "root_path" not in chat_project_cols:
-        conn.execute("ALTER TABLE chat_projects ADD COLUMN root_path TEXT")
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_chat_projects_archived_updated_at ON chat_projects(archived, updated_at)"
+"""
+)
+chat_project_cols = {
+    row[1] for row in conn.execute("PRAGMA table_info(chat_projects)").fetchall()
+}
+if "root_path" not in chat_project_cols:
+    conn.execute("ALTER TABLE chat_projects ADD COLUMN root_path TEXT")
+conn.execute(
+    "CREATE INDEX IF NOT EXISTS idx_chat_projects_archived_updated_at ON chat_projects(archived, updated_at)"
+)
+conn.execute(
+    """
+    CREATE TABLE IF NOT EXISTS chat_threads (
+        id TEXT NOT NULL PRIMARY KEY,
+        title TEXT NOT NULL,
+        model_type TEXT NOT NULL,
+        model_id TEXT,
+        pair_id TEXT,
+        project_id TEXT,
+        archived INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER,
+        openai_code_exec_container_id TEXT,
+        anthropic_code_exec_container_id TEXT,
+        forked_from_thread_id TEXT,
+        forked_from_message_id TEXT,
+        FOREIGN KEY(project_id) REFERENCES chat_projects(id) ON DELETE CASCADE
     )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS chat_threads (
-            id TEXT NOT NULL PRIMARY KEY,
-            title TEXT NOT NULL,
-            model_type TEXT NOT NULL,
-            model_id TEXT,
-            pair_id TEXT,
-            project_id TEXT,
-            archived INTEGER NOT NULL DEFAULT 0,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER,
-            openai_code_exec_container_id TEXT,
-            anthropic_code_exec_container_id TEXT,
-            forked_from_thread_id TEXT,
-            forked_from_message_id TEXT,
-            FOREIGN KEY(project_id) REFERENCES chat_projects(id) ON DELETE CASCADE
-        )
-        """
-    )
-    chat_thread_cols = {
-        row[1] for row in conn.execute("PRAGMA table_info(chat_threads)").fetchall()
-    }
-    if "project_id" not in chat_thread_cols:
-        conn.execute("ALTER TABLE chat_threads ADD COLUMN project_id TEXT")
-    if "openai_code_exec_container_id" not in chat_thread_cols:
-        conn.execute("ALTER TABLE chat_threads ADD COLUMN openai_code_exec_container_id TEXT")
+    """
+)
+chat_thread_cols = {
+    row[1] for row in conn.execute("PRAGMA table_info(chat_threads)").fetchall()
+}
+if "project_id" not in chat_thread_cols:
+    conn.execute("ALTER TABLE chat_threads ADD COLUMN project_id TEXT")
+if "openai_code_exec_container_id" not in chat_thread_cols:
+conn.execute("ALTER TABLE chat_threads ADD COLUMN openai_code_exec_container_id TEXT")
     if "anthropic_code_exec_container_id" not in chat_thread_cols:
-        conn.execute("ALTER TABLE chat_threads ADD COLUMN anthropic_code_exec_container_id TEXT")
+conn.execute("ALTER TABLE chat_threads ADD COLUMN anthropic_code_exec_container_id TEXT")
     if "forked_from_thread_id" not in chat_thread_cols:
-        conn.execute("ALTER TABLE chat_threads ADD COLUMN forked_from_thread_id TEXT")
+conn.execute("ALTER TABLE chat_threads ADD COLUMN forked_from_thread_id TEXT")
     if "forked_from_message_id" not in chat_thread_cols:
-        conn.execute("ALTER TABLE chat_threads ADD COLUMN forked_from_message_id TEXT")
+conn.execute("ALTER TABLE chat_threads ADD COLUMN forked_from_message_id TEXT")
     if "updated_at" not in chat_thread_cols:
-        conn.execute("ALTER TABLE chat_threads ADD COLUMN updated_at INTEGER")
+conn.execute("ALTER TABLE chat_threads ADD COLUMN updated_at INTEGER")
         # Floor at created_at: forked threads copy older ancestor messages,
         # so the fork's creation time must win over the branch message times.
         conn.execute(
