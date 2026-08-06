@@ -543,59 +543,55 @@ export function ResourcesTab() {
                     <div className="truncate text-sm font-medium text-foreground">
                       {device.name ?? t("settings.resources.gpu.unknownDevice")}
                     </div>
-                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-foreground">
-                    {device.name ?? t("settings.resources.gpu.unknownDevice")}
+                    <div className="mt-1 flex min-w-0 items-center gap-2">
+                      <span className="truncate text-xs text-muted-foreground">
+                        {ordinal === undefined
+                          ? backendLabel
+                          : `${t("settings.resources.gpu.deviceWithIndex", {
+                              index: ordinal,
+                            })}, ${backendLabel}`}
+                      </span>
+                      {/* Same accent pill as the New tags, which stays legible
+                          on the light background. */}
+                      <span className="shrink-0 rounded-full bg-control-accent/10 px-2 py-1 text-ui-10 leading-none font-semibold tabular-nums text-control-accent">
+                        {percentText}{" "}
+                        {t("settings.resources.gpu.vramUtilization")}
+                      </span>
+                    </div>
                   </div>
-                  <div className="mt-1 flex min-w-0 items-center gap-2">
-                    <span className="truncate text-xs text-muted-foreground">
-                      {ordinal === undefined
-                        ? backendLabel
-                        : `${t("settings.resources.gpu.deviceWithIndex", {
-                            index: ordinal,
-                          })}, ${backendLabel}`}
-                    </span>
-                    {/* Same accent pill as the New tags, which stays legible
-                        on the light background. */}
-                    <span className="shrink-0 rounded-full bg-control-accent/10 px-2 py-1 text-ui-10 leading-none font-semibold tabular-nums text-control-accent">
-                      {percentText}{" "}
-                      {t("settings.resources.gpu.vramUtilization")}
-                    </span>
+                  {/* Meter under the figures, so it spans their width instead of
+                      being squeezed into the gap beside them. Same 392px as the
+                      Model downloads control, so both blocks start on one edge.
+                      Below 992px the dialog stops filling its 960px cap and the
+                      device name would truncate, so the row stacks instead. */}
+                  <div className="flex w-[392px] shrink-0 flex-col items-stretch gap-2.5 max-[992px]:w-full">
+                    {/* Ruled between the three readings: run together they are
+                        easy to misread as one number. */}
+                    {/* min-w-0 on each reading, or truncate cannot fire: a flex
+                        item defaults to min-width:auto and the longest locales
+                        would push past the block instead of ellipsizing. */}
+                    <div className="flex items-center justify-between gap-3 font-mono text-ui-11 tabular-nums text-muted-foreground">
+                      <span className="min-w-0 truncate">
+                        {t("settings.resources.gpu.used", { value: usedText })}
+                      </span>
+                      <span aria-hidden className="h-3 w-px shrink-0 bg-border" />
+                      <span className="min-w-0 truncate">
+                        {t("settings.resources.gpu.free", { value: freeText })}
+                      </span>
+                      <span aria-hidden className="h-3 w-px shrink-0 bg-border" />
+                      <span className="min-w-0 truncate">
+                        {t("settings.resources.gpu.total", {
+                          value: totalText,
+                        })}
+                      </span>
+                    </div>
+                    <Progress
+                      value={safePercent}
+                      aria-label={device.name ?? "GPU"}
+                      className="h-1.5 w-full rounded-full bg-muted dark:bg-black/40"
+                      indicatorClassName={usageIndicatorClass(safePercent)}
+                    />
                   </div>
-                </div>
-                {/* Meter under the figures, so it spans their width instead of
-                    being squeezed into the gap beside them. Same 392px as the
-                    Model downloads control, so both blocks start on one edge.
-                    Below 992px the dialog stops filling its 960px cap and the
-                    device name would truncate, so the row stacks instead. */}
-                <div className="flex w-[392px] shrink-0 flex-col items-stretch gap-2.5 max-[992px]:w-full">
-                  {/* Ruled between the three readings: run together they are
-                      easy to misread as one number. */}
-                  {/* min-w-0 on each reading, or truncate cannot fire: a flex
-                      item defaults to min-width:auto and the longest locales
-                      would push past the block instead of ellipsizing. */}
-                  <div className="flex items-center justify-between gap-3 font-mono text-ui-11 tabular-nums text-muted-foreground">
-                    <span className="min-w-0 truncate">
-                      {t("settings.resources.gpu.used", { value: usedText })}
-                    </span>
-                    <span aria-hidden className="h-3 w-px shrink-0 bg-border" />
-                    <span className="min-w-0 truncate">
-                      {t("settings.resources.gpu.free", { value: freeText })}
-                    </span>
-                    <span aria-hidden className="h-3 w-px shrink-0 bg-border" />
-                    <span className="min-w-0 truncate">
-                      {t("settings.resources.gpu.total", {
-                        value: totalText,
-                      })}
-                    </span>
-                  </div>
-                  <Progress
-                    value={safePercent}
-                    aria-label={device.name ?? "GPU"}
-                    className="h-1.5 w-full rounded-full bg-muted dark:bg-black/40"
-                    indicatorClassName={usageIndicatorClass(safePercent)}
-                  />
                 </div>
               </div>
             );
