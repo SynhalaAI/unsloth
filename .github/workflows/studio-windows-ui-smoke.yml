@@ -297,7 +297,8 @@ jobs:
 
       - name: Reset auth + boot Unsloth
         run: |
-          unsloth studio reset-password
+          # Wipe (not reset-password): the boot below must re-seed a fresh .bootstrap_password.
+          rm -rf ~/.unsloth/studio/auth
           mkdir -p logs
           UNSLOTH_API_ONLY=1 unsloth studio -H 127.0.0.1 -p "$STUDIO_PORT" \
             > logs/studio.log 2>&1 &
@@ -352,7 +353,7 @@ jobs:
 
       - name: Reset auth + boot Unsloth for extra UI tests (port 18897)
         run: |
-          unsloth studio reset-password
+          rm -rf ~/.unsloth/studio/auth
           mkdir -p logs
           UNSLOTH_API_ONLY=1 unsloth studio -H 127.0.0.1 -p 18897 \
             > logs/studio_extra.log 2>&1 &
@@ -410,4 +411,7 @@ jobs:
             logs/playwright-permissions-*
             logs/playwright_extra
             logs/studio-permissions-*.log
-          retention-days: 7
+          # 1 day, matching the repository-wide cap. A larger value here is
+          # silently clamped to that cap today, so stating 7 only invites the
+          # artifacts to re-inflate if the cap is ever raised.
+          retention-days: 1

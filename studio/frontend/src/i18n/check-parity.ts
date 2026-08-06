@@ -6,7 +6,10 @@
 // - All non-English keys must exist in en (no extras).
 // - Placeholder set must match per leaf between en and the overlay.
 //
-// Run: npx tsx src/i18n/check-parity.ts
+// --strict also fails on missing keys, naming them. See studio-frontend-ci.yml
+// for why CI needs that on top of the runtime fallback.
+//
+// Run: npx tsx src/i18n/check-parity.ts [--strict]
 
 import { en } from "./locales/en.ts";
 import { zhCN } from "./locales/zh-CN.ts";
@@ -19,6 +22,7 @@ import { fr } from "./locales/fr.ts";
 import { ru } from "./locales/ru.ts";
 import { de } from "./locales/de.ts";
 import { ko } from "./locales/ko.ts";
+import { it } from "./locales/it.ts";
 
 type Tree = { readonly [k: string]: string | Tree };
 
@@ -107,8 +111,11 @@ const overlays: Record<string, Tree> = {
   ru: ru as unknown as Tree,
   de: de as unknown as Tree,
   ko: ko as unknown as Tree,
+  it: it as unknown as Tree,
 };
+const strict = process.argv.includes("--strict");
 let anyError = false;
+let anyMissing = false;
 
 for (const [locale, overlay] of Object.entries(overlays)) {
   const errors: string[] = [];
@@ -118,6 +125,13 @@ for (const [locale, overlay] of Object.entries(overlays)) {
 
   console.log(`\n=== ${locale} ===`);
   console.log(`Missing keys (will fall back to en): ${missing.length}`);
+  if (missing.length > 0) {
+    anyMissing = true;
+    // Name them either way: the count alone does not say what to translate.
+    for (const k of missing) {
+      console.log(`  - ${k}`);
+    }
+  }
   if (errors.length) {
     anyError = true;
     console.error(`Errors (${errors.length}):`);
@@ -128,4 +142,11 @@ for (const [locale, overlay] of Object.entries(overlays)) {
 }
 
 if (anyError) process.exit(1);
+if (strict && anyMissing) {
+  console.error(
+    "\nMissing keys above. Add them to every overlay, or run without --strict " +
+      "to accept the English fallback.",
+  );
+  process.exit(1);
+}
 console.log("\nAll locale overlays pass parity.");

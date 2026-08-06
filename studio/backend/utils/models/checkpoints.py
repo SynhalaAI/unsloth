@@ -129,7 +129,7 @@ def _read_checkpoint_loss(checkpoint_path: Path) -> Optional[float]:
     if not trainer_state.exists():
         return None
     try:
-        with open(trainer_state) as f:
+        with open(trainer_state, encoding = "utf-8-sig") as f:
             state = json.load(f)
         log_history = state.get("log_history", [])
         if log_history:
@@ -214,6 +214,7 @@ def scan_checkpoints(
             if not root_is_model and not valid_checkpoints:
                 continue
 
+<<<<<<< HEAD
             # Prefer root metadata for completed runs and otherwise use the
             # newest on-disk checkpoint as the authoritative source.
             metadata_source = item if root_is_model else valid_checkpoints[0]
