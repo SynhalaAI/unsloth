@@ -1143,7 +1143,7 @@ class TrainingBackend:
             self.eval_step_history.clear()
             self.eval_enabled = False
             self._output_dir = (
-                config.get("output_dir") if (resume_source_run_id or imported_checkpoint) else None
+                config.get("output_dir") if (resume_source_run_id or self._imported_checkpoint) else None
             )
             self._progress.output_dir = self._output_dir
             self._resume_source_run_id = resume_source_run_id
@@ -1176,7 +1176,7 @@ class TrainingBackend:
             self._ensure_db_run_created()
             if self._db_run_created and self._metric_buffer:
                 self._flush_metrics_to_db()
-            if (resume_source_run_id or imported_checkpoint) and not self._db_run_created:
+            if (resume_source_run_id or self._imported_checkpoint) and not self._db_run_created:
                 if proc.is_alive():
                     proc.terminate()
                 proc.join(timeout = 5.0)
