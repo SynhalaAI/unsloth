@@ -26,6 +26,11 @@ import {
   loadHuggingFaceCacheSettings,
   updateHuggingFaceCacheSettings,
 } from "../api/hugging-face-cache";
+import {
+  type CheckpointLocationSettings,
+  loadCheckpointLocation,
+  updateCheckpointLocation,
+} from "../api/checkpoint-location";
 import { SettingsRow } from "../components/settings-row";
 import { SettingsSection } from "../components/settings-section";
 import { useMonitorOverlayStore } from "../stores/monitor-overlay-store";
@@ -193,15 +198,22 @@ export function ResourcesTab() {
   const [hfCacheLoaded, setHfCacheLoaded] = useState(false);
   const [cacheBrowserOpen, setCacheBrowserOpen] = useState(false);
   const [cacheSaving, setCacheSaving] = useState(false);
+  const [checkpointLocation, setCheckpointLocation] =
+    useState<CheckpointLocationSettings | null>(null);
+  const [checkpointBrowserOpen, setCheckpointBrowserOpen] = useState(false);
+  const [checkpointSaving, setCheckpointSaving] = useState(false);
+  
   const displayedGpu = systemInfo.gpu?.available
     ? systemInfo.gpu
     : (systemInfo.inference_gpu ?? systemInfo.gpu);
+  
   const separateInferenceGpu =
     systemInfo.gpu?.available &&
     systemInfo.inference_gpu &&
     systemInfo.inference_gpu.backend !== systemInfo.gpu.backend
       ? systemInfo.inference_gpu
       : null;
+  
   const inferenceVramTotal = separateInferenceGpu
     ? aggregateGpuMemoryTotalGb(separateInferenceGpu.devices)
     : 0;
@@ -221,6 +233,12 @@ export function ResourcesTab() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    void loadCheckpointLocation()
+      .then(setCheckpointLocation)
+      .catch(() => undefined);
   }, []);
 
   const metrics = useMemo(() => {
@@ -319,6 +337,29 @@ export function ResourcesTab() {
         description: error instanceof Error ? error.message : undefined,
       });
     }
+  };
+
+  const saveCheckpointFolder = async (path: string | null) => {
+    setCheckpointSaving(true);
+    try {
+      setCheckpointLocation(await updateCheckpointLocation(path));
+      toast.success(t("settings.resources.storage.checkpointSaved"));
+    } catch (error) {
+      toast.error(t("settings.resources.storage.checkpointSaveError"), {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setCheckpointSaving(false);
+    }
+  };
+
+  const changeCheckpointFolder = async () => {
+    if (!isTauri) {
+      setCheckpointBrowserOpen(true);
+      return;
+    }
+    const path = await pickHuggingFaceCacheDir();
+    if (path) await saveCheckpointFolder(path);
   };
 
   const cpuCoresLabel =
@@ -644,6 +685,52 @@ export function ResourcesTab() {
             ) : null}
           </div>
         </SettingsRow>
+        <SettingsRow
+          label={t("settings.resources.storage.checkpointFolder")}
+          description={t(
+            "settings.resources.storage.checkpointFolderDescription",
+          )}
+          className="max-[840px]:flex-col max-[840px]:items-stretch max-[840px]:gap-2"
+        >
+          <div className="grid w-[392px] min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-2 gap-y-1.5 max-[840px]:w-full">
+            <Input
+              readOnly
+              aria-label={t("settings.resources.storage.checkpointFolder")}
+              value={checkpointLocation?.path ?? t("common.loading")}
+              title={checkpointLocation?.path}
+              className="h-8 w-full font-mono text-xs"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8"
+              disabled={!checkpointLocation?.editable || checkpointSaving}
+              onClick={() => void changeCheckpointFolder()}
+            >
+              {t("settings.resources.storage.changeAction")}
+            </Button>
+            {checkpointLocation ? (
+              <div className="col-span-2 flex items-center justify-between gap-2 pl-3.5 pr-1 text-xs text-muted-foreground">
+                <span>
+                  {t(
+                    `settings.resources.storage.checkpointSource.${checkpointLocation.source}`,
+                  )}
+                </span>
+                {checkpointLocation.isCustom ? (
+                  <Button
+                    variant="link"
+                    size="xs"
+                    className="h-auto px-0 text-xs"
+                    disabled={checkpointSaving}
+                    onClick={() => void saveCheckpointFolder(null)}
+                  >
+                    {t("settings.resources.storage.resetAction")}
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+        </SettingsRow>
       </SettingsSection>
 
       <FolderBrowser
@@ -652,6 +739,15 @@ export function ResourcesTab() {
         onSelect={(path) => void saveCacheFolder(path)}
         initialPath={hfCache?.cacheHome}
         title={t("settings.resources.storage.chooseTitle")}
+        confirmLabel={t("settings.resources.storage.chooseAction")}
+        showModelHints={false}
+      />
+      <FolderBrowser
+        open={!isTauri && checkpointBrowserOpen}
+        onOpenChange={setCheckpointBrowserOpen}
+        onSelect={(path) => void saveCheckpointFolder(path)}
+        initialPath={checkpointLocation?.path}
+        title={t("settings.resources.storage.checkpointChooseTitle")}
         confirmLabel={t("settings.resources.storage.chooseAction")}
         showModelHints={false}
       />

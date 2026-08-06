@@ -23,7 +23,10 @@ const initialState: TrainingRuntimeState = {
   isStarting: false,
   startError: null,
   startModelName: null,
-  startDatasetName: null,
+  startDatasetNames: [],
+  currentDatasetIndex: null,
+  currentDatasetTotal: null,
+  currentDatasetRepositoryId: null,
   startProjectName: null,
   startFromResume: false,
   sseConnected: false,
@@ -40,6 +43,7 @@ const initialState: TrainingRuntimeState = {
   currentGradNorm: null,
   currentNumTokens: null,
   outputDir: null,
+  checkpointUpload: { state: "idle", message: "" },
   lossHistory: [],
   lrHistory: [],
   gradNormHistory: [],
@@ -128,10 +132,18 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()((set) => (
   setStartError: (value) => set({ startError: value }),
   setStartResources: (
     startModelName,
-    startDatasetName,
+    startDatasetNames,
     startFromResume = false,
     startProjectName = null,
-  ) => set({ startModelName, startDatasetName, startProjectName, startFromResume }),
+  ) => set({
+    startModelName,
+    startDatasetNames: [...startDatasetNames],
+    startProjectName,
+    startFromResume,
+    currentDatasetIndex: null,
+    currentDatasetTotal: null,
+    currentDatasetRepositoryId: null,
+  }),
   setSseConnected: (value) => set({ sseConnected: value }),
   setLastEventId: (value) => set({ lastEventId: value }),
 
@@ -139,6 +151,9 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()((set) => (
     set((state) => ({
       ...initialState,
       hasHydrated: state.hasHydrated,
+      // A reconnect/view reset is not a new job; retain the terminal upload
+      // result until setStartQueued establishes a genuinely new job.
+      checkpointUpload: state.checkpointUpload,
       lossHistory: [],
       lrHistory: [],
       gradNormHistory: [],
@@ -169,6 +184,7 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()((set) => (
       currentGradNorm: null,
       currentNumTokens: null,
       outputDir: null,
+      checkpointUpload: { state: "idle", message: "" },
       lossHistory: [],
       lrHistory: [],
       gradNormHistory: [],
@@ -227,6 +243,8 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()((set) => (
           payload.details?.output_dir !== undefined
             ? payload.details.output_dir
             : state.outputDir,
+        checkpointUpload:
+          payload.details?.checkpoint_upload ?? state.checkpointUpload,
         lossHistory: metricHistory.lossHistory ?? state.lossHistory,
         lrHistory: metricHistory.lrHistory ?? state.lrHistory,
         gradNormHistory: metricHistory.gradNormHistory ?? state.gradNormHistory,
@@ -269,6 +287,17 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()((set) => (
       };
     }),
 
+  applyCheckpointUpload: (payload) =>
+    set({
+      checkpointUpload: {
+        ...payload,
+        percentage:
+          typeof payload.percentage === "number"
+            ? Math.min(100, Math.max(0, payload.percentage))
+            : null,
+      },
+    }),
+
   applyProgress: (payload: TrainingProgressPayload, eventId?: number) =>
     set((state) => {
       const step = Math.max(payload.step, 0);
@@ -296,6 +325,12 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()((set) => (
         etaSeconds: payload.eta_seconds,
         currentGradNorm,
         currentNumTokens: payload.num_tokens,
+        currentDatasetIndex:
+          payload.current_dataset_index ?? state.currentDatasetIndex,
+        currentDatasetTotal:
+          payload.current_dataset_total ?? state.currentDatasetTotal,
+        currentDatasetRepositoryId:
+          payload.current_dataset_repository_id ?? state.currentDatasetRepositoryId,
         firstStepReceived: state.firstStepReceived || step > 0,
         lastEventId: typeof eventId === "number" ? eventId : state.lastEventId,
         lossHistory:

@@ -17,6 +17,8 @@ from loggers import get_logger
 import asyncio
 from datetime import datetime
 import uuid as _uuid
+import json as _json
+import os
 
 # Add backend directory to path.
 backend_path = Path(__file__).parent.parent.parent
@@ -28,7 +30,12 @@ try:
     from core.training.resume import (
         can_resume_run,
         get_resume_checkpoint_path,
+        preserve_checkpoint_training_target,
         normalize_resume_output_dir,
+        continuation_output_name,
+        CheckpointImportError,
+        inspect_import_checkpoint,
+        validate_import_compatibility,
     )
     from storage.studio_db import get_resumable_run_by_output_dir
     from utils.models.model_config import load_model_defaults
@@ -42,7 +49,12 @@ except ImportError:
     from core.training.resume import (
         can_resume_run,
         get_resume_checkpoint_path,
+        preserve_checkpoint_training_target,
         normalize_resume_output_dir,
+        continuation_output_name,
+        CheckpointImportError,
+        inspect_import_checkpoint,
+        validate_import_compatibility,
     )
     from storage.studio_db import get_resumable_run_by_output_dir
     from utils.models.model_config import load_model_defaults
@@ -58,6 +70,7 @@ from models import (
     TrainingJobResponse,
     TrainingStatus,
     TrainingProgress,
+    ResumeImportRequest,
 )
 from models.training import (
     DiffusionCaptionUpdateRequest,
@@ -91,6 +104,72 @@ class TrainingStopRequest(PydanticBaseModel):
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+def _resume_browse_roots() -> list[Path]:
+    # Keep checkpoint import aligned with the directory picker's allowlist.
+    from routes.models import _build_browse_allowlist
+    return _build_browse_allowlist()
+
+
+def _active_backend_type() -> str:
+    from utils.hardware import hardware as _hw
+    return "mlx" if _hw.DEVICE == _hw.DeviceType.MLX else "transformers"
+
+
+def _validate_resume_destination(value: Optional[str], source: str, in_place: bool) -> str:
+    """Resolve a writable outputs destination without ever probing source writes."""
+    from utils.paths import resolve_output_dir
+
+    source_path = Path(source).resolve(strict = True)
+    source_root = source_path.parent if source_path.name.startswith("checkpoint-") else source_path
+    if value:
+        try:
+            destination = resolve_output_dir(value).resolve(strict = False)
+        except ValueError as exc:
+            raise HTTPException(status_code = 400, detail = str(exc)) from exc
+    elif in_place:
+        destination = source_root
+    else:
+        destination = resolve_output_dir(
+            continuation_output_name(
+                source_root.name, datetime.now().strftime("%Y%m%d_%H%M%S")
+            )
+        ).resolve(strict = False)
+
+    conflicts = (
+        destination == source_root
+        or source_path == destination
+        or destination in source_path.parents
+        or source_root in destination.parents
+    )
+    if conflicts and not in_place:
+        raise HTTPException(
+            status_code = 400,
+            detail = "Destination could overwrite the source checkpoint; explicitly select in-place continuation or choose another output_dir.",
+        )
+    if in_place and destination != source_root:
+        raise HTTPException(status_code = 400, detail = "In-place continuation requires output_dir to be the source run directory.")
+    probe = destination if destination.exists() else destination.parent
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    if not os.access(probe, os.W_OK | os.X_OK):
+        raise HTTPException(status_code = 400, detail = "Resume output_dir is not writable.")
+    return str(destination)
+
+
+@router.post("/resume/import/inspect")
+async def inspect_resume_import(
+    request: ResumeImportRequest,
+    current_subject: str = Depends(get_current_subject),
+):
+    """Inspect a user-selected checkpoint without requiring a history row."""
+    try:
+        return await asyncio.to_thread(
+            inspect_import_checkpoint, request.directory, _resume_browse_roots()
+        )
+    except CheckpointImportError as exc:
+        raise HTTPException(status_code = 400, detail = {"errors": exc.errors}) from exc
 
 # Consecutive 1s polls without a step update that count as a stall. Applied only
 # once stepping: the pre-first-step phase (model load + tokenization) can take far
@@ -269,6 +348,9 @@ async def start_training(
         job_id = f"job_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_uuid.uuid4().hex[:8]}"
 
         # Validate dataset paths if provided.
+        for entry in request.training_datasets:
+            if entry.local_path:
+                entry.local_path = _validate_local_dataset_paths([entry.local_path], "Training dataset")[0]
         if request.local_datasets:
             request.local_datasets = _validate_local_dataset_paths(
                 request.local_datasets, "Local dataset"
@@ -279,6 +361,8 @@ async def start_training(
             )
         resume_output_dir: Optional[str] = None
         resume_run: Optional[dict] = None
+        imported_checkpoint: Optional[str] = None
+        import_source_output_dir: Optional[str] = None
         if request.resume_from_checkpoint:
             try:
                 resume_output_dir = normalize_resume_output_dir(request.resume_from_checkpoint)
@@ -300,6 +384,36 @@ async def start_training(
                     detail = "Resume checkpoint must include saved trainer state.",
                 )
             request.resume_from_checkpoint = resume_checkpoint
+        elif request.imported_resume_checkpoint or request.resume_checkpoint_path:
+            try:
+                imported = inspect_import_checkpoint(
+                    request.imported_resume_checkpoint or request.resume_checkpoint_path,
+                    _resume_browse_roots(),
+                )
+                # A stop checkpoint retains the trainer's original target. Keep
+                # that target when older/partial portable config reconstructs a
+                # smaller max_steps value; otherwise a step-30 checkpoint from a
+                # 2,000-step run immediately exits as "31 / 30" on resume.
+                preserve_checkpoint_training_target(imported, request)
+                validate_import_compatibility(imported, request, _active_backend_type())
+            except CheckpointImportError as exc:
+                raise HTTPException(status_code = 400, detail = {"errors": exc.errors}) from exc
+            imported_checkpoint = imported["selected_checkpoint"]
+            import_source_output_dir = imported["output_dir"]
+            resume_output_dir = import_source_output_dir
+            request.imported_resume_checkpoint = imported_checkpoint
+
+        resume_source = request.resume_from_checkpoint or imported_checkpoint
+        destination_output_dir: Optional[str] = None
+        if resume_source:
+            if request.in_place_continuation and imported_checkpoint:
+                raise HTTPException(
+                    status_code = 400,
+                    detail = "In-place continuation is supported only for checkpoints owned by Studio history.",
+                )
+            destination_output_dir = _validate_resume_destination(
+                request.output_dir, resume_source, request.in_place_continuation
+            )
 
         # Validate streaming-mode compatibility before any expensive work.
         # Streaming is supported only for Hugging Face text datasets.
@@ -307,6 +421,8 @@ async def start_training(
         from utils.hardware import ensure_hardware_detected
 
         if request.dataset_streaming:
+            if len(request.training_datasets) > 1:
+                raise HTTPException(status_code = 400, detail = "Streaming multiple datasets is not supported; disable streaming or select one Hugging Face dataset.")
             if not request.hf_dataset:
                 raise HTTPException(
                     status_code = 400,
@@ -382,12 +498,14 @@ async def start_training(
             "max_seq_length": request.max_seq_length,
             "vision_image_size": request.vision_image_size,
             "hf_dataset": request.hf_dataset or "",
+            "training_datasets": [entry.model_dump() for entry in request.training_datasets],
             "local_datasets": request.local_datasets,
             "local_eval_datasets": request.local_eval_datasets,
             "format_type": request.format_type,
             "subset": request.subset,
             "train_split": request.train_split,
             "dataset_streaming": request.dataset_streaming,
+            "portable_resume_data": request.portable_resume_data,
             "eval_split": request.eval_split,
             "eval_steps": request.eval_steps,
             "dataset_slice_start": request.dataset_slice_start,
@@ -402,6 +520,9 @@ async def start_training(
             "warmup_ratio": request.warmup_ratio,
             "max_steps": request.max_steps,
             "save_steps": request.save_steps,
+            "save_total_limit": request.save_total_limit,
+            "push_to_hub": request.push_to_hub,
+            "hub_model_id": request.hub_model_id,
             "weight_decay": request.weight_decay,
             "max_grad_norm": request.max_grad_norm,
             "max_grad_value": request.max_grad_value,
@@ -435,8 +556,10 @@ async def start_training(
             "wandb_project": request.wandb_project or "",
             "enable_tensorboard": request.enable_tensorboard,
             "tensorboard_dir": request.tensorboard_dir or "",
-            "output_dir": resume_output_dir,
-            "resume_from_checkpoint": request.resume_from_checkpoint,
+            "output_dir": destination_output_dir,
+            "resume_checkpoint_path": resume_source,
+            "resume_from_checkpoint": resume_source,
+            "copy_checkpoint_to_local": request.copy_checkpoint_to_local,
             "trust_remote_code": request.trust_remote_code,
             "approved_remote_code_fingerprint": request.approved_remote_code_fingerprint,
             "subject": current_subject,
@@ -565,15 +688,17 @@ async def start_training(
         from utils.transformers_version import SidecarSwapInProgress
 
         try:
-            # Offloaded to a worker thread: diffusion/video unload() waits on the engines' generation locks (and the export subprocess
-            # teardown can take seconds), which would otherwise freeze every concurrent request. The diffusion admission is held ACROSS
-            # the spawn so the decision is atomic: entering it re-tests the state under the service's own lock, and while held reserve() refuses.
+            # Offload potentially blocking GPU teardown and process startup from the
+            # FastAPI event loop. Hold diffusion admission across the spawn so LLM and
+            # diffusion training cannot both win a simultaneous start race.
             with _diffusion_gpu_admission():
                 success = await asyncio.to_thread(
                     backend.start_training,
                     job_id = job_id,
                     before_spawn = _free_vram_for_training,
                     resume_source_run_id = resume_run["id"] if resume_run else None,
+                    imported_checkpoint = imported_checkpoint,
+                    import_source_output_dir = import_source_output_dir,
                     **training_kwargs,
                 )
         except _DiffusionStartInFlight as exc:
@@ -584,8 +709,6 @@ async def start_training(
                 error = "Diffusion training already active",
             )
         except SidecarSwapInProgress as exc:
-            # Expected loss of the race against a sidecar install: a retryable
-            # 409 matching the route-entry guard, not an internal error.
             raise HTTPException(status_code = 409, detail = str(exc))
 
         if not success:
@@ -768,6 +891,7 @@ async def get_training_status(current_subject: str = Depends(get_current_subject
                 "total_steps": getattr(progress, "total_steps", 0),
                 "loss": getattr(progress, "loss", None),
                 "learning_rate": getattr(progress, "learning_rate", None),
+                "checkpoint_upload": getattr(progress, "checkpoint_upload", None),
             }
             # Always present: an explicit null tells the client to drop a cached
             # path (stop without save clears the run's output_dir).
@@ -920,6 +1044,12 @@ async def stream_training_progress(
                 grad_norm = grad_norm,
                 num_tokens = num_tokens,
                 eval_loss = eval_loss,
+                current_dataset_index = getattr(progress, "current_dataset_index", None),
+                current_dataset_total = getattr(progress, "current_dataset_total", None),
+                current_dataset_repository_id = getattr(
+                    progress, "current_dataset_repository_id", None
+                ),
+                checkpoint_upload = getattr(progress, "checkpoint_upload", None) or {},
             )
 
         def format_sse(
@@ -940,6 +1070,17 @@ async def stream_training_progress(
         # ── Retry directive ──────────────────────────────────────
         # Reconnect after 3 seconds if the connection drops.
         yield "retry: 3000\n\n"
+
+        # Always replay the latest upload lifecycle state. Unlike step IDs this
+        # state may change without a training step, so reconnects must not infer it.
+        latest_upload = getattr(
+            getattr(getattr(backend, "trainer", None), "training_progress", None),
+            "checkpoint_upload", None,
+        )
+        if latest_upload:
+            yield format_sse(
+                _json.dumps(latest_upload), event = "checkpoint_upload"
+            )
 
         # ── Replay missed steps on reconnect ─────────────────────
         if resume_from_step is not None and backend.step_history:
@@ -1029,6 +1170,8 @@ async def stream_training_progress(
 
         # ── Live polling loop ────────────────────────────────────
         last_step = resume_from_step if resume_from_step is not None else -1
+        last_dataset_progress: tuple[Any, Any, Any] = (None, None, None)
+        last_upload = _json.dumps(latest_upload, sort_keys = True) if latest_upload else ""
         no_update_count = 0
         # The stall timeout applies only once the run is stepping (pre-step prep
         # may legitimately emit no step for a long time). On reconnect to an
@@ -1046,7 +1189,28 @@ async def stream_training_progress(
                 return
             try:
                 tp_inner = getattr(getattr(backend, "trainer", None), "training_progress", None)
+                upload_inner = getattr(tp_inner, "checkpoint_upload", None) if tp_inner else None
+                serialized_upload = _json.dumps(upload_inner, sort_keys = True) if upload_inner else ""
+                if serialized_upload and serialized_upload != last_upload:
+                    yield format_sse(serialized_upload, event = "checkpoint_upload")
+                    last_upload = serialized_upload
                 live_step = (getattr(tp_inner, "step", 0) or 0) if tp_inner else 0
+                dataset_progress = (
+                    getattr(tp_inner, "current_dataset_index", None),
+                    getattr(tp_inner, "current_dataset_total", None),
+                    getattr(tp_inner, "current_dataset_repository_id", None),
+                )
+                if dataset_progress[0] is not None and dataset_progress != last_dataset_progress:
+                    progress_payload = build_progress(
+                        live_step,
+                        getattr(tp_inner, "loss", None),
+                        getattr(tp_inner, "learning_rate", None),
+                        getattr(tp_inner, "total_steps", 0),
+                        getattr(tp_inner, "epoch", None),
+                        progress = tp_inner,
+                    )
+                    yield format_sse(progress_payload.model_dump_json(), event = "progress")
+                    last_dataset_progress = dataset_progress
                 if backend.step_history or live_step > 0:
                     current_step = backend.step_history[-1] if backend.step_history else 0
                     current_loss = backend.loss_history[-1] if backend.loss_history else None
