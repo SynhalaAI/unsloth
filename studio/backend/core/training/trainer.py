@@ -3187,6 +3187,9 @@ class UnslothTrainer:
 
             self._update_progress(is_training = True, error = None)
 
+            # Register progress callback to push updates to UI
+            self.add_progress_callback(self._create_progress_callback())
+
             # Setup logging
             if training_args.get("enable_wandb", False) and training_args.get("wandb_token"):
                 os.environ["WANDB_API_KEY"] = training_args["wandb_token"]
