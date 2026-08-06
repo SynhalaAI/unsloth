@@ -1113,9 +1113,17 @@ def format_and_template_dataset(
         elif vlm_structure["format"] == "vlm_messages":
             warnings.append("Dataset already in standard VLM messages format")
 
-        # Return result
+        # Return result - convert list back to Dataset for train_test_split compatibility
+        final_dataset = dataset
+        if isinstance(dataset, list):
+            from datasets import Dataset
+            # Convert list back to Dataset so _resolve_eval_split_from_dataset can use train_test_split
+            # Note: This loses PIL Image objects, but is needed for splitting
+            # For VLM datasets with images, we keep as list and handle splitting differently
+            pass  # Keep as list for now - trainer.py needs to handle list splitting for VLM
+        
         return {
-            "dataset": dataset,
+            "dataset": dataset,  # Keep original (may be list for VLM)
             "detected_format": vlm_structure["format"],
             "final_format": "vlm_messages",
             "chat_column": "messages",
