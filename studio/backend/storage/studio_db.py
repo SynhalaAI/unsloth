@@ -303,21 +303,21 @@ chat_thread_cols = {
 if "project_id" not in chat_thread_cols:
     conn.execute("ALTER TABLE chat_threads ADD COLUMN project_id TEXT")
 if "openai_code_exec_container_id" not in chat_thread_cols:
-conn.execute("ALTER TABLE chat_threads ADD COLUMN openai_code_exec_container_id TEXT")
-    if "anthropic_code_exec_container_id" not in chat_thread_cols:
-conn.execute("ALTER TABLE chat_threads ADD COLUMN anthropic_code_exec_container_id TEXT")
-    if "forked_from_thread_id" not in chat_thread_cols:
-conn.execute("ALTER TABLE chat_threads ADD COLUMN forked_from_thread_id TEXT")
-    if "forked_from_message_id" not in chat_thread_cols:
-conn.execute("ALTER TABLE chat_threads ADD COLUMN forked_from_message_id TEXT")
-    if "updated_at" not in chat_thread_cols:
-conn.execute("ALTER TABLE chat_threads ADD COLUMN updated_at INTEGER")
-        # Floor at created_at: forked threads copy older ancestor messages,
-        # so the fork's creation time must win over the branch message times.
-        conn.execute(
-            """
-            UPDATE chat_threads SET updated_at = MAX(
-                COALESCE(
+    conn.execute("ALTER TABLE chat_threads ADD COLUMN openai_code_exec_container_id TEXT")
+if "anthropic_code_exec_container_id" not in chat_thread_cols:
+    conn.execute("ALTER TABLE chat_threads ADD COLUMN anthropic_code_exec_container_id TEXT")
+if "forked_from_thread_id" not in chat_thread_cols:
+    conn.execute("ALTER TABLE chat_threads ADD COLUMN forked_from_thread_id TEXT")
+if "forked_from_message_id" not in chat_thread_cols:
+    conn.execute("ALTER TABLE chat_threads ADD COLUMN forked_from_message_id TEXT")
+if "updated_at" not in chat_thread_cols:
+    conn.execute("ALTER TABLE chat_threads ADD COLUMN updated_at INTEGER")
+    # Floor at created_at: forked threads copy older ancestor messages,
+    # so the fork's creation time must win over the branch message times.
+    conn.execute(
+        """
+        UPDATE chat_threads SET updated_at = MAX(
+            COALESCE(
                     (
                         SELECT MAX(m.created_at) FROM chat_messages m
                         WHERE m.thread_id = chat_threads.id
