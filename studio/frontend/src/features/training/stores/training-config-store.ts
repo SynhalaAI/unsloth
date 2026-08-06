@@ -686,6 +686,9 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             uploadedFile: null,
             ...resetDatasetState(),
           });
+          if (dataset) {
+            runDatasetCheck(dataset, "train");
+          }
         },
         selectLocalDataset: (uploadedFile) => {
           _datasetCheckController?.abort();
@@ -750,6 +753,9 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             isDatasetAudio: false,
             isCheckingDataset: false,
           });
+          if (dataset) {
+            runDatasetCheck(dataset, "train");
+          }
         },
         setDatasetSubset: (datasetSubset) => {
           _datasetCheckController?.abort();
