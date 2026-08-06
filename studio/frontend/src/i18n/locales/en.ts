@@ -408,6 +408,7 @@ export const en = {
         "Photo updated for this session, but may not persist after reload.",
       photoUpdateErrorTitle: "Could not update profile photo",
       uploadPhoto: "Upload photo",
+      removePhoto: "Remove",
       imageUseError: "Could not use this image.",
     },
     appearance: {
@@ -716,6 +717,15 @@ export const en = {
       modelDisclaimer: "Show model disclaimer",
       modelDisclaimerDescription:
         'Show "LLMs can make mistakes" under the chat box.',
+      modelSelection: {
+        title: "Model selection settings",
+        expandQuantizations: "Expand quantizations",
+        expandQuantizationsDescription:
+          "When on, GGUF models under \"On Device\" immediately show their quantizations. When off, click a model to reveal its quantizations.",
+        showAllQuantizations: "Show all quantizations",
+        showAllQuantizationsDescription:
+          "When on, list every quantization under \"On Device\", including ones not downloaded. When off, only show downloaded quantizations.",
+      },
       artifacts: {
         title: "Canvas",
         collapseHtmlBlocks: "Collapse HTML blocks",
@@ -827,6 +837,7 @@ export const en = {
       fineTuneExportFailed: "Failed to export training data",
       fineTuneRecipeFailed: "Failed to open chats in Recipes",
       fineTuneTrainFailed: "Failed to load dataset in the Train tab",
+      backToData: "Back to Data",
     },
     connections: {
       title: "Connections",
@@ -895,6 +906,8 @@ export const en = {
         "Apps using this token immediately lose access. This cannot be undone.",
       revokeAction: 'Revoke "{name}"',
       revoking: "Revoking...",
+      usageNoModel:
+        "Load or download a model to see runnable examples. This server has no models yet to suggest.",
     },
     about: {
       title: "About",
