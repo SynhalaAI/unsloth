@@ -987,6 +987,8 @@ class TrainingBackend:
                 job_id,
                 before_spawn = before_spawn,
                 resume_source_run_id = resume_source_run_id,
+                imported_checkpoint = kwargs.pop("imported_checkpoint", None),
+                import_source_output_dir = kwargs.pop("import_source_output_dir", None),
                 **kwargs,
             )
         finally:
@@ -1000,6 +1002,8 @@ class TrainingBackend:
         *,
         before_spawn = None,
         resume_source_run_id: Optional[str] = None,
+        imported_checkpoint: Optional[str] = None,
+        import_source_output_dir: Optional[str] = None,
         **kwargs,
     ) -> bool:
         # Join prior pump thread — refuse to start if it won't die
