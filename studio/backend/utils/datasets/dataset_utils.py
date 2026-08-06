@@ -1111,10 +1111,9 @@ def format_and_template_dataset(
 
         # Already in standard VLM format
         elif vlm_structure["format"] == "vlm_messages":
-            dataset = [sample for sample in dataset]
             warnings.append("Dataset already in standard VLM messages format")
 
-        # Return as list
+        # Return result
         return {
             "dataset": dataset,
             "detected_format": vlm_structure["format"],
