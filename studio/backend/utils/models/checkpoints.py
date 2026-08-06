@@ -129,7 +129,7 @@ def _read_checkpoint_loss(checkpoint_path: Path) -> Optional[float]:
     if not trainer_state.exists():
         return None
     try:
-        with open(trainer_state) as f:
+        with open(trainer_state, encoding = "utf-8-sig") as f:
             state = json.load(f)
         log_history = state.get("log_history", [])
         if log_history:
