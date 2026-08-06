@@ -3496,8 +3496,27 @@ def _create_trainer_progress_callback(event_queue: Any) -> Callable[[TrainingPro
     Status events go out only while the status is non-empty, so the empty status the
     trainer reports on every log leaves the parent's last real status standing.
     """
+    _last_checkpoint_upload = None
 
     def _on_progress(progress: TrainingProgress) -> None:
+        nonlocal _last_checkpoint_upload
+        checkpoint_upload = getattr(progress, "checkpoint_upload", None)
+        if checkpoint_upload != _last_checkpoint_upload:
+            _last_checkpoint_upload = dict(checkpoint_upload or {})
+            event_queue.put(
+                {
+                    "type": "checkpoint_upload",
+                    "checkpoint_upload": _last_checkpoint_upload,
+                    "ts": time.time(),
+                }
+            )
+            # Hub's uploader owns a tqdm bar, which the generic monitor below
+            # temporarily surfaces as the training status.  Once the upload is
+            # terminal, restore the normal status immediately rather than
+            # leaving a 100% filename in the header until another checkpoint
+            # happens to produce a new bar.
+            if _last_checkpoint_upload.get("state") in {"completed", "skipped", "error"}:
+                _send_status(event_queue, "Training...")
         has_train_loss = progress.step > 0 and progress.loss is not None
         has_eval_loss = progress.eval_loss is not None
         if (progress.step == 0 and progress.total_steps > 0) or has_train_loss or has_eval_loss:
@@ -3515,6 +3534,9 @@ def _create_trainer_progress_callback(event_queue: Any) -> Callable[[TrainingPro
                     "num_tokens": progress.num_tokens,
                     "eval_loss": progress.eval_loss,
                     "status_message": progress.status_message,
+                    "current_dataset_index": getattr(progress, "current_dataset_index", None),
+                    "current_dataset_total": getattr(progress, "current_dataset_total", None),
+                    "current_dataset_repository_id": getattr(progress, "current_dataset_repository_id", None),
                     "ts": time.time(),
                 }
             )
