@@ -30,10 +30,12 @@ export const en = {
       openSidebar: "Open sidebar",
       chatOptions: "Chat options",
       runOptions: "Run options",
+      resizeSidebar: "Resize or collapse sidebar",
     },
     navigation: {
       newChat: "New chat",
       returnToChat: "Return to Chat",
+      returnToChats: "Back to chats ({count})",
       compare: "Compare",
       search: "Search",
       hub: "Model hub",
@@ -142,6 +144,7 @@ export const en = {
         sttCancellingDownload: "Cancelling…",
         sttDownloadComplete: "Speech recognition model downloaded",
         sttDownloadFailed: "Could not download the speech recognition model",
+        sttDownloadConfirmTitle: "Download {model}?",
         sttLoad: "Load",
         sttUnload: "Unload",
         sttUnloading: "Unloading…",
@@ -169,6 +172,7 @@ export const en = {
         manage: "Manage",
         backToVoice: "Back to Voice",
         addEntry: "Add entry",
+        newEntryAria: "New dictionary entry",
       },
       recents: {
         sectionTitle: "Dictation history",
@@ -231,6 +235,7 @@ export const en = {
         previewAction: "Preview",
         stopAction: "Stop",
         ttsLabel: "Text to speech",
+        previewFailed: "Failed to play TTS preview",
         notSupported: "Not supported in this browser",
       },
     },
@@ -288,6 +293,7 @@ export const en = {
         idleUnload: "Idle auto-unload",
         idleUnloadDescription:
           "Unload the model after this many idle seconds to free VRAM; the next request reloads it. 0 keeps it loaded. Minimum 60 seconds.",
+        idleSecondsAriaLabel: "Seconds until idle auto-unload",
         idleNeedsEnable:
           "Turn on Switch model by request so an unloaded model reloads on next use.",
         idleActiveViaEnv:
@@ -401,6 +407,7 @@ export const en = {
       photoPersistErrorDescription:
         "Photo updated for this session, but may not persist after reload.",
       photoUpdateErrorTitle: "Could not update profile photo",
+      uploadPhoto: "Upload photo",
       imageUseError: "Could not use this image.",
     },
     appearance: {
@@ -513,6 +520,14 @@ export const en = {
         compactSidebarDescription:
           "Keep the sidebar expanded instead of collapsing to icons.",
       },
+      sidebarNav: {
+        title: "Sidebar navigation",
+        description:
+          "Pin and reorder sidebar tabs. Unpinned tabs live in the More menu; if only one tab remains unpinned, it's hidden instead of becoming a single-item menu. New chat stays pinned.",
+        dragToReorder: "Drag to reorder",
+        pinToSidebar: "Pin {name} to sidebar",
+        moreHolds: "More ({count})",
+      },
       sidebarMenu: {
         title: "Sidebar menu",
         description:
@@ -537,6 +552,8 @@ export const en = {
         currentLoad: "Current load",
         free: "{value} free",
         noGpu: "No visible GPU",
+        apiTitle: "API Monitor",
+        summary: "Active requests, errors, and token usage",
       },
       gpu: {
         title: "GPU devices",
@@ -547,6 +564,7 @@ export const en = {
         used: "{value} used",
         free: "{value} free",
         total: "{value} total",
+        ggufInference: "GGUF inference",
       },
       storage: {
         title: "Storage",
@@ -555,6 +573,8 @@ export const en = {
         diskFree: "{free} free",
         modelsFolder: "Model downloads",
         modelsFolderDescription: "Hugging Face cache used for model downloads.",
+        modelsFolderKeywords:
+          "models, weights, checkpoints, hugging face, cache, download location",
         checkpointFolder: "Checkpoint saving location",
         checkpointFolderDescription:
           "Where training runs and their checkpoints are saved.",
