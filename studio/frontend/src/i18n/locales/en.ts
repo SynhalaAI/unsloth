@@ -31,11 +31,14 @@ export const en = {
       chatOptions: "Chat options",
       runOptions: "Run options",
       resizeSidebar: "Resize or collapse sidebar",
+      resizeRunSettings: "Resize or collapse run settings",
+      openRunSettings: "Open run settings",
     },
     navigation: {
       newChat: "New chat",
       returnToChat: "Return to Chat",
       returnToChats: "Back to chats ({count})",
+      chatGenerating: "Generating",
       compare: "Compare",
       search: "Search",
       hub: "Model hub",
@@ -145,6 +148,10 @@ export const en = {
         sttDownloadComplete: "Speech recognition model downloaded",
         sttDownloadFailed: "Could not download the speech recognition model",
         sttDownloadConfirmTitle: "Download {model}?",
+        sttDownloadConfirmBody:
+          "Local dictation works fully offline, but first needs the {model} speech model. About {size}, downloaded once to your Hugging Face cache.",
+        sttDownloadConfirmBodyUnsized:
+          "Local dictation works fully offline, but first needs the {model} speech model. Downloaded once to your Hugging Face cache.",
         sttLoad: "Load",
         sttUnload: "Unload",
         sttUnloading: "Unloading…",
@@ -173,6 +180,9 @@ export const en = {
         backToVoice: "Back to Voice",
         addEntry: "Add entry",
         newEntryAria: "New dictionary entry",
+        entryPlaceholder: "Anna Ivanova",
+        entryAria: "Dictionary entry {index}",
+        removeEntryAria: "Remove dictionary entry {index}",
       },
       recents: {
         sectionTitle: "Dictation history",
@@ -301,6 +311,9 @@ export const en = {
         loadError: "Failed to load model auto-switch settings.",
         saveError: "Failed to save model auto-switch settings.",
         idleError: "Enter 0 to keep the model loaded, or at least 60 seconds.",
+        autoDownload: "Auto-download missing models",
+        autoDownloadDescription:
+          "Downloads the GGUF named in an API request if it is not already present. This allows anyone with an API key to consume disk space and bandwidth.",
         keepKv: "Keep chat context across idle unload",
         keepKvDescription:
           "Save the model's KV cache to disk before an idle unload and restore it on reload, so resumed chats skip re-reading their history. Chat context is written to disk (up to 10 GB) until it is restored or cleaned up.",
@@ -566,6 +579,7 @@ export const en = {
         free: "{value} free",
         total: "{value} total",
         ggufInference: "GGUF inference",
+        unavailable: "unavailable",
       },
       storage: {
         title: "Storage",
@@ -965,6 +979,10 @@ export const en = {
         restartAfterUpdate: "Restart Unsloth after updating.",
         desktopManaged:
           "The desktop app keeps its bundled backend updated and will prompt when a new version is available.",
+        desktopReady: "Desktop app updates",
+        desktopReadyDescription:
+          "Check if a newer version of the desktop app is available.",
+        desktopChecking: "Checking for updates",
         unknownInstall:
           "Could not detect how Unsloth was installed. For installer or PyPI installs, use the commands above.",
         localCheckout:
