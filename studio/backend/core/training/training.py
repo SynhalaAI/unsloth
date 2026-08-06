@@ -10,6 +10,7 @@ orchestrates the subprocess lifecycle, pumps events from the worker's mp.Queue, 
 exposes the same API to routes/training.py. Pattern follows data_recipe/jobs/manager.py.
 """
 
+import bisect
 import json as _json
 import math
 import multiprocessing as mp
@@ -150,6 +151,7 @@ def _build_training_worker_config(values: dict[str, Any]) -> dict[str, Any]:
         "max_seq_length": values.get("max_seq_length", 2048),
         "vision_image_size": values.get("vision_image_size"),
         "hf_dataset": values.get("hf_dataset", ""),
+        "training_datasets": values.get("training_datasets") or [],
         "local_datasets": values.get("local_datasets"),
         "local_eval_datasets": values.get("local_eval_datasets"),
         "format_type": values.get("format_type", ""),
@@ -158,6 +160,7 @@ def _build_training_worker_config(values: dict[str, Any]) -> dict[str, Any]:
         "eval_split": values.get("eval_split"),
         "eval_steps": values.get("eval_steps", 0.00),
         "dataset_streaming": values.get("dataset_streaming", False),
+        "portable_resume_data": values.get("portable_resume_data", "metadata"),
         "dataset_slice_start": values.get("dataset_slice_start"),
         "dataset_slice_end": values.get("dataset_slice_end"),
         "custom_format_mapping": values.get("custom_format_mapping"),
@@ -173,6 +176,9 @@ def _build_training_worker_config(values: dict[str, Any]) -> dict[str, Any]:
         "warmup_ratio": values.get("warmup_ratio"),
         "max_steps": values.get("max_steps", 0),
         "save_steps": values.get("save_steps", 0),
+        "save_total_limit": values.get("save_total_limit"),
+        "push_to_hub": values.get("push_to_hub", False),
+        "hub_model_id": values.get("hub_model_id"),
         "weight_decay": values.get("weight_decay", 0.001),
         "max_grad_norm": values.get("max_grad_norm", 0.0),
         "max_grad_value": _coerce_optional_nonneg_float(
@@ -208,6 +214,7 @@ def _build_training_worker_config(values: dict[str, Any]) -> dict[str, Any]:
         "enable_tensorboard": values.get("enable_tensorboard", False),
         "tensorboard_dir": values.get("tensorboard_dir", "runs"),
         "resume_from_checkpoint": values.get("resume_from_checkpoint"),
+        "resume_checkpoint_path": values.get("resume_checkpoint_path"),
         "trust_remote_code": values.get("trust_remote_code", False),
         "approved_remote_code_fingerprint": values.get("approved_remote_code_fingerprint"),
         "subject": values.get("subject"),
@@ -249,6 +256,14 @@ def _sanitize_db_config(config: dict[str, Any]) -> dict[str, Any]:
             "use_iam_role": bool(s3_config.get("use_iam_role")),
         }
     return db_config
+
+
+def _build_training_manifest(config: dict[str, Any], expected_checkpoint_step: int = 0):
+    """Construct portable run metadata beside the DB sanitizer and share its policy."""
+    from core.training.manifest import build_manifest
+    return build_manifest(
+        _sanitize_db_config(config), expected_checkpoint_step = expected_checkpoint_step
+    )
 
 
 def _s3_dataset_name(s3_dataset: Any) -> Optional[str]:
@@ -329,6 +344,12 @@ class TrainingProgress:
     eval_loss: Optional[float] = None
     peak_memory_gb: Optional[float] = None
     output_dir: Optional[str] = None
+    current_dataset_index: Optional[int] = None
+    current_dataset_total: Optional[int] = None
+    current_dataset_repository_id: Optional[str] = None
+    checkpoint_upload: dict[str, Any] = field(
+        default_factory = lambda: {"state": "idle", "message": ""}
+    )
 
 
 class _MLXTrainerAdapter:
@@ -481,6 +502,7 @@ class _MLXTrainerAdapter:
         dataset_source: Optional[str],
         format_type: str = "auto",
         local_datasets: Optional[list[str]] = None,
+        training_datasets: Optional[list[dict[str, Any]]] = None,
         local_eval_datasets: Optional[list[str]] = None,
         custom_format_mapping: Optional[dict[str, Any]] = None,
         subset: Optional[str] = None,
@@ -492,8 +514,10 @@ class _MLXTrainerAdapter:
         dataset_slice_end: Optional[int] = None,
         is_cpt: bool = False,
         s3_config: dict = None,
+        training_seed: int = 3407,
     ) -> Optional[tuple]:
         self._dataset_config = {
+            "training_datasets": training_datasets or [],
             "hf_dataset": dataset_source or "",
             "local_datasets": local_datasets,
             "local_eval_datasets": local_eval_datasets,
@@ -670,6 +694,9 @@ class _MLXTrainerAdapter:
 
     def _handle_event(self, event: dict[str, Any]):
         etype = event.get("type")
+        if etype == "checkpoint_upload":
+            self._update_progress(checkpoint_upload = dict(event.get("checkpoint_upload") or {}))
+            return
         if etype == "status":
             self._update_progress(
                 status_message = event.get("status_message") or event.get("message") or ""
@@ -691,6 +718,16 @@ class _MLXTrainerAdapter:
                 num_tokens = event.get("num_tokens", self.training_progress.num_tokens),
                 eval_loss = event.get("eval_loss", self.training_progress.eval_loss),
                 peak_memory_gb = event.get("peak_memory_gb", self.training_progress.peak_memory_gb),
+                current_dataset_index = event.get(
+                    "current_dataset_index", self.training_progress.current_dataset_index
+                ),
+                current_dataset_total = event.get(
+                    "current_dataset_total", self.training_progress.current_dataset_total
+                ),
+                current_dataset_repository_id = event.get(
+                    "current_dataset_repository_id",
+                    self.training_progress.current_dataset_repository_id,
+                ),
             )
             return
         if etype == "complete":
@@ -807,6 +844,8 @@ class TrainingBackend:
         self.current_job_id: Optional[str] = None
         self._output_dir: Optional[str] = None
         self._resume_source_run_id: Optional[str] = None
+        self._imported_checkpoint: Optional[str] = None
+        self._import_source_output_dir: Optional[str] = None
         self._terminal_finalize_payload: Optional[dict] = None
 
         # DB persistence
@@ -830,12 +869,92 @@ class TrainingBackend:
     # Public API (called by routes/training.py)
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _checkpoint_metric_history(checkpoint: Any) -> tuple[int, list[dict]]:
+        """Read the portable metric history stored by Transformers.
+
+        Checkpoint state predates Studio's run database and is also the only history
+        available for imported checkpoints.  It is deliberately best-effort: trainer
+        restoration remains responsible for deciding whether a checkpoint is valid.
+        """
+        try:
+            state = _json.loads((Path(checkpoint) / "trainer_state.json").read_text("utf-8"))
+            raw_global_step = state.get("global_step", 0)
+            if isinstance(raw_global_step, bool):
+                return 0, []
+            global_step = int(raw_global_step)
+            if global_step < 0 or not isinstance(state.get("log_history"), list):
+                return max(global_step, 0), []
+        except (OSError, ValueError, TypeError, _json.JSONDecodeError, AttributeError):
+            return 0, []
+
+        # One row per step makes duplicate resolution deterministic (the last valid
+        # value for each individual metric wins), matching the DB upsert semantics.
+        rows: dict[int, dict] = {}
+        for entry in state["log_history"]:
+            if not isinstance(entry, dict):
+                continue
+            raw_step = entry.get("step")
+            if isinstance(raw_step, bool):
+                continue
+            try:
+                step = int(raw_step)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if step <= 0 or step > global_step or step != raw_step:
+                continue
+            row = rows.setdefault(step, {"step": step})
+            for key in ("loss", "learning_rate", "grad_norm", "eval_loss"):
+                raw_value = entry.get(key)
+                if raw_value is None or isinstance(raw_value, bool):
+                    continue
+                try:
+                    value = float(raw_value)
+                except (TypeError, ValueError, OverflowError):
+                    continue
+                if math.isfinite(value):
+                    row[key] = value
+        return global_step, [rows[step] for step in sorted(rows) if len(rows[step]) > 1]
+
+    def _hydrate_checkpoint_history(self, checkpoint: Any) -> None:
+        global_step, rows = self._checkpoint_metric_history(checkpoint)
+        self._progress.step = global_step
+        for row in rows:
+            step = row["step"]
+            # The public runtime schema has one shared step axis for loss and LR.
+            # Preserve partial legacy rows using the same zero placeholder already
+            # used for live events whose learning rate is absent.
+            if "loss" in row or "learning_rate" in row:
+                self.step_history.append(step)
+                self.loss_history.append(row.get("loss", 0.0))
+                self.lr_history.append(row.get("learning_rate", 0.0))
+            if "grad_norm" in row:
+                self.grad_norm_step_history.append(step)
+                self.grad_norm_history.append(row["grad_norm"])
+            if "eval_loss" in row:
+                self.eval_step_history.append(step)
+                self.eval_loss_history.append(row["eval_loss"])
+                self.eval_enabled = True
+            self._metric_buffer.append(dict(row))
+
+    @staticmethod
+    def _upsert_series(steps: list, values: list, step: int, value: float) -> None:
+        """Replace a restored point or insert a live point in monotonic order."""
+        index = bisect.bisect_left(steps, step)
+        if index < len(steps) and steps[index] == step:
+            values[index] = value
+        else:
+            steps.insert(index, step)
+            values.insert(index, value)
+
     def start_training(
         self,
         job_id: str,
         *,
         before_spawn = None,
         resume_source_run_id: Optional[str] = None,
+        imported_checkpoint: Optional[str] = None,
+        import_source_output_dir: Optional[str] = None,
         **kwargs,
     ) -> bool:
         """Spawn a subprocess to run the full training pipeline.
@@ -1020,9 +1139,13 @@ class TrainingBackend:
             self.eval_loss_history.clear()
             self.eval_step_history.clear()
             self.eval_enabled = False
-            self._output_dir = config.get("output_dir") if resume_source_run_id else None
+            self._output_dir = (
+                config.get("output_dir") if (resume_source_run_id or imported_checkpoint) else None
+            )
             self._progress.output_dir = self._output_dir
             self._resume_source_run_id = resume_source_run_id
+            self._imported_checkpoint = imported_checkpoint
+            self._import_source_output_dir = import_source_output_dir
             self._terminal_finalize_payload = None
             self._metric_buffer.clear()
             self._run_finalized = False
@@ -1038,11 +1161,19 @@ class TrainingBackend:
             self._xet_fallback_used = False
             self._needs_xet_respawn = False
 
+            checkpoint = config.get("resume_checkpoint_path") or config.get(
+                "resume_from_checkpoint"
+            )
+            if checkpoint:
+                self._hydrate_checkpoint_history(checkpoint)
+
             # Create the DB run row before the pump can consume events, so it appears
             # in history during model loading and a fast terminal worker can't race the
             # pump into a duplicate create/finalize. From here the pump only finalizes.
             self._ensure_db_run_created()
-            if resume_source_run_id and not self._db_run_created:
+            if self._db_run_created and self._metric_buffer:
+                self._flush_metrics_to_db()
+            if (resume_source_run_id or imported_checkpoint) and not self._db_run_created:
                 if proc.is_alive():
                     proc.terminate()
                 proc.join(timeout = 5.0)
@@ -1050,7 +1181,10 @@ class TrainingBackend:
                     proc.kill()
                     proc.join(timeout = 2.0)
                 self._progress.is_training = False
-                self._progress.error = "Resume checkpoint is no longer available."
+                self._progress.error = (
+                    "Resume checkpoint is no longer available or its output directory "
+                    "is already being imported."
+                )
                 self._spawn_in_progress = False
                 return False
 
@@ -1824,7 +1958,11 @@ class TrainingBackend:
             return
 
         with self._lock:
-            if etype == "progress":
+            if etype == "checkpoint_upload":
+                # Upload failure is deliberately independent of training.error.
+                self._progress.checkpoint_upload = dict(event.get("checkpoint_upload") or {})
+
+            elif etype == "progress":
                 self._progress.step = event.get("step", self._progress.step)
                 self._progress.epoch = event.get("epoch", self._progress.epoch)
                 # loss/lr sanitized below.
@@ -1885,9 +2023,15 @@ class TrainingBackend:
                 loss = _safe_loss
                 lr = _safe_lr
                 if step > 0 and loss is not None:
-                    self.loss_history.append(loss)
-                    self.lr_history.append(lr if lr is not None else 0.0)
-                    self.step_history.append(step)
+                    index = bisect.bisect_left(self.step_history, step)
+                    if index < len(self.step_history) and self.step_history[index] == step:
+                        self.loss_history[index] = loss
+                        if lr is not None:
+                            self.lr_history[index] = lr
+                    else:
+                        self.step_history.insert(index, step)
+                        self.loss_history.insert(index, loss)
+                        self.lr_history.insert(index, lr if lr is not None else 0.0)
 
                 grad_norm = event.get("grad_norm")
                 gn = None
@@ -1897,8 +2041,9 @@ class TrainingBackend:
                     except (TypeError, ValueError):
                         gn = None
                     if step > 0 and gn is not None and math.isfinite(gn):
-                        self.grad_norm_history.append(gn)
-                        self.grad_norm_step_history.append(step)
+                        self._upsert_series(
+                            self.grad_norm_step_history, self.grad_norm_history, step, gn
+                        )
                     else:
                         gn = None
 
@@ -1910,8 +2055,9 @@ class TrainingBackend:
                         logger.debug("Could not convert eval_loss to float: %s", eval_loss)
                         eval_loss = None
                     if step > 0 and eval_loss is not None and math.isfinite(eval_loss):
-                        self.eval_loss_history.append(eval_loss)
-                        self.eval_step_history.append(step)
+                        self._upsert_series(
+                            self.eval_step_history, self.eval_loss_history, step, eval_loss
+                        )
                         self.eval_enabled = True
                     else:
                         eval_loss = None
@@ -2142,6 +2288,8 @@ class TrainingBackend:
                 output_dir = self._output_dir
                 cancel_requested = self._cancel_requested
                 resumed_from_run_id = self._resume_source_run_id
+                imported_checkpoint = getattr(self, "_imported_checkpoint", None)
+                import_source_output_dir = getattr(self, "_import_source_output_dir", None)
             create_run(
                 id = job_id,
                 model_name = db_config["model_name"],
@@ -2152,6 +2300,8 @@ class TrainingBackend:
                 output_dir = output_dir,
                 cancel_requested = cancel_requested,
                 resumed_from_run_id = resumed_from_run_id,
+                imported_checkpoint = imported_checkpoint,
+                import_source_output_dir = import_source_output_dir,
             )
             created = True
         except Exception:

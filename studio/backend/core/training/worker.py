@@ -23,11 +23,9 @@ import gc
 import re
 import types
 import subprocess as _sp
+import tempfile
 from pathlib import Path
-from typing import Any, Callable, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from core.training.training import TrainingProgress
+from typing import Any, Callable
 
 # ── WSL AMD Strix Halo (gfx1151): enable ROCDXG before any torch import ──────
 # Mirrors main.py. In WSL the AMD GPU is reached via the ROCDXG bridge
@@ -46,9 +44,10 @@ if sys.platform.startswith("linux") and "HSA_ENABLE_DXG_DETECTION" not in os.env
         pass
 
 logger = get_logger(__name__)
-from utils.child_stdio import utf8_child_env
 from utils.hardware import apply_gpu_ids
 from utils.training_runs import build_default_output_dir_name
+from core.training.manifest import atomic_write_manifest, write_checkpoint_manifests
+from core.training.resume_storage import stage_checkpoint, synchronize_checkpoints
 from utils.wheel_utils import (
     direct_wheel_url,
     flash_attn_wheel_url,
@@ -64,6 +63,20 @@ def _output_dir_from_resume_checkpoint(resume_from_checkpoint: str | None) -> st
         return None
     path = Path(resume_from_checkpoint)
     return str(path.parent if path.name.startswith("checkpoint-") else path)
+
+
+def _prepare_resume_storage(config: dict, event_queue: Any, persistent_output: str) -> tuple[str | None, str]:
+    """Return (read-only resume source, trainer output), optionally on local storage."""
+    source = config.get("resume_checkpoint_path") or config.get("resume_from_checkpoint")
+    if not source or not config.get("copy_checkpoint_to_local"):
+        return source, persistent_output
+
+    def progress(message: str) -> None:
+        _send_status(event_queue, message)
+
+    source = stage_checkpoint(source, config.get("resume_working_dir"), progress)
+    local_root = Path(tempfile.mkdtemp(prefix = "unsloth-continuation-"))
+    return source, str(local_root / "output")
 
 
 _CAUSAL_CONV1D_RELEASE_TAG = "v1.6.1.post4"
@@ -332,8 +345,7 @@ def _install_package_wheel_first(
     if pypi_status_message is None:
         if is_hip:
             pypi_status_message = (
-                f"Compiling {display_name} from source for ROCm "
-                "(this may take several minutes)..."
+                f"Compiling {display_name} from source for ROCm (this may take several minutes)..."
             )
         else:
             pypi_status_message = f"Installing {display_name} from PyPI for faster training..."
@@ -389,10 +401,6 @@ def _install_package_wheel_first(
         "stdout": _sp.PIPE,
         "stderr": _sp.STDOUT,
         "text": True,
-        "encoding": "utf-8",
-        "errors": "replace",
-        # Make the Python child emit the UTF-8 we decode above.
-        "env": utf8_child_env(),
     }
     if is_hip:
         _run_kwargs["timeout"] = 1800
@@ -425,7 +433,7 @@ def _install_package_wheel_first(
         )
         _send_status(
             event_queue,
-            f"{display_name} installation timed out after " f"{_run_kwargs.get('timeout')}s",
+            f"{display_name} installation timed out after {_run_kwargs.get('timeout')}s",
         )
         return False
 
@@ -614,9 +622,6 @@ def _ensure_flash_linear_attention_unconditional(event_queue: Any) -> bool:
             stdout = _sp.PIPE,
             stderr = _sp.STDOUT,
             text = True,
-            encoding = "utf-8",
-            errors = "replace",
-            env = utf8_child_env(),
             timeout = _TILELANG_INSTALL_TIMEOUT_S,
         )
     except _sp.TimeoutExpired:
@@ -860,9 +865,6 @@ def _run_pip(cmd: list[str], event_queue: Any, label: str) -> bool:
             stdout = _sp.PIPE,
             stderr = _sp.STDOUT,
             text = True,
-            encoding = "utf-8",
-            errors = "replace",
-            env = utf8_child_env(),
             timeout = _TILELANG_INSTALL_TIMEOUT_S,
         )
     except _sp.TimeoutExpired:
@@ -1401,8 +1403,7 @@ def _normalize_mlx_studio_scheduler(value):
     if raw not in _MLX_STUDIO_LR_SCHEDULERS:
         supported = ", ".join(sorted(_MLX_STUDIO_LR_SCHEDULERS))
         raise ValueError(
-            f"Unsupported LR scheduler for MLX training: {value!r}. "
-            f"Supported values: {supported}."
+            f"Unsupported LR scheduler for MLX training: {value!r}. Supported values: {supported}."
         )
     return raw
 
@@ -1519,6 +1520,9 @@ def _run_mlx_training(event_queue, stop_queue, config):
     import time
     import math
     from pathlib import Path
+    from core.training.portable_data import pin_hub_datasets
+
+    config["pinned_dataset_revisions"] = pin_hub_datasets(config)
 
     def _send(event_type, **kwargs):
         if event_type == "status" and "message" not in kwargs:
@@ -1784,7 +1788,11 @@ def _run_mlx_training(event_queue, stop_queue, config):
         return load_dataset(loader, data_files = all_files, split = "train")
 
     if hf_dataset:
-        load_kwargs = {"split": train_split, "token": hf_token}
+        load_kwargs = {
+            "split": train_split,
+            "token": hf_token,
+            "revision": config.get("dataset_revision"),
+        }
         if subset:
             load_kwargs["name"] = subset
         dataset = load_dataset(hf_dataset, **load_kwargs)
@@ -1818,7 +1826,11 @@ def _run_mlx_training(event_queue, stop_queue, config):
     # Eval dataset (separate split or local file)
     eval_dataset = None
     if eval_split and hf_dataset:
-        eval_kwargs = {"split": eval_split, "token": hf_token}
+        eval_kwargs = {
+            "split": eval_split,
+            "token": hf_token,
+            "revision": config.get("dataset_revision"),
+        }
         if subset:
             eval_kwargs["name"] = subset
         try:
@@ -1951,6 +1963,9 @@ def _run_mlx_training(event_queue, stop_queue, config):
         {**config, "output_dir": resume_dir} if resume_dir else config, model_name
     )
     ensure_dir(Path(output_dir))
+    from core.training.training import _build_training_manifest
+
+    atomic_write_manifest(output_dir, _build_training_manifest(config))
     _emit_output_dir(event_queue, output_dir)
 
     # ── 6. Create trainer ──
@@ -2003,6 +2018,9 @@ def _run_mlx_training(event_queue, stop_queue, config):
         packing = bool(config.get("packing", False)),
         output_dir = output_dir,
         save_steps = int(config.get("save_steps", 0) or 0),
+        save_total_limit = config.get("save_total_limit") or None,
+        push_to_hub = bool(config.get("save_steps", 0) and config.get("push_to_hub", False)),
+        hub_model_id = config.get("hub_model_id") if config.get("push_to_hub", False) else None,
         eval_steps = eval_steps_val,
     )
 
@@ -2330,46 +2348,6 @@ def run_mlx_training_process(
         )
 
 
-def _training_job_is_local(config) -> bool:
-    """True when neither the model nor the dataset needs the Hub, so the probe is wasted.
-
-    Fail closed: anything unresolvable counts as remote, since skipping a needed probe
-    costs the retry backoff the probe exists to avoid.
-    """
-    try:
-        from utils.paths import is_local_path
-    except Exception:
-        return False
-    if config.get("hf_dataset"):
-        return False
-    model = config.get("model_name")
-    try:
-        if not (model and is_local_path(model)):
-            return False
-        # A local checkpoint can name a remote base, which activation resolves and later
-        # training and security code fetches. Readable from disk, so no network needed
-        # to decide. Matches the inference worker's gate.
-        base, needs_hub = _recorded_local_base(model)
-        if needs_hub:
-            return False
-        return not base or is_local_path(base)
-    except Exception:
-        return False
-
-
-def _recorded_local_base(model_name) -> "tuple[str | None, bool]":
-    """``(base, needs_hub)`` for the base this checkpoint records on disk.
-
-    Delegates to the resolver's own disk reads so the gate cannot drift from what
-    activation later resolves. Fail closed on an unavailable reader.
-    """
-    try:
-        from utils.transformers_version import recorded_local_base
-        return recorded_local_base(model_name)
-    except Exception:
-        return None, True
-
-
 def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> None:
     """Subprocess entrypoint. Fresh Python — no stale module state.
 
@@ -2398,44 +2376,31 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
             flush = True,
         )
 
-    # Offline auto-detect: skip ~25s of HF retries per call when the hub is unreachable.
-    # Skipped for a filesystem-only job: a local checkpoint with a local dataset never
-    # reaches the Hub, and main's check here was DNS-only and returned at once, so probing
-    # unconditionally would add seconds to every such startup.
-    if "HF_HUB_OFFLINE" not in os.environ and not _training_job_is_local(config):
-        _offline = False
-        _network_offline = False
-        try:
-            from utils.utils import hf_dns_dead, hf_env_offline, hf_probe_disabled
+    # Offline auto-detect: skip ~25s of HF retries per call when DNS is dead.
+    if "HF_HUB_OFFLINE" not in os.environ:
+        import socket as _socket
+        import threading as _threading
 
-            # Hub ignores TRANSFORMERS_OFFLINE, so translate it before probing.
-            _offline = hf_env_offline()
-            # hf_dns_dead follows HF_ENDPOINT and stands down when a proxy is configured,
-            # so a reachable mirror (or proxy-only egress) is never called offline.
-            if not _offline:
-                _offline = _network_offline = hf_dns_dead()
-            if not _offline and not hf_probe_disabled():
-                # DNS answers even without egress (WAN down, captive portal). These flags
-                # last the whole job, so only a connection failure counts: a momentary
-                # 502/503 must not block every download for the rest of the run.
-                from utils.transformers_version import hf_endpoint_unreachable
-                _offline = _network_offline = hf_endpoint_unreachable(
-                    gateway_errors_offline = False,
-                    proxy_timeouts_offline = False,
-                )
-        except Exception:
-            _offline = _network_offline = False
-        if _offline:
+        # Daemon thread so we don't mutate process-wide setdefaulttimeout.
+        _result: list = [None]
+
+        def _probe() -> None:
+            try:
+                _socket.gethostbyname("huggingface.co")
+                _result[0] = False
+            except Exception:
+                _result[0] = True
+
+        _t = _threading.Thread(target = _probe, daemon = True)
+        _t.start()
+        _t.join(2.0)
+        if _result[0] is None or _result[0] is True:
             os.environ["HF_HUB_OFFLINE"] = "1"
             os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-            # Only when the network itself is the reason. TRANSFORMERS_OFFLINE alone asks
-            # for cached model files, not for a cache-only dataset: egress may be fine,
-            # and an uncached hf_dataset would then fail for the whole job.
-            if _network_offline:
-                os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
+            os.environ.setdefault("HF_DATASETS_OFFLINE", "1")
             # logger isn't configured yet; print to stderr instead.
             print(
-                "Hugging Face endpoint unreachable; HF_HUB_OFFLINE=1 set for this worker.",
+                "huggingface.co unreachable; HF_HUB_OFFLINE=1 set for this worker.",
                 file = sys.stderr,
                 flush = True,
             )
@@ -2631,9 +2596,15 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
         )
         return
 
-    # No start-method override: Dataset.map() imports Pool from `multiprocess`,
-    # so forcing stdlib multiprocessing onto "fork" never reached it. Linux forks
-    # by default, and the guard now asks multiprocess directly.
+    # ── 1c. Set fork start method so dataset.map() can multiprocess ──
+    # The compiled SFTTrainer disables num_proc if start method isn't "fork".
+    # Linux only and safe here (no CUDA context yet); macOS/Windows excluded.
+    if sys.platform == "linux":
+        import multiprocessing as _mp
+        try:
+            _mp.set_start_method("fork", force = True)
+        except RuntimeError:
+            pass  # Already set
 
     # ── 1c. On Windows, check Triton availability (must be before import torch) ──
     if sys.platform == "win32":
@@ -2972,6 +2943,7 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
         if backend_path not in sys.path:
             sys.path.insert(0, backend_path)
 
+        from core.training.training import TrainingProgress
         from core.training.trainer import UnslothTrainer
         from utils.paths import (
             ensure_dir,
@@ -3017,7 +2989,54 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
     trainer = UnslothTrainer()
 
     # Wire up progress callback → event_queue
-    trainer.add_progress_callback(_create_trainer_progress_callback(event_queue))
+    _last_checkpoint_upload = None
+
+    def _on_progress(progress: TrainingProgress):
+        nonlocal _last_checkpoint_upload
+        checkpoint_upload = getattr(progress, "checkpoint_upload", None)
+        if checkpoint_upload != _last_checkpoint_upload:
+            _last_checkpoint_upload = dict(checkpoint_upload or {})
+            event_queue.put(
+                {
+                    "type": "checkpoint_upload",
+                    "checkpoint_upload": _last_checkpoint_upload,
+                    "ts": time.time(),
+                }
+            )
+            # Hub's uploader owns a tqdm bar, which the generic monitor below
+            # temporarily surfaces as the training status.  Once the upload is
+            # terminal, restore the normal status immediately rather than
+            # leaving a 100% filename in the header until another checkpoint
+            # happens to produce a new bar.
+            if _last_checkpoint_upload.get("state") in {"completed", "skipped", "error"}:
+                _send_status(event_queue, "Training...")
+        has_train_loss = progress.step > 0 and progress.loss is not None
+        has_eval_loss = progress.eval_loss is not None
+        if (progress.step == 0 and progress.total_steps > 0) or has_train_loss or has_eval_loss:
+            event_queue.put(
+                {
+                    "type": "progress",
+                    "step": progress.step,
+                    "epoch": progress.epoch,
+                    "loss": progress.loss,
+                    "learning_rate": progress.learning_rate,
+                    "total_steps": progress.total_steps,
+                    "elapsed_seconds": progress.elapsed_seconds,
+                    "eta_seconds": progress.eta_seconds,
+                    "grad_norm": progress.grad_norm,
+                    "num_tokens": progress.num_tokens,
+                    "eval_loss": progress.eval_loss,
+                    "status_message": progress.status_message,
+                    "current_dataset_index": progress.current_dataset_index,
+                    "current_dataset_total": progress.current_dataset_total,
+                    "current_dataset_repository_id": progress.current_dataset_repository_id,
+                    "ts": time.time(),
+                }
+            )
+        if progress.status_message:
+            _send_status(event_queue, progress.status_message)
+
+    trainer.add_progress_callback(_on_progress)
 
     # Wire up stop_queue polling to trainer.should_stop
     import threading
@@ -3048,6 +3067,26 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
         hf_token = config.get("hf_token", "")
         hf_token = hf_token if hf_token and hf_token.strip() else None
 
+        from core.training.portable_data import (
+            package_local_sources,
+            pin_hub_datasets,
+            resolve_bundled_paths,
+        )
+
+        # Resolve once before any load; all loaders consume these immutable pins.
+        config["pinned_dataset_revisions"] = pin_hub_datasets(config)
+        resume_checkpoint = config.get("resume_from_checkpoint")
+        portable_output = config.get("output_dir") or _output_dir_from_resume_checkpoint(
+            resume_checkpoint
+        )
+        if not portable_output:
+            portable_output = build_default_output_dir_name(model_name, config.get("project_name"))
+        portable_output = str(resolve_output_dir(portable_output))
+        config["output_dir"] = portable_output
+        if config.get("local_datasets") or config.get("local_eval_datasets"):
+            config["bundled_dataset_sources"] = package_local_sources(config, portable_output)
+            resolve_bundled_paths(config, portable_output)
+
         # ── 4a. Lightweight detection + tokenizer (no VRAM) ──
         _send_status(event_queue, "Detecting model type...")
         trainer.pre_detect_and_load_tokenizer(
@@ -3071,6 +3110,7 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
             dataset_source = hf_dataset if hf_dataset and hf_dataset.strip() else None,
             format_type = config.get("format_type", ""),
             local_datasets = config.get("local_datasets") or None,
+            training_datasets = config.get("training_datasets") or None,
             local_eval_datasets = config.get("local_eval_datasets") or None,
             custom_format_mapping = config.get("custom_format_mapping"),
             subset = config.get("subset"),
@@ -3082,6 +3122,8 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
             dataset_slice_end = config.get("dataset_slice_end"),
             is_cpt = _is_cpt_for_dataset,
             s3_config = config.get("s3_config"),
+            training_seed = config.get("random_seed", 3407),
+            dataset_revision = config.get("dataset_revision"),
         )
 
         if isinstance(dataset_result, tuple):
@@ -3089,6 +3131,25 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
         else:
             dataset = dataset_result
             eval_dataset = None
+
+        if config.get("portable_resume_data") == "snapshot" and dataset is not None:
+            from core.training.portable_data import snapshot_processed_datasets
+
+            train_value = dataset.get("dataset", dataset) if isinstance(dataset, dict) else dataset
+            config["dataset_snapshot"] = snapshot_processed_datasets(
+                portable_output,
+                train_value,
+                eval_dataset,
+                {
+                    "format_type": config.get("format_type"),
+                    "custom_format_mapping": config.get("custom_format_mapping"),
+                    "train_split": config.get("train_split"),
+                    "eval_split": config.get("eval_split"),
+                    "slice_start": config.get("dataset_slice_start"),
+                    "slice_end": config.get("dataset_slice_end"),
+                    "seed": config.get("random_seed", 3407),
+                },
+            )
 
         # Disable eval if eval_steps <= 0
         eval_steps = config.get("eval_steps", 0.00)
@@ -3131,7 +3192,10 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
                     try:
                         n, total = bar.n or 0, bar.total or 0
                         desc = getattr(bar, "desc", "") or ""
-                        if total > 0 and n > 0 and desc:
+                        # Completed tqdm instances can remain in tqdm's weak set
+                        # after an uploader closes them.  Re-emitting those bars
+                        # would overwrite the restored training status forever.
+                        if total > 0 and 0 < n < total and desc:
                             pct = min(int(n * 100 / total), 100)
                             _send_status(event_queue, f"{desc.strip()} {pct}% ({n:,}/{total:,})")
                     except (AttributeError, ReferenceError):
@@ -3304,7 +3368,7 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
                 embedding_lr_value = None
 
         # Generate output dir
-        resume_from_checkpoint = config.get("resume_from_checkpoint")
+        resume_from_checkpoint = config.get("resume_checkpoint_path") or config.get("resume_from_checkpoint")
         output_dir = config.get("output_dir") or _output_dir_from_resume_checkpoint(
             resume_from_checkpoint
         )
@@ -3314,8 +3378,17 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
                 config.get("project_name"),
             )
         output_dir = str(resolve_output_dir(output_dir))
-        ensure_dir(Path(output_dir))
-        _emit_output_dir(event_queue, output_dir)
+        persistent_output_dir = output_dir
+        resume_from_checkpoint, trainer_output_dir = _prepare_resume_storage(
+            config, event_queue, persistent_output_dir
+        )
+        ensure_dir(Path(trainer_output_dir))
+        # The manifest is independent of studio.db, so copied/imported runs remain
+        # reconstructable. Publish it before any checkpoint can be announced.
+        from core.training.training import _build_training_manifest
+
+        atomic_write_manifest(persistent_output_dir, _build_training_manifest(config))
+        _emit_output_dir(event_queue, persistent_output_dir)
 
         tensorboard_dir = config.get("tensorboard_dir")
         if config.get("enable_tensorboard", False):
@@ -3334,7 +3407,7 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
 
         trainer._train_worker(
             dataset,
-            output_dir = output_dir,
+            output_dir = trainer_output_dir,
             num_epochs = config.get("num_epochs", 3),
             learning_rate = lr_value,
             embedding_learning_rate = embedding_lr_value,
@@ -3344,6 +3417,11 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
             warmup_ratio = config.get("warmup_ratio"),
             max_steps = max_steps if max_steps and max_steps > 0 else 0,
             save_steps = save_steps if save_steps and save_steps > 0 else 0,
+            save_total_limit = config.get("save_total_limit") or None,
+            push_to_hub = bool(save_steps and config.get("push_to_hub", False)),
+            hub_model_id = config.get("hub_model_id")
+            if save_steps and config.get("push_to_hub", False)
+            else None,
             weight_decay = config.get("weight_decay", 0.001),
             random_seed = config.get("random_seed", 3407),
             packing = config.get("packing", False),
@@ -3367,6 +3445,15 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
 
         # Check final state
         progress = trainer.get_training_progress()
+        # Covers MLX, embedding, and any trainer variant without the shared HF
+        # callback. Only completed trainer_state/checkpoint pairs are published.
+        write_checkpoint_manifests(trainer_output_dir)
+        if trainer_output_dir != persistent_output_dir:
+            synchronize_checkpoints(
+                trainer_output_dir,
+                persistent_output_dir,
+                lambda message: _send_status(event_queue, message),
+            )
         if progress.error:
             event_queue.put(
                 {
@@ -3378,7 +3465,7 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
             )
         else:
             saved_output_dir = (
-                None if trainer.should_stop and not trainer.save_on_stop else output_dir
+                None if trainer.should_stop and not trainer.save_on_stop else persistent_output_dir
             )
             event_queue.put(
                 {
@@ -3490,109 +3577,6 @@ def _write_mlx_stop_checkpoint(trainer, optimizer, output_dir) -> bool:
     return _mlx_has_checkpoint_at_step(output_dir, step)
 
 
-def _create_trainer_progress_callback(event_queue: Any) -> Callable[[TrainingProgress], None]:
-    """UnslothTrainer callback that reports training progress to the parent.
-
-    Status events go out only while the status is non-empty, so the empty status the
-    trainer reports on every log leaves the parent's last real status standing.
-    """
-
-    def _on_progress(progress: TrainingProgress) -> None:
-        has_train_loss = progress.step > 0 and progress.loss is not None
-        has_eval_loss = progress.eval_loss is not None
-        if (progress.step == 0 and progress.total_steps > 0) or has_train_loss or has_eval_loss:
-            event_queue.put(
-                {
-                    "type": "progress",
-                    "step": progress.step,
-                    "epoch": progress.epoch,
-                    "loss": progress.loss,
-                    "learning_rate": progress.learning_rate,
-                    "total_steps": progress.total_steps,
-                    "elapsed_seconds": progress.elapsed_seconds,
-                    "eta_seconds": progress.eta_seconds,
-                    "grad_norm": progress.grad_norm,
-                    "num_tokens": progress.num_tokens,
-                    "eval_loss": progress.eval_loss,
-                    "status_message": progress.status_message,
-                    "ts": time.time(),
-                }
-            )
-        if progress.status_message:
-            _send_status(event_queue, progress.status_message)
-
-    return _on_progress
-
-
-def _create_embedding_progress_callback(
-    event_queue: Any,
-    *,
-    total_steps: int,
-    training_start_time: float,
-    should_stop: Callable[[], bool],
-):
-    """TrainerCallback that reports embedding training progress to the parent.
-
-    ``should_stop`` is polled in on_train_begin and on_step_end, so a stop signal
-    arriving mid-run is seen.
-    """
-    from transformers import TrainerCallback
-
-    class _EmbeddingProgressCallback(TrainerCallback):
-        def on_train_begin(self, args, state, control, **kwargs):
-            # Progress events carry an empty status, so without this the parent keeps
-            # showing "Starting embedding training..." for the whole run.
-            if should_stop():
-                return
-            _send_status(event_queue, "Training in progress...")
-
-        def on_log(
-            self,
-            args,
-            state,
-            control,
-            logs = None,
-            **kwargs,
-        ):
-            if not logs:
-                return
-            loss_value = logs.get("loss", logs.get("train_loss", None))
-            current_step = state.global_step
-
-            elapsed = time.time() - training_start_time
-            eta = None
-            if current_step > 0 and total_steps > 0:
-                remaining = total_steps - current_step
-                if remaining > 0:
-                    eta = (elapsed / current_step) * remaining
-
-            event_queue.put(
-                {
-                    "type": "progress",
-                    "step": current_step,
-                    "epoch": round(state.epoch, 2) if state.epoch else 0,
-                    "loss": loss_value,
-                    "learning_rate": logs.get("learning_rate", None),
-                    "total_steps": total_steps,
-                    "elapsed_seconds": elapsed,
-                    "eta_seconds": eta,
-                    "grad_norm": logs.get("grad_norm"),
-                    "num_tokens": getattr(state, "num_input_tokens_seen", None),
-                    "eval_loss": logs.get("eval_loss"),
-                    "status_message": "",
-                    "ts": time.time(),
-                }
-            )
-
-        def on_step_end(self, args, state, control, **kwargs):
-            if should_stop():
-                logger.info("Embedding training: stop at step %d", state.global_step)
-                control.should_training_stop = True
-                return control
-
-    return _EmbeddingProgressCallback()
-
-
 def _run_embedding_training(event_queue: Any, stop_queue: Any, config: dict) -> None:
     """Self-contained embedding model training pipeline.
 
@@ -3605,6 +3589,9 @@ def _run_embedding_training(event_queue: Any, stop_queue: Any, config: dict) -> 
     import math
     import queue as _queue
     import threading
+    from core.training.portable_data import pin_hub_datasets
+
+    config["pinned_dataset_revisions"] = pin_hub_datasets(config)
 
     model_name = config["model_name"]
     training_start_time = time.time()
@@ -3625,6 +3612,7 @@ def _run_embedding_training(event_queue: Any, stop_queue: Any, config: dict) -> 
         from sentence_transformers.training_args import BatchSamplers
         from datasets import Dataset
         from utils.datasets.cache_safe import load_dataset_cache_safe as load_dataset
+        from transformers import TrainerCallback
         from utils.paths import datasets_root, resolve_output_dir, default_run_dir_name
     except ImportError as e:
         event_queue.put(
@@ -3864,6 +3852,7 @@ def _run_embedding_training(event_queue: Any, stop_queue: Any, config: dict) -> 
                 subset,
                 split = train_split,
                 token = hf_token,
+                revision = config.get("dataset_revision"),
             )
         elif local_datasets:
             dataset = _load_local_embedding_dataset(local_datasets)
@@ -3983,6 +3972,11 @@ def _run_embedding_training(event_queue: Any, stop_queue: Any, config: dict) -> 
         "optim": config.get("optim", "adamw_8bit"),
         "weight_decay": config.get("weight_decay", 0.001),
         "seed": config.get("random_seed", 3407),
+        "save_total_limit": config.get("save_total_limit") or None,
+        "push_to_hub": bool(save_steps_val and config.get("push_to_hub", False)),
+        "hub_model_id": config.get("hub_model_id")
+        if save_steps_val and config.get("push_to_hub", False)
+        else None,
     }
 
     # max_steps vs epochs
@@ -4014,12 +4008,52 @@ def _run_embedding_training(event_queue: Any, stop_queue: Any, config: dict) -> 
         total_steps = steps_per_epoch * effective_epochs
 
     # ── 8. Create progress callback ──
-    progress_callback = _create_embedding_progress_callback(
-        event_queue,
-        total_steps = total_steps,
-        training_start_time = training_start_time,
-        should_stop = lambda: _should_stop,
-    )
+    class _EmbeddingProgressCallback(TrainerCallback):
+        """Send training progress events to the parent via event_queue."""
+
+        def on_log(
+            self,
+            args,
+            state,
+            control,
+            logs = None,
+            **kwargs,
+        ):
+            if not logs:
+                return
+            loss_value = logs.get("loss", logs.get("train_loss", None))
+            current_step = state.global_step
+
+            elapsed = time.time() - training_start_time
+            eta = None
+            if current_step > 0 and total_steps > 0:
+                remaining = total_steps - current_step
+                if remaining > 0:
+                    eta = (elapsed / current_step) * remaining
+
+            event_queue.put(
+                {
+                    "type": "progress",
+                    "step": current_step,
+                    "epoch": round(state.epoch, 2) if state.epoch else 0,
+                    "loss": loss_value,
+                    "learning_rate": logs.get("learning_rate", None),
+                    "total_steps": total_steps,
+                    "elapsed_seconds": elapsed,
+                    "eta_seconds": eta,
+                    "grad_norm": logs.get("grad_norm"),
+                    "num_tokens": getattr(state, "num_input_tokens_seen", None),
+                    "eval_loss": logs.get("eval_loss"),
+                    "status_message": "",
+                    "ts": time.time(),
+                }
+            )
+
+        def on_step_end(self, args, state, control, **kwargs):
+            if _should_stop:
+                logger.info("Embedding training: stop at step %d", state.global_step)
+                control.should_training_stop = True
+                return control
 
     # ── 9. Create trainer and train ──
     _send_status(event_queue, "Starting embedding training...")
@@ -4029,7 +4063,7 @@ def _run_embedding_training(event_queue: Any, stop_queue: Any, config: dict) -> 
             train_dataset = dataset,
             loss = loss,
             args = args,
-            callbacks = [progress_callback],
+            callbacks = [_EmbeddingProgressCallback()],
         )
 
         trainer.train(resume_from_checkpoint = resume_from_checkpoint)

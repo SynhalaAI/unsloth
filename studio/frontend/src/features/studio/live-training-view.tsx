@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ChartsSection } from "./sections/charts-section";
 import { ProgressSection } from "./sections/progress-section";
+import { CheckpointUploadCard } from "./sections/checkpoint-upload-card";
 import {
   type RunConfigOverride,
   mapRunConfigToOverride,
@@ -65,6 +66,7 @@ export function LiveTrainingView(): ReactElement {
       evalLossHistory: state.evalLossHistory,
       firstStepReceived: state.firstStepReceived,
       isStarting: state.isStarting,
+      checkpointUpload: state.checkpointUpload,
     })),
   );
 
@@ -73,6 +75,7 @@ export function LiveTrainingView(): ReactElement {
       selectedModel: state.selectedModel,
       projectName: state.projectName,
       trainingMethod: state.trainingMethod,
+      enableAutoCheckpointUpload: state.enableAutoCheckpointUpload,
     })),
   );
 
@@ -128,6 +131,8 @@ export function LiveTrainingView(): ReactElement {
     };
   }, [runtime.jobId, fetchedRunConfig, fetchAttempt]);
   const runConfigOverride = activeRunOverride(fetchedRunConfig, runtime.jobId);
+  const autoCheckpointUploadEnabled =
+    runConfigOverride?.enableAutoCheckpointUpload ?? config.enableAutoCheckpointUpload;
 
   const activeProjectName =
     runtime.startProjectName !== null
@@ -192,6 +197,12 @@ export function LiveTrainingView(): ReactElement {
             configOverride={runConfigOverride}
           />
         </div>
+        {autoCheckpointUploadEnabled && runtime.checkpointUpload.state !== "idle" ? (
+          <CheckpointUploadCard
+            key={runtime.jobId ?? "no-job"}
+            upload={runtime.checkpointUpload}
+          />
+        ) : null}
         <ChartsSection
           currentStep={viewData.currentStep}
           totalSteps={viewData.totalSteps}
