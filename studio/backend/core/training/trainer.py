@@ -2952,6 +2952,34 @@ class UnslothTrainer:
         MIN_EVAL_ROWS = 16
         MIN_TOTAL_ROWS = 32  # Need at least 16 train + 16 eval
 
+        # Handle VLM datasets that may be lists instead of Dataset objects
+        if isinstance(dataset, list):
+            n = len(dataset)
+            if n < MIN_TOTAL_ROWS:
+                logger.info(f"Dataset too small ({n} rows) for eval split, skipping eval\n")
+                return None
+
+            eval_size = max(MIN_EVAL_ROWS, min(128, int(0.05 * n)))
+            eval_size = min(eval_size, n // 2)
+
+            logger.info(f"Auto-splitting: {eval_size} rows for eval from {n} total\n")
+            
+            # For list datasets, do manual splitting
+            import random
+            random.seed(3407)
+            indices = list(range(n))
+            random.shuffle(indices)
+            
+            test_indices = set(indices[:eval_size])
+            train_data = [dataset[i] for i in range(n) if i not in test_indices]
+            eval_data = [dataset[i] for i in test_indices]
+            
+            logger.info(
+                f"Split complete: {len(train_data)} train, {len(eval_data)} eval\n"
+            )
+            return (train_data, eval_data)
+        
+        # Standard Dataset splitting
         n = len(dataset)
         if n < MIN_TOTAL_ROWS:
             logger.info(f"Dataset too small ({n} rows) for eval split, skipping eval\n")
