@@ -129,7 +129,7 @@ def _read_checkpoint_loss(checkpoint_path: Path) -> Optional[float]:
     if not trainer_state.exists():
         return None
     try:
-        with open(trainer_state) as f:
+        with open(trainer_state, encoding = "utf-8-sig") as f:
             state = json.load(f)
         log_history = state.get("log_history", [])
         if log_history:
@@ -218,6 +218,31 @@ def scan_checkpoints(
             # newest on-disk checkpoint as the authoritative source.
             metadata_source = item if root_is_model else valid_checkpoints[0]
             metadata = _read_model_metadata(metadata_source)
+            # Training metadata from adapter_config.json / config.json
+            metadata: dict = {}
+            try:
+                if adapter_config.exists():
+                    cfg = json.loads(adapter_config.read_text(encoding = "utf-8-sig"))
+                    metadata["base_model"] = cfg.get("base_model_name_or_path")
+                    metadata["peft_type"] = cfg.get("peft_type")
+                    metadata["lora_rank"] = cfg.get("r")
+                elif config_file.exists():
+                    cfg = json.loads(config_file.read_text(encoding = "utf-8-sig"))
+                    metadata["base_model"] = cfg.get("_name_or_path")
+
+                # Detect BNB quantization from config.json
+                if config_file.exists():
+                    if "cfg" not in dir():
+                        cfg = json.loads(config_file.read_text(encoding = "utf-8-sig"))
+                    quant_cfg = cfg.get("quantization_config")
+                    if (
+                        isinstance(quant_cfg, dict)
+                        and quant_cfg.get("quant_method") == "bitsandbytes"
+                    ):
+                        metadata["is_quantized"] = True
+                        logger.info("Detected BNB-quantized model: %s", item.name)
+            except Exception:
+                pass
 
             # Fallback: extract base model name from the folder name, e.g.
             # "unsloth_Llama-3.2-3B-Instruct_1771227800" → "unsloth/Llama-3.2-3B-Instruct"
