@@ -27,6 +27,18 @@ import {
 import { useTransferStats } from "@/features/chat/hooks/use-transfer-stats";
 import { formatEta, formatRate } from "@/features/chat/utils/format-transfer";
 import {
+  EMPTY_DOWNLOAD_STATE,
+  coerceCachedStateReady,
+  downloadStateFromProgress,
+  type DownloadState,
+} from "@/features/studio/download-state";
+import {
+  classifyPreparation,
+  parsePreparationProgress,
+  shouldShowPreparationStatus,
+  type PreparationProgress,
+} from "./preparation-progress";
+import {
   useTrainingActions,
   useTrainingConfigStore,
   useTrainingRuntimeStore,
@@ -35,7 +47,6 @@ import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState, type ReactElement } from "react";
 import { useT } from "@/i18n";
-import { resolveActiveDataset } from "@/features/training/lib/dataset-start-progress";
 
 const HF_REPO_REGEX = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
@@ -56,36 +67,6 @@ function formatCachePath(path: string): string {
   return path
     .replace(/^\/(?:home|Users)\/[^/]+/, "~")
     .replace(/^[A-Za-z]:[/\\]Users[/\\][^/\\]+/, "~");
-}
-
-type DownloadState = {
-  downloadedBytes: number;
-  totalBytes: number;
-  percent: number;
-  cachePath: string | null;
-};
-
-const EMPTY_DOWNLOAD_STATE: DownloadState = {
-  downloadedBytes: 0,
-  totalBytes: 0,
-  percent: 0,
-  cachePath: null,
-};
-
-function coerceCachedStateReady(state: DownloadState): DownloadState {
-  if (!state.cachePath) return state;
-  if (state.downloadedBytes > 0 && state.percent < 100) return state;
-  const totalBytes =
-    state.totalBytes > 0 ? state.totalBytes : state.downloadedBytes;
-  if (totalBytes <= 0) {
-    return { ...state, percent: 100 };
-  }
-  return {
-    ...state,
-    downloadedBytes: totalBytes,
-    totalBytes,
-    percent: 100,
-  };
 }
 
 type Fetcher = (repoId: string) => Promise<DownloadProgressResponse>;
@@ -121,24 +102,27 @@ function useHfDownloadProgress(
     let cancelled = false;
     let finished = false;
     let interval: ReturnType<typeof setInterval> | null = null;
+    // settling compares against the previous reading, so the poll carries it rather than reading it back out of React.
+    let latest = EMPTY_DOWNLOAD_STATE;
+    // the tick does not wait for the request, so a slow response can land after a newer
+    // one. settling compares byte counts for equality, so a stale reading both revokes a
+    // correct settle and becomes the baseline the next poll settles against -- reporting
+    // the stale total as the row's size. discard anything older than what we already have.
+    let issued = 0;
+    let applied = 0;
 
     const poll = async () => {
       if (cancelled || finished) return;
+      const generation = ++issued;
       try {
         const prog = await fetcher(repoId);
-        if (cancelled) return;
-        const downloaded = prog.downloaded_bytes ?? 0;
-        const total = prog.expected_bytes ?? 0;
-        const ratio = prog.progress ?? 0;
-        const pct =
-          total > 0 ? Math.min(100, Math.round(ratio * 100)) : 0;
-        setState({
-          downloadedBytes: downloaded,
-          totalBytes: total,
-          percent: pct,
-          cachePath: prog.cache_path ?? null,
-        });
-        if (ratio >= 1.0) {
+        if (cancelled || generation <= applied) return;
+        applied = generation;
+        const next = downloadStateFromProgress(prog, latest);
+        latest = next;
+        setState(next);
+        // only a verified snapshot stops the tick; a settled row can still be waiting on files.
+        if (next.completeOnDisk) {
           finished = true;
           if (interval) {
             clearInterval(interval);
@@ -170,55 +154,97 @@ function useDatasetDownloadProgress(datasetName: string | null): DownloadState {
   return useHfDownloadProgress(datasetName, getDatasetDownloadProgress);
 }
 
-type DownloadRowProps = {
+const PROGRESS_INDICATOR_CLASS =
+  "bg-[linear-gradient(90deg,var(--control-accent)_0%,color-mix(in_oklab,var(--control-accent)_72%,white)_100%)]";
+
+type ResourceRowProps = {
   label: string;
   state: DownloadState;
+  preparation: PreparationProgress | null;
 };
 
-function DownloadRow({ label, state }: DownloadRowProps): ReactElement | null {
+// Whether the row would draw anything. The caller needs the same answer: the row is
+// mounted unconditionally now, and its `AnimatedSpan` wrapper still lays out a line even
+// when the row itself renders null, which left a blank gap in the terminal for a run whose
+// dataset never produces a transfer.
+export function resourceRowHasContent(
+  state: DownloadState,
+  preparation: PreparationProgress | null,
+): boolean {
+  return Boolean(preparation) || state.downloadedBytes > 0 || Boolean(state.cachePath);
+}
+
+// one row per resource for its whole setup: the transfer while bytes move, then that
+// resource's preparation step once they stop.
+function ResourceRow({
+  label,
+  state,
+  preparation,
+}: ResourceRowProps): ReactElement | null {
   const t = useT();
   // Rolling-window rate + ETA from the cumulative-byte series the poll hook
   // produces, so we show "5.2 / 20.7 GB • 85.3 MB/s • 3m 12s left", not just the pair.
   const stats = useTransferStats(state.downloadedBytes, state.totalBytes);
 
-  if (state.downloadedBytes <= 0 && !state.cachePath) return null;
-  const isComplete = state.totalBytes > 0 && state.percent >= 100;
-  const statusLabel = isComplete
-    ? t("studio.trainingStart.ready")
-    : state.totalBytes > 0
-      ? t("studio.trainingStart.downloading")
-      : state.downloadedBytes === 0
-        ? t("studio.trainingStart.preparing")
-        : null;
+  if (!resourceRowHasContent(state, preparation)) return null;
+  // the coerced state: `coerceCachedStateReady` declines to rewrite a reading with no cache
+  // path, so `settled` alone put a green Ready next to a percent below 100.
+  const isComplete = state.settled && state.percent >= 100;
+  // gated on bytes actually moving, not on `!settled`: an orphaned `.incomplete` blob keeps
+  // `downloaded !== completed` forever, which kept a processed-cache load labelled Downloading.
+  const preparing = state.moving ? null : preparation;
+  const statusLabel = preparing
+    ? preparing.title
+    : isComplete
+      ? t("studio.trainingStart.ready")
+      : state.totalBytes > 0
+        ? t("studio.trainingStart.downloading")
+        : state.downloadedBytes === 0
+          ? t("studio.trainingStart.preparing")
+          : null;
   const showRate = stats.stable && !isComplete;
   const rateSuffix = showRate ? ` • ${formatRate(stats.rateBytesPerSecond)}` : "";
   const etaStr =
     showRate && state.totalBytes > 0 ? formatEta(stats.etaSeconds) : "--";
   const etaSuffix =
     etaStr !== "--" ? ` • ${t("studio.trainingStart.left", { eta: etaStr })}` : "";
-  const sizeLabel =
-    state.totalBytes > 0
+  // an unsettled transfer keeps its byte line under the preparation title: a stall and an
+  // orphaned blob look alike from byte counts, so a stalled download must not lose them.
+  const sizeLabel = preparing
+    ? (preparing.detail ??
+      (state.settled || state.totalBytes <= 0
+        ? null
+        : `${formatBytes(state.downloadedBytes)} / ${formatBytes(state.totalBytes)}`))
+    : state.totalBytes > 0
       ? `${formatBytes(state.downloadedBytes)} / ${formatBytes(state.totalBytes)}${rateSuffix}${etaSuffix}`
       : state.downloadedBytes > 0
         ? `${t("studio.trainingStart.downloaded", {
             size: formatBytes(state.downloadedBytes),
           })}${rateSuffix}`
         : null;
+  const percentLabel = preparing
+    ? preparing.percent !== null
+      ? `${preparing.percent}%`
+      : ""
+    : state.totalBytes > 0
+      ? `${state.percent}%`
+      : "";
   return (
     <div className="flex flex-col gap-1.5 rounded-md border border-border/50 bg-muted/20 px-3 py-2">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-foreground/90">{label}</span>
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="shrink-0 text-xs text-foreground/90">{label}</span>
           {statusLabel ? (
             <span
-              className={`rounded-full px-1.5 py-0.5 text-ui-10 font-medium ${isComplete ? "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200/80 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30" : "bg-muted text-muted-foreground"}`}
+              className={`truncate rounded-full px-1.5 py-0.5 text-ui-10 font-medium ${isComplete && !preparing ? "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200/80 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-500/30" : "bg-muted text-muted-foreground"}`}
+              title={statusLabel}
             >
               {statusLabel}
             </span>
           ) : null}
         </div>
-        <span className="text-xs tabular-nums text-muted-foreground">
-          {state.totalBytes > 0 ? `${state.percent}%` : ""}
+        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+          {percentLabel}
         </span>
       </div>
       {sizeLabel ? (
@@ -226,10 +252,16 @@ function DownloadRow({ label, state }: DownloadRowProps): ReactElement | null {
           {sizeLabel}
         </div>
       ) : null}
-      {state.totalBytes > 0 ? (
+      {preparing ? (
+        <Progress
+          value={preparing.percent ?? undefined}
+          indeterminate={preparing.percent === null}
+          indicatorClassName={PROGRESS_INDICATOR_CLASS}
+        />
+      ) : state.totalBytes > 0 ? (
         <Progress
           value={state.percent}
-          indicatorClassName="bg-[linear-gradient(90deg,var(--control-accent)_0%,color-mix(in_oklab,var(--control-accent)_72%,white)_100%)]"
+          indicatorClassName={PROGRESS_INDICATOR_CLASS}
         />
       ) : null}
       {state.cachePath ? (
@@ -259,12 +291,7 @@ export function TrainingStartOverlay({
   const phase = useTrainingRuntimeStore((s) => s.phase);
   const jobId = useTrainingRuntimeStore((s) => s.jobId);
   const startModelName = useTrainingRuntimeStore((s) => s.startModelName);
-  const startDatasetNames = useTrainingRuntimeStore((s) => s.startDatasetNames);
-  const currentDatasetIndex = useTrainingRuntimeStore((s) => s.currentDatasetIndex);
-  const currentDatasetTotal = useTrainingRuntimeStore((s) => s.currentDatasetTotal);
-  const currentDatasetRepositoryId = useTrainingRuntimeStore(
-    (s) => s.currentDatasetRepositoryId,
-  );
+  const startDatasetName = useTrainingRuntimeStore((s) => s.startDatasetName);
   const startFromResume = useTrainingRuntimeStore((s) => s.startFromResume);
   const configuredModel = useTrainingConfigStore((s) => s.selectedModel);
   const datasetSource = useTrainingConfigStore((s) => s.datasetSource);
@@ -278,38 +305,40 @@ export function TrainingStartOverlay({
   const hfDatasetName = datasetSource === "huggingface" ? dataset : null;
   const hasStartResources = startModelName !== null;
   const useConfiguredResources = !isStarting && !hasStartResources;
-  const isDownloadPhase =
-    phase === "downloading_model" || phase === "downloading_dataset";
   const modelName = hasStartResources
     ? startModelName
     : useConfiguredResources
       ? configuredModel
       : null;
-  const datasetNames = hasStartResources
-    ? startDatasetNames
+  const datasetName = hasStartResources
+    ? startDatasetName
     : useConfiguredResources
-      ? hfDatasetName ? [hfDatasetName] : []
-      : [];
-  // Backend progress is authoritative: a cached first repository can complete
-  // without ever producing a useful 100% cache-poll transition.
-  const activeDataset = resolveActiveDataset(
-    datasetNames,
-    currentDatasetIndex,
-    currentDatasetTotal,
-    currentDatasetRepositoryId,
-  );
-  const datasetIndex = activeDataset.index;
-  const datasetTotal = activeDataset.total;
-  const datasetName = activeDataset.repositoryId;
-  const displayMessage = message || t("studio.trainingStart.startingTraining");
+      ? hfDatasetName
+      : null;
+  const displayMessage =
+    startFromResume && /^download/i.test(message)
+      ? t("studio.trainingStart.resumingTraining")
+      : message || t("studio.trainingStart.startingTraining");
   const rawModelDownload = useModelDownloadProgress(modelName);
   const rawDatasetDownload = useDatasetDownloadProgress(datasetName);
-  const modelDownload = isDownloadPhase
-    ? rawModelDownload
-    : coerceCachedStateReady(rawModelDownload);
-  const datasetDownload = isDownloadPhase
-    ? rawDatasetDownload
-    : coerceCachedStateReady(rawDatasetDownload);
+  const modelDownload = coerceCachedStateReady(rawModelDownload);
+  const datasetDownload = coerceCachedStateReady(rawDatasetDownload);
+  // the raw message, not displayMessage: a resumed run rewrites its download statuses to
+  // "resuming training", which names no resource for the classifier to route on.
+  const preparationProgress = shouldShowPreparationStatus(
+    phase,
+    currentStep,
+    isStarting,
+  )
+    ? parsePreparationProgress(message, t("studio.trainingStart.preparing"))
+    : null;
+  const preparationTarget = preparationProgress
+    ? classifyPreparation(preparationProgress.title, { modelName, datasetName })
+    : null;
+  const datasetPreparation =
+    preparationTarget === "dataset" ? preparationProgress : null;
+  const modelPreparation =
+    preparationTarget === "model" ? preparationProgress : null;
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [cancelRequested, setCancelRequested] = useState(false);
 
@@ -357,9 +386,12 @@ export function TrainingStartOverlay({
                   onClick={() => {
                     setCancelRequested(true);
                     setCancelDialogOpen(false);
-                    useTrainingRuntimeStore.getState().setStopRequested(true);
+                    const runtime = useTrainingRuntimeStore.getState();
+                    const cancellingPendingStart =
+                      runtime.startRequestId !== null;
+                    runtime.setStopRequested(true);
                     void stopTrainingRun(false).then((ok) => {
-                      if (ok) {
+                      if (ok && !cancellingPendingStart) {
                         void dismissTrainingRun();
                       } else {
                         setCancelRequested(false);
@@ -381,9 +413,7 @@ export function TrainingStartOverlay({
             duration={36}
             className="bg-gradient-to-r from-emerald-300 via-lime-300 to-teal-300 bg-clip-text font-semibold text-transparent"
           >
-            {startFromResume
-              ? `> ${t("studio.trainingStart.resumingTraining")}`
-              : t("studio.trainingStart.terminalStart")}
+            {t("studio.trainingStart.terminalStart")}
           </TypingAnimation>
           <AnimatedSpan className="my-2">
             <pre className="whitespace-pre text-muted-foreground inline-block">{`==((====))==\n   \\\\   /|\nO^O/ \\_/ \\\n\\        /\n "-____-"`}</pre>
@@ -394,46 +424,45 @@ export function TrainingStartOverlay({
           <TypingAnimation duration={44}>
             {t("studio.trainingStart.gettingReady")}
           </TypingAnimation>
-          <AnimatedSpan
-            className={
-              startFromResume
-                ? "mt-2 text-emerald-300"
-                : "mt-2 text-muted-foreground"
-            }
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            {startFromResume
-              ? `> ${message.trim() || t("studio.trainingStart.resumingTraining")}`
-              : t("studio.trainingStart.waitingForFirstStep", {
-                  message: displayMessage,
-                  step: currentStep,
-                })}
+          <AnimatedSpan className="mt-2 text-muted-foreground">
+            {t("studio.trainingStart.waitingForFirstStep", {
+              message: displayMessage,
+              step: currentStep,
+            })}
           </AnimatedSpan>
           {datasetStreaming ? (
-            <AnimatedSpan className="mt-3 text-muted-foreground">
-              {t("studio.trainingStart.datasetStreaming")}
-            </AnimatedSpan>
-          ) : datasetDownload.downloadedBytes > 0 || datasetDownload.cachePath ? (
+            <>
+              <AnimatedSpan className="mt-3 text-muted-foreground">
+                {t("studio.trainingStart.datasetStreaming")}
+              </AnimatedSpan>
+              {/* streaming has no transfer to show, but it still tokenizes and formats. the
+                  row carries the preparation step on an empty state, so nothing implies a
+                  download. */}
+              {datasetPreparation ? (
+                <AnimatedSpan className="mt-3">
+                  <ResourceRow
+                    label={t("studio.trainingStart.dataset")}
+                    state={EMPTY_DOWNLOAD_STATE}
+                    preparation={datasetPreparation}
+                  />
+                </AnimatedSpan>
+              ) : null}
+            </>
+          ) : resourceRowHasContent(datasetDownload, datasetPreparation) ? (
             <AnimatedSpan className="mt-3">
-              <DownloadRow
-                label={
-                  datasetTotal > 1
-                    ? t("studio.trainingStart.datasetProgress", {
-                        current: datasetIndex,
-                        total: datasetTotal,
-                      })
-                    : t("studio.trainingStart.dataset")
-                }
+              <ResourceRow
+                label={t("studio.trainingStart.dataset")}
                 state={datasetDownload}
+                preparation={datasetPreparation}
               />
             </AnimatedSpan>
           ) : null}
-          {modelDownload.downloadedBytes > 0 || modelDownload.cachePath ? (
+          {resourceRowHasContent(modelDownload, modelPreparation) ? (
             <AnimatedSpan className="mt-3">
-              <DownloadRow
+              <ResourceRow
                 label={t("studio.trainingStart.modelWeights")}
                 state={modelDownload}
+                preparation={modelPreparation}
               />
             </AnimatedSpan>
           ) : null}

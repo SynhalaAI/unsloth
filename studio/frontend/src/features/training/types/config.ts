@@ -1,55 +1,82 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
+import type { ModelInventoryFormat } from "@/features/hub";
 import type {
   DatasetFormat,
   DatasetSource,
   GradientCheckpointing,
   ModelType,
   S3Config,
-  StepNumber,
   TrainingMethod,
 } from "@/types/training";
 import type { BackendModelConfig } from "../api/models-api";
 
 export type LoraVariant = "lora" | "rslora" | "loftq" | "dora";
 
+export interface ModelCacheReferenceOptions {
+  knownCached?: boolean;
+  localPath?: string | null;
+  modelFormat?: ModelInventoryFormat | null;
+}
+
+export interface TrainingModelSelectionOptions
+  extends ModelCacheReferenceOptions {
+  isEmbedding?: boolean | null;
+  isAudio?: boolean | null;
+  isVision?: boolean | null;
+}
+
+export interface DatasetCacheReferenceOptions {
+  knownCached?: boolean;
+  localPath?: string | null;
+  preferLocalCache?: boolean;
+}
+
+export type BrowseDatasetSelection =
+  | {
+      source: "huggingface";
+      dataset: string | null;
+      knownCached: boolean;
+      localPath: string | null;
+    }
+  | {
+      source: "upload";
+      uploadedFile: string | null;
+    };
+
+export interface TrainingMethodProvenance {
+  learningRateManuallySet: boolean;
+  modelAdapterLearningRate: number | null;
+  datasetFormatBeforeCpt: DatasetFormat | null;
+}
+
 /** Column-to-role mapping, e.g. { "problem": "user", "solution": "assistant", "context": "system" } */
 export type DatasetManualMapping = Record<string, string>;
 
-/** One independently configured input to the training mixture. */
-export interface TrainingDatasetSelection {
-  source: DatasetSource;
-  /** Hugging Face repository id or local uploaded path. */
-  path: string;
-  subset?: string | null;
-  split?: string | null;
-  format?: DatasetFormat;
-  columnMapping?: DatasetManualMapping;
-  /** Relative probability used when interleaving streaming inputs. */
-  samplingWeight?: number | null;
-}
-
 export interface TrainingConfigState {
-  currentStep: StepNumber;
+  userEditRevision: number;
   modelType: ModelType | null;
   selectedModel: string | null;
+  modelKnownCached: boolean;
+  modelLocalPath: string | null;
+  modelFormat: ModelInventoryFormat | null;
   projectName: string;
   trainingMethod: TrainingMethod;
-  hfToken: string;
-  trainingDatasets: TrainingDatasetSelection[];
+  trainingMethodProvenance: TrainingMethodProvenance;
   datasetSource: DatasetSource;
+  browseDatasetSelection: BrowseDatasetSelection;
   datasetFormat: DatasetFormat;
   dataset: string | null;
+  datasetKnownCached: boolean;
+  datasetLocalPath: string | null;
   datasetSubset: string | null;
   datasetSplit: string | null;
   datasetEvalSplit: string | null;
   datasetStreaming: boolean;
-  portableResumeData: "metadata" | "pinned" | "snapshot";
+  manualDatasetOptionsValid: boolean;
   datasetManualMapping: DatasetManualMapping;
   datasetSystemPrompt: string;
-  datasetUserTemplate: string;
-  datasetAssistantTemplate: string;
   datasetLabelMapping: Record<string, Record<string, string>>;
   datasetAdvisorNotification: string | null;
   datasetSliceStart: string | null;
@@ -72,9 +99,6 @@ export interface TrainingConfigState {
   warmupSteps: number;
   maxSteps: number;
   saveSteps: number;
-  saveTotalLimit: number;
-  enableAutoCheckpointUpload: boolean;
-  checkpointRepoId: string;
   evalSteps: number;
   packing: boolean;
   trainOnCompletions: boolean;
@@ -90,12 +114,16 @@ export interface TrainingConfigState {
   isVisionModel: boolean;
   isEmbeddingModel: boolean;
   isAudioModel: boolean;
+  audioCapabilityUnknown: boolean;
   isLoadingModelDefaults: boolean;
   modelDefaultsError: string | null;
   modelDefaultsAppliedFor: string | null;
+  advancedSettingsBaseline: AdvancedSettingsBaseline | null;
+  trainOnCompletionsDefaultPendingFor: string | null;
   isCheckingDataset: boolean;
   isDatasetImage: boolean | null;
   isDatasetAudio: boolean;
+  datasetCheckFailed: boolean;
   trustRemoteCode: boolean;
   approvedRemoteCodeFingerprint?: string | null;
   finetuneVisionLayers: boolean;
@@ -108,40 +136,85 @@ export interface TrainingConfigState {
   s3Config: S3Config | null;
 }
 
+export type AdvancedSettingsBaseline = Partial<
+  Pick<
+    TrainingConfigState,
+    | "optimizerType"
+    | "lrSchedulerType"
+    | "weightDecay"
+    | "warmupSteps"
+    | "saveSteps"
+    | "evalSteps"
+    | "randomSeed"
+    | "packing"
+    | "trainOnCompletions"
+    | "gradientCheckpointing"
+    | "visionImageSize"
+    | "finetuneVisionLayers"
+    | "finetuneLanguageLayers"
+    | "finetuneAttentionModules"
+    | "finetuneMLPModules"
+    | "loraRank"
+    | "loraAlpha"
+    | "loraDropout"
+    | "loraVariant"
+    | "targetModules"
+  >
+>;
+
 export interface TrainingConfigActions {
-  setStep: (step: StepNumber) => void;
-  nextStep: () => void;
-  prevStep: () => void;
-  setModelType: (type: ModelType) => void;
   setSelectedModel: (model: string | null) => void;
+  selectTrainingModel: (
+    model: string | null,
+    modelType: ModelType | null,
+    options?: TrainingModelSelectionOptions,
+  ) => void;
+  setSelectedModelCacheReference: (
+    model: string,
+    options: {
+      localPath: string | null;
+      modelFormat: ModelInventoryFormat | null;
+    },
+  ) => void;
+  clearSelectedModelCacheReference: (
+    model: string,
+    localPath?: string | null,
+  ) => void;
+  clearSelectedDatasetCacheReference: (
+    dataset: string,
+    localPath?: string | null,
+  ) => void;
+  setSelectedDatasetCacheReference: (
+    dataset: string,
+    localPath: string | null,
+  ) => void;
   setProjectName: (value: string) => void;
   ensureModelDefaultsLoaded: () => void;
   ensureDatasetChecked: () => void;
   setTrainingMethod: (method: TrainingMethod) => void;
-  setHfToken: (token: string) => void;
-  setDatasetSource: (source: DatasetSource) => void;
-  addTrainingDataset: (dataset?: Partial<TrainingDatasetSelection>) => void;
-  removeTrainingDataset: (index: number) => void;
-  updateTrainingDataset: (index: number, patch: Partial<TrainingDatasetSelection>) => void;
-  selectHfDataset: (dataset: string | null) => void;
+  selectHfDataset: (
+    dataset: string | null,
+    options?: DatasetCacheReferenceOptions,
+  ) => void;
   selectLocalDataset: (file: string | null) => void;
   selectS3Source: () => void;
+  restoreBrowseDatasetSource: () => void;
   setDatasetFormat: (format: DatasetFormat) => void;
   setDataset: (dataset: string | null) => void;
   setDatasetSubset: (subset: string | null) => void;
   setDatasetSplit: (split: string | null) => void;
   setDatasetEvalSplit: (split: string | null) => void;
   setDatasetStreaming: (value: boolean) => void;
+  setManualDatasetOptionsValid: (value: boolean) => void;
+  markManualDatasetOptionsEdited: (optionsValid: boolean) => void;
   setDatasetManualMapping: (mapping: DatasetManualMapping) => void;
   setDatasetAdvisorFields: (fields: {
     systemPrompt?: string;
     labelMapping?: Record<string, Record<string, string>>;
     notification?: string | null;
   }) => void;
-  clearDatasetAdvisorFields: () => void;
   setDatasetSliceStart: (value: string | null) => void;
   setDatasetSliceEnd: (value: string | null) => void;
-  setUploadedFile: (file: string | null) => void;
   setUploadedEvalFile: (file: string | null) => void;
   setEpochs: (epochs: number) => void;
   setContextLength: (length: number) => void;
@@ -160,9 +233,6 @@ export interface TrainingConfigActions {
   setWarmupSteps: (value: number) => void;
   setMaxSteps: (value: number) => void;
   setSaveSteps: (value: number) => void;
-  setSaveTotalLimit: (value: number) => void;
-  setEnableAutoCheckpointUpload: (value: boolean) => void;
-  setCheckpointRepoId: (value: string) => void;
   setEvalSteps: (value: number) => void;
   setPacking: (value: boolean) => void;
   setTrainOnCompletions: (value: boolean) => void;
@@ -180,7 +250,6 @@ export interface TrainingConfigActions {
   setFinetuneMLPModules: (value: boolean) => void;
   setTargetModules: (value: string[]) => void;
   setS3Config: (value: S3Config | null) => void;
-  canProceed: () => boolean;
   reset: () => void;
   resetToModelDefaults: () => void;
   applyConfigPatch: (config: BackendModelConfig) => void;

@@ -4,18 +4,7 @@
 import type { ModelInventoryFormat } from "@/features/hub";
 import type { S3Config } from "@/types/training";
 
-export interface TrainingDatasetRequest {
-  hf_dataset?: string | null;
-  local_path?: string | null;
-  subset?: string | null;
-  split?: string | null;
-  format_type?: string | null;
-  column_mapping?: Record<string, unknown> | null;
-  sampling_weight?: number | null;
-}
-
 export interface TrainingStartRequest {
-  training_datasets: TrainingDatasetRequest[];
   model_name: string;
   actual_model_repo_id?: string | null;
   project_name: string | null;
@@ -40,8 +29,6 @@ export interface TrainingStartRequest {
   train_split: string | null;
   eval_split: string | null;
   dataset_streaming: boolean;
-  /** Controls how much dataset state is retained for portable checkpoint resume. */
-  portable_resume_data: "metadata" | "pinned" | "snapshot";
   dataset_slice_start: number | null;
   dataset_slice_end: number | null;
   local_datasets: string[];
@@ -60,9 +47,6 @@ export interface TrainingStartRequest {
   warmup_ratio: number | null;
   max_steps: number | null;
   save_steps: number;
-  save_total_limit: number | null;
-  push_to_hub: boolean;
-  hub_model_id: string | null;
   eval_steps: number;
   weight_decay: number;
   max_grad_norm?: number | null;
@@ -94,29 +78,6 @@ export interface TrainingStartRequest {
   enable_tensorboard: boolean;
   tensorboard_dir: string | null;
   resume_from_checkpoint?: string | null;
-  resume_checkpoint_path?: string | null;
-  output_dir?: string | null;
-  in_place_continuation?: boolean;
-  copy_checkpoint_to_local?: boolean;
-  /** Externally selected checkpoint that passed the import inspection endpoint. */
-  imported_resume_checkpoint?: string | null;
-}
-
-export interface CheckpointInspection {
-  checkpointPath: string;
-  checkpointName: string;
-  globalStep: number;
-  modelIdentity: string | null;
-  adapterIdentity: string | null;
-  trainingBackend: string | null;
-  optimizerComplete: boolean;
-  schedulerComplete: boolean;
-  trainerStateComplete: boolean;
-  bundledConfigurationFound: boolean;
-  incompatibilities: string[];
-  missingDatasets: string[];
-  external: boolean;
-  resumeConfig: Partial<TrainingStartRequest> | null;
 }
 
 export interface TrainingStartResponse {

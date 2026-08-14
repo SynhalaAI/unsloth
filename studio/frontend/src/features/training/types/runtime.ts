@@ -9,34 +9,22 @@ export type TrainingPhase =
   | "loading_dataset"
   | "configuring"
   | "training"
+  // Steps done, worker still saving. Non-terminal: 100% is not success.
+  | "finalizing"
   | "completed"
   | "error"
   | "stopped";
 
-export type CheckpointUploadState =
-  | "idle" | "preparing" | "uploading" | "completed" | "skipped" | "error";
-
-export interface CheckpointUploadProgress {
-  state: CheckpointUploadState;
-  checkpoint?: string | null;
-  repository_id?: string | null;
-  repository_url?: string | null;
-  uploaded_bytes?: number | null;
-  total_bytes?: number | null;
-  uploaded_files?: number | null;
-  total_files?: number | null;
-  percentage?: number | null;
-  message: string;
-  error?: string | null;
-}
-
 export interface TrainingStatusResponse {
   job_id: string;
+  start_request_id?: string | null;
+  start_request_state?: "pending" | "accepted" | "rejected" | null;
   phase: TrainingPhase;
   is_training_running: boolean;
   eval_enabled: boolean;
   message: string;
   error: string | null;
+  warnings?: string[];
   details?: {
     epoch?: number;
     step?: number;
@@ -45,7 +33,6 @@ export interface TrainingStatusResponse {
     learning_rate?: number;
     // null = explicit clear (run stopped without saving); absent = unchanged.
     output_dir?: string | null;
-    checkpoint_upload?: CheckpointUploadProgress;
   } | null;
   metric_history?: {
     steps?: number[];
@@ -59,6 +46,7 @@ export interface TrainingStatusResponse {
 }
 
 export interface TrainingMetricsResponse {
+  job_id: string;
   loss_history: number[];
   lr_history: number[];
   step_history: number[];
@@ -82,9 +70,6 @@ export interface TrainingProgressPayload {
   grad_norm: number | null;
   num_tokens: number | null;
   eval_loss: number | null;
-  current_dataset_index?: number | null;
-  current_dataset_total?: number | null;
-  current_dataset_repository_id?: string | null;
 }
 
 export interface TrainingSeriesPoint {
@@ -99,16 +84,14 @@ export interface TrainingRuntimeState {
   evalEnabled: boolean;
   message: string;
   error: string | null;
+  warnings: string[];
   isHydrating: boolean;
   hasHydrated: boolean;
   isStarting: boolean;
+  startRequestId: string | null;
   startError: string | null;
   startModelName: string | null;
-  /** Immutable HF repository-id snapshot captured from the request for this run. */
-  startDatasetNames: string[];
-  currentDatasetIndex: number | null;
-  currentDatasetTotal: number | null;
-  currentDatasetRepositoryId: string | null;
+  startDatasetName: string | null;
   startProjectName: string | null;
   startFromResume: boolean;
   sseConnected: boolean;
@@ -126,7 +109,6 @@ export interface TrainingRuntimeState {
   currentGradNorm: number | null;
   currentNumTokens: number | null;
   outputDir: string | null;
-  checkpointUpload: CheckpointUploadProgress;
   lossHistory: TrainingSeriesPoint[];
   lrHistory: TrainingSeriesPoint[];
   gradNormHistory: TrainingSeriesPoint[];
@@ -134,8 +116,7 @@ export interface TrainingRuntimeState {
   resetGeneration: number;
   stopRequested: boolean;
   selectedHistoryRunId: string | null;
-  // True while the studio "Current Run" tab is the active view, so the sidebar
-  // can highlight which run row the current run refers to (the active job).
+  // True while the studio "Current Run" tab is the active view, so the sidebar can highlight it.
   currentRunViewActive: boolean;
 }
 
@@ -143,11 +124,12 @@ export interface TrainingRuntimeActions {
   setStopRequested: (value: boolean) => void;
   setHydrating: (value: boolean) => void;
   setHasHydrated: (value: boolean) => void;
+  tryBeginStarting: (startRequestId: string) => boolean;
   setStarting: (value: boolean) => void;
   setStartError: (value: string | null) => void;
   setStartResources: (
     modelName: string | null,
-    datasetNames: string[],
+    datasetName: string | null,
     fromResume?: boolean,
     projectName?: string | null,
   ) => void;
@@ -157,17 +139,20 @@ export interface TrainingRuntimeActions {
   applyStatus: (payload: TrainingStatusResponse) => void;
   applyMetrics: (payload: TrainingMetricsResponse) => void;
   applyProgress: (payload: TrainingProgressPayload, eventId?: number) => void;
-  applyCheckpointUpload: (payload: CheckpointUploadProgress) => void;
-  setStartQueued: (jobId: string, message: string) => void;
+  setStartPending: (
+    jobId: string | null,
+    message: string,
+    startRequestId?: string | null,
+  ) => void;
   setRuntimeError: (message: string) => void;
   setSelectedHistoryRunId: (id: string | null) => void;
   setCurrentRunViewActive: (value: boolean) => void;
 }
 
-export type TrainingRuntimeStore = TrainingRuntimeState & TrainingRuntimeActions;
+export type TrainingRuntimeStore = TrainingRuntimeState &
+  TrainingRuntimeActions;
 
 export interface TrainingViewData {
-  // Current metrics (for ProgressSection)
   phase: TrainingPhase;
   currentStep: number;
   totalSteps: number;
@@ -177,8 +162,7 @@ export interface TrainingViewData {
   currentEpoch: number | null;
   currentNumTokens: number | null;
   outputDir: string | null;
-  // True when a newer run reused this run's output_dir (resume), so its
-  // on-disk contents no longer match this (older) run's metrics.
+  // True when a newer run reused this run's output_dir (resume), so its on-disk contents differ.
   resumedLater?: boolean;
   progressPercent: number;
   elapsedSeconds: number | null;
@@ -186,14 +170,13 @@ export interface TrainingViewData {
   evalEnabled: boolean;
   message: string;
   error: string | null;
+  warnings: string[];
   isTrainingRunning: boolean;
 
-  // Config summary
   modelName: string;
   projectName: string | null;
   trainingMethod: string;
 
-  // Time-series (for ChartsSection)
   lossHistory: TrainingSeriesPoint[];
   lrHistory: TrainingSeriesPoint[];
   gradNormHistory: TrainingSeriesPoint[];
