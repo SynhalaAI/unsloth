@@ -37,8 +37,50 @@ from utils.native_path_leases import (
     run_without_native_path_secret,
 )
 from utils.paths import outputs_root
+from utils.utils import canonical_model_repo_id
 
 logger = get_logger(__name__)
+
+_MODEL_SNAPSHOT_METADATA = ("config.json", "adapter_config.json")
+_MODEL_SNAPSHOT_WEIGHTS = (
+    "model.safetensors",
+    "model.safetensors.index.json",
+    "pytorch_model.bin",
+    "pytorch_model.bin.index.json",
+    "adapter_model.safetensors",
+    "adapter_model.bin",
+)
+
+
+def _with_load_subdirs(model_name: str, names: tuple[str, ...]) -> tuple[str, ...]:
+    from hub.utils.hf_cache_state import with_load_subdirs
+
+    return with_load_subdirs(model_name, names)
+
+
+def _resolve_model_snapshot(model_name: str, local_path: Optional[str]) -> Optional[str]:
+    """Resolve the newest complete cached snapshot for a model."""
+    from hub.utils.hf_cache_state import iter_repo_cache_dirs, latest_snapshot_from_cache_path
+
+    repo_id = canonical_model_repo_id(model_name)
+    metadata_names = _with_load_subdirs(model_name, _MODEL_SNAPSHOT_METADATA)
+    weight_names = _with_load_subdirs(model_name, _MODEL_SNAPSHOT_WEIGHTS)
+    passes: tuple[dict[str, Any], ...] = (
+        {"required_groups": (metadata_names, weight_names)},
+        {"metadata_filenames": metadata_names},
+    )
+    if local_path:
+        for kwargs in passes:
+            snapshot = latest_snapshot_from_cache_path(local_path, "model", repo_id, **kwargs)
+            if snapshot:
+                return snapshot
+        return None
+    for kwargs in passes:
+        for cache_dir in iter_repo_cache_dirs("model", repo_id):
+            snapshot = latest_snapshot_from_cache_path(cache_dir, "model", repo_id, **kwargs)
+            if snapshot:
+                return snapshot
+    return None
 
 
 def _env_int(name: str, default: int) -> int:
