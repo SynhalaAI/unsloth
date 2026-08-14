@@ -1616,6 +1616,36 @@ def list_chat_projects(include_archived: bool = False) -> list[dict]:
         conn.close()
 
 
+def build_chat_history_export() -> tuple[list[dict], list[dict], list[dict]]:
+    """Read all chat history from one consistent SQLite snapshot."""
+    conn = get_connection()
+    try:
+        conn.execute("BEGIN")
+        project_rows = conn.execute(
+            "SELECT * FROM chat_projects ORDER BY updated_at DESC"
+        ).fetchall()
+        thread_rows = conn.execute(
+            """
+            SELECT * FROM chat_threads
+            ORDER BY COALESCE(updated_at, created_at) DESC, created_at DESC
+            """
+        ).fetchall()
+        message_rows = conn.execute(
+            "SELECT * FROM chat_messages ORDER BY created_at ASC, id ASC"
+        ).fetchall()
+        conn.commit()
+        return (
+            [_chat_project_from_row(row) for row in project_rows],
+            [_chat_thread_from_row(row) for row in thread_rows],
+            [_chat_message_from_row(row) for row in message_rows],
+        )
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
 def delete_chat_project(id: str, delete_files: bool = False) -> Optional[dict]:
     conn = get_connection()
     try:
