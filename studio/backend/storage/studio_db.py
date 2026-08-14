@@ -391,6 +391,149 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    # Deep Research is supervised during application startup, so its durable
+    # tables must be part of the core schema rather than being created lazily by
+    # the first API request.
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS research_runs (
+            id TEXT NOT NULL PRIMARY KEY,
+            owner_subject TEXT NOT NULL,
+            thread_id TEXT NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
+            user_message_id TEXT NOT NULL,
+            assistant_message_id TEXT,
+            status TEXT NOT NULL,
+            plan_json TEXT,
+            plan_revision INTEGER NOT NULL DEFAULT 0,
+            plan_hash TEXT,
+            config_json TEXT NOT NULL,
+            cancel_requested INTEGER NOT NULL DEFAULT 0,
+            lease_owner TEXT,
+            lease_expires_at INTEGER,
+            heartbeat_at INTEGER,
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT,
+            report_text TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            started_at INTEGER,
+            completed_at INTEGER,
+            next_event_seq INTEGER NOT NULL DEFAULT 1
+        )"""
+    )
+    research_run_cols = {
+        row[1] for row in conn.execute("PRAGMA table_info(research_runs)").fetchall()
+    }
+    if "report_text" not in research_run_cols:
+        conn.execute("ALTER TABLE research_runs ADD COLUMN report_text TEXT")
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS research_thread_claims (
+            owner_subject TEXT NOT NULL,
+            thread_id TEXT NOT NULL PRIMARY KEY REFERENCES chat_threads(id) ON DELETE CASCADE,
+            created_at INTEGER NOT NULL
+        ) WITHOUT ROWID"""
+    )
+    claim_pk = [
+        row[1]
+        for row in conn.execute("PRAGMA table_info(research_thread_claims)").fetchall()
+        if row[5]
+    ]
+    if claim_pk != ["thread_id"]:
+        # Older builds scoped claims by (owner, thread), allowing two active
+        # supervisors to race over one conversation. Keep the oldest claimant
+        # and make other owners' runs terminal while rebuilding atomically.
+        conn.execute("SAVEPOINT migrate_research_thread_claims")
+        try:
+            conn.execute(
+                "ALTER TABLE research_thread_claims RENAME TO research_thread_claims_legacy"
+            )
+            conn.execute(
+                """CREATE TABLE research_thread_claims (
+                    owner_subject TEXT NOT NULL,
+                    thread_id TEXT NOT NULL PRIMARY KEY
+                        REFERENCES chat_threads(id) ON DELETE CASCADE,
+                    created_at INTEGER NOT NULL
+                ) WITHOUT ROWID"""
+            )
+            conn.execute(
+                """INSERT INTO research_thread_claims (owner_subject, thread_id, created_at)
+                   SELECT legacy.owner_subject, legacy.thread_id, legacy.created_at
+                   FROM research_thread_claims_legacy legacy
+                   WHERE NOT EXISTS (
+                       SELECT 1 FROM research_thread_claims_legacy earlier
+                       WHERE earlier.thread_id=legacy.thread_id
+                         AND (earlier.created_at < legacy.created_at OR
+                              (earlier.created_at=legacy.created_at AND
+                               earlier.owner_subject < legacy.owner_subject))
+                   )"""
+            )
+            conn.execute(
+                """UPDATE research_runs SET status='failed',
+                       error_message='Another owner claimed this research thread',
+                       completed_at=COALESCE(completed_at, updated_at),
+                       lease_owner=NULL, lease_expires_at=NULL
+                   WHERE EXISTS (
+                       SELECT 1 FROM research_thread_claims claim
+                       WHERE claim.thread_id=research_runs.thread_id
+                         AND claim.owner_subject<>research_runs.owner_subject
+                   ) AND status NOT IN ('cancelled','completed','failed')"""
+            )
+            conn.execute("DROP TABLE research_thread_claims_legacy")
+            conn.execute("RELEASE SAVEPOINT migrate_research_thread_claims")
+        except Exception:
+            conn.execute("ROLLBACK TO SAVEPOINT migrate_research_thread_claims")
+            conn.execute("RELEASE SAVEPOINT migrate_research_thread_claims")
+            raise
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS research_plan_steps (
+            run_id TEXT NOT NULL REFERENCES research_runs(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            query TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending',
+            result_json TEXT,
+            started_at INTEGER,
+            completed_at INTEGER,
+            PRIMARY KEY(run_id, position)
+        ) WITHOUT ROWID"""
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS research_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id TEXT NOT NULL REFERENCES research_runs(id) ON DELETE CASCADE,
+            step_position INTEGER NOT NULL,
+            url TEXT NOT NULL,
+            title TEXT NOT NULL,
+            snippet TEXT NOT NULL,
+            fetched_at INTEGER NOT NULL,
+            UNIQUE(run_id, url)
+        )"""
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS research_document_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id TEXT NOT NULL REFERENCES research_runs(id) ON DELETE CASCADE,
+            step_position INTEGER NOT NULL,
+            source_key TEXT NOT NULL,
+            document_id TEXT,
+            chunk_id TEXT,
+            filename TEXT NOT NULL,
+            page INTEGER,
+            score REAL,
+            snippet TEXT NOT NULL,
+            fetched_at INTEGER NOT NULL,
+            UNIQUE(run_id, source_key)
+        )"""
+    )
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS research_events (
+            run_id TEXT NOT NULL REFERENCES research_runs(id) ON DELETE CASCADE,
+            seq INTEGER NOT NULL,
+            event_type TEXT NOT NULL,
+            data_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY(run_id, seq)
+        ) WITHOUT ROWID"""
+    )
     tombstone_schema = """
         CREATE TABLE chat_attachment_tombstones (
             thread_id TEXT NOT NULL REFERENCES chat_threads(id) ON DELETE CASCADE,
