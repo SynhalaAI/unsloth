@@ -104,6 +104,14 @@ _PROJECT_WORKSPACE_SUBDIRS = ("sandbox",)
 _CHAT_ATTACHMENT_INVENTORY_VERSION = 1
 
 
+class ChatThreadDeletedError(RuntimeError):
+    """Raised when a write would recreate a deliberately deleted chat thread."""
+
+
+class ChatThreadPreconditionFailed(RuntimeError):
+    """Raised when guarded thread metadata changed before an update was applied."""
+
+
 def _project_slug(name: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", name.strip()).strip(".-_")
     return slug[:48] or "project"
