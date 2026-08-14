@@ -458,6 +458,30 @@ def test_report_text_schema_migration_is_idempotent():
         conn.close()
 
 
+def test_schema_is_initialized_when_database_path_changes(tmp_path, monkeypatch):
+    first_home = tmp_path / "first"
+    second_home = tmp_path / "second"
+
+    monkeypatch.setenv("UNSLOTH_STUDIO_HOME", str(first_home))
+    monkeypatch.setattr(studio_db, "_schema_ready", False)
+    conn = studio_db.get_connection()
+    conn.close()
+
+    monkeypatch.setenv("UNSLOTH_STUDIO_HOME", str(second_home))
+    conn = studio_db.get_connection()
+    try:
+        tables = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='research_runs'"
+            )
+        }
+    finally:
+        conn.close()
+
+    assert tables == {"research_runs"}
+
+
 def test_schema_and_state_transitions(research_home):
     run = _create()
     assert run["status"] == "planning"
