@@ -132,6 +132,59 @@ def _ensure_project_workspace(root_path: str) -> str:
     return str(root_resolved)
 
 
+def sandbox_is_referenced_elsewhere(
+    session_id: str, exclude_thread_id: "str | None" = None
+) -> bool:
+    """Return whether another chat message references this sandbox session."""
+    if not session_id:
+        return False
+    conn = get_connection()
+    try:
+        escaped = json.dumps(session_id)[1:-1]
+        rows = conn.execute(
+            """
+            SELECT content_json FROM chat_messages
+            WHERE (? IS NULL OR thread_id != ?) AND content_json LIKE ? ESCAPE '\\'
+            """,
+            (exclude_thread_id, exclude_thread_id, f"%{_like_escape(escaped)}%"),
+        )
+        return any(_mentions_session(row["content_json"], session_id) for row in rows)
+    except sqlite3.Error:
+        # Callers interpret False as permission to delete, so fail safe.
+        logger.warning("Could not check references for sandbox %s; keeping it", session_id)
+        return True
+    finally:
+        conn.close()
+
+
+def _mentions_session(content_json: str, session_id: str) -> bool:
+    try:
+        content = json.loads(content_json)
+    except (TypeError, ValueError):
+        return False
+    stack = [content]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, dict):
+            if node.get("sessionId") == session_id:
+                return True
+            stack.extend(node.values())
+        elif isinstance(node, list):
+            stack.extend(node)
+    return False
+
+
+def _like_escape(value: str) -> str:
+    for char in ("\\", "%", "_"):
+        value = value.replace(char, "\\" + char)
+    return value
+
+
+def delete_project_workspace(project: dict) -> None:
+    """Remove a deleted project workspace after its active work has stopped."""
+    _delete_project_workspace(project)
+
+
 def _delete_project_workspace(project: dict) -> None:
     root_path = project.get("rootPath")
     if not root_path:
@@ -1192,8 +1245,8 @@ def list_scan_folders() -> list[dict]:
         conn.close()
 
 
-def add_scan_folder(path: str) -> dict:
-    """Add a directory to the custom scan folder list. Returns the row."""
+def add_scan_folder_with_status(path: str) -> tuple[dict, bool]:
+    """Add a custom scan folder and return its row plus whether it was inserted."""
     if not path or not path.strip():
         raise ValueError("Path cannot be empty")
     normalized = os.path.realpath(os.path.expanduser(path.strip()))
@@ -1239,13 +1292,15 @@ def add_scan_folder(path: str) -> dict:
                 (normalized,),
             ).fetchone()
         if existing is not None:
-            return dict(existing)
+            return dict(existing), False
+        inserted = False
         try:
             conn.execute(
                 "INSERT INTO scan_folders (path, created_at) VALUES (?, ?)",
                 (normalized, now),
             )
             conn.commit()
+            inserted = True
         except sqlite3.IntegrityError:
             pass  # duplicate; fall through to SELECT
         # Same collation as the pre-check to catch concurrent writes (Windows).
@@ -1257,9 +1312,15 @@ def add_scan_folder(path: str) -> dict:
         row = conn.execute(fallback_sql, (normalized,)).fetchone()
         if row is None:
             raise ValueError("Folder was concurrently removed")
-        return dict(row)
+        return dict(row), inserted
     finally:
         conn.close()
+
+
+def add_scan_folder(path: str) -> dict:
+    """Add a directory to the custom scan folder list. Returns the row."""
+    row, _ = add_scan_folder_with_status(path)
+    return row
 
 
 def remove_scan_folder(id: int) -> None:
@@ -1922,6 +1983,32 @@ def _chat_attachment_inventory_entries(
             }
         )
     return entries
+
+
+def count_chat_message_attachments(
+    attachments_json: Optional[str], content_json: Optional[str]
+) -> int:
+    """Count distinct uploads across normal and inline message representations."""
+    keys: set[str] = set()
+    attachments = _json_loads(attachments_json, None)
+    if isinstance(attachments, list):
+        for attachment in attachments:
+            if not isinstance(attachment, dict) or not attachment.get("id"):
+                continue
+            # Compare chat also embeds an upload's media part in content_json.
+            # Prefer that stable payload id so the two representations count once.
+            content = attachment.get("content")
+            payload_id = next(
+                (
+                    part_id
+                    for part in content if isinstance(part, dict)
+                    if (part_id := _content_part_id(part)) is not None
+                ),
+                None,
+            ) if isinstance(content, list) else None
+            keys.add(payload_id or f"attachment:{attachment['id']}")
+    keys.update(entry["id"] for entry in _content_part_attachments(content_json))
+    return len(keys)
 
 
 def _replace_chat_attachment_inventory(

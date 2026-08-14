@@ -221,6 +221,20 @@ def _contained_in(path: Path, roots: Sequence[Path]) -> bool:
     return False
 
 
+def training_run_config(run: dict) -> dict:
+    """Decode the persisted training configuration for resume checks."""
+    raw_config = run.get("config_json")
+    if isinstance(raw_config, dict):
+        return raw_config
+    if not isinstance(raw_config, str) or not raw_config.strip():
+        return {}
+    try:
+        parsed = json.loads(raw_config)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def inspect_import_checkpoint(path_value: str, approved_roots: Sequence[Path]) -> dict[str, Any]:
     """Validate an external checkpoint independently of training history policy."""
     raw = Path(path_value).expanduser()
