@@ -79,7 +79,6 @@ export const SETTINGS_SEARCH_INDEX: Record<SettingsTab, TranslationKey[]> = {
     "settings.resources.modelMemory.noRamReserve",
     "settings.resources.storage.title",
     "settings.resources.storage.modelsFolder",
-    "settings.resources.storage.checkpointFolder",
     "settings.resources.storage.futureDownloads",
     "settings.resources.storage.systemDisk",
     "settings.resources.environment.title",
