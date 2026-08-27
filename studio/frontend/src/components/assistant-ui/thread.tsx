@@ -161,6 +161,7 @@ import { useRagToolDisabled } from "@/features/chat/hooks/use-rag-tool-disabled"
 import { useModelAudioRecording } from "@/features/chat/model-audio-recording";
 import { BypassPermissionsMenuItem } from "@/features/chat/bypass-permissions-menu-item";
 import { fileToBase64 } from "@/lib/audio-utils";
+import { modelAcceptsAudioInput } from "@/features/chat/types/runtime";
 import { PermissionModeComposerPill } from "@/features/chat/permission-mode-select";
 import {
   settleThreadScopedSettingsForCopy,
@@ -4323,7 +4324,7 @@ const Composer: FC<{
   // Keep the mic clickable: if the engine can't run here, explain and point to
   // the local model instead of disabling the button.
   const startDictation = useCallback(() => {
-    if (activeModel?.hasAudioInput === true) {
+    if (modelAcceptsAudioInput(activeModel)) {
       void startModelAudioRecording();
       return;
     }
@@ -4829,7 +4830,7 @@ const Composer: FC<{
               onSendClick={handleSubmit}
               onStopClick={stopQueue}
               onDictateClick={startDictation}
-              isModelAudio={activeModel?.hasAudioInput === true}
+              isModelAudio={modelAcceptsAudioInput(activeModel)}
               isRecordingModelAudio={isRecordingModelAudio}
               isFinalizingModelAudio={isFinalizingModelAudio}
               onStartModelAudio={startModelAudioRecording}

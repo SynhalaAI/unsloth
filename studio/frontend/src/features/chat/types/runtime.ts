@@ -40,6 +40,14 @@ export type SeedGateFlags = Required<
 /** What the store holds, so every place that mints a row has to state those flags. */
 export type ChatModelRow = ChatModelSummary & SeedGateFlags;
 
+export function modelAcceptsAudioInput(
+  activeModel: Pick<ChatModelSummary, "hasAudioInput" | "audioType"> | null | undefined,
+): boolean {
+  return activeModel?.hasAudioInput === true ||
+    activeModel?.audioType === "audio_vlm" ||
+    activeModel?.audioType === "whisper";
+}
+
 /** Whether the loaded model's backend reads a sampling seed. Shared so the panel cannot
  *  offer the field where the request would drop it, and takes the same `models[]` summary
  *  the request body already reads `isGguf` from, so the two cannot answer differently. */

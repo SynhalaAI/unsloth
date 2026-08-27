@@ -25,7 +25,7 @@ const adapter = readFileSync(
 test("model-audio recorder is visible only for audio-input models", () => {
   assert.match(composer, /activeModel\?\.hasAudioInput/);
   assert.match(composer, /aria-label=\{activeModel\?\.hasAudioInput \? "Record audio for model"/);
-  assert.match(thread, /activeModel\?\.hasAudioInput === true/);
+  assert.match(thread, /modelAcceptsAudioInput\(activeModel\)/);
   assert.match(thread, /useModelAudioRecording\(attachRecordedAudio\)/);
   assert.match(recorder, /isFinalizing/);
 });

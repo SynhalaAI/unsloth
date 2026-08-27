@@ -52,6 +52,7 @@ import { isTauri } from "@/lib/api-base";
 import { isVideoFile } from "@/lib/video-utils";
 import { isDownloadCancelled } from "@/lib/native-files";
 import { useModelAudioRecording } from "./model-audio-recording";
+import { modelAcceptsAudioInput } from "./types/runtime";
 import { isMultimodalResponse } from "./types/api";
 import { getImageInputUnavailableReason } from "./utils/image-input-support";
 import { CONVERSATION_MARKDOWN_LABEL } from "./utils/conversation-markdown";
@@ -1937,7 +1938,7 @@ export function SharedComposer({
         return;
       }
       if (!isSurfaceInForeground(COMPOSER_INPUT_SELECTOR)) return;
-      if (activeModel?.hasAudioInput === true) {
+      if (modelAcceptsAudioInput(activeModel)) {
         startModelAudioRecording();
       } else {
         startTextDictation();
@@ -2765,13 +2766,13 @@ export function SharedComposer({
             <>
               {!isDictating && !isRecordingModelAudio ? (
                 <TooltipIconButton
-                  tooltip={activeModel?.hasAudioInput ? "Voice" : "Dictate"}
+                  tooltip={modelAcceptsAudioInput(activeModel) ? "Voice" : "Dictate"}
                   side="bottom"
                   variant="ghost"
                   size="icon"
                   className="size-8 rounded-full text-muted-foreground"
-                  onClick={activeModel?.hasAudioInput ? startModelAudioRecording : startTextDictation}
-                  aria-label={activeModel?.hasAudioInput ? "Voice" : "Dictate"}
+                  onClick={modelAcceptsAudioInput(activeModel) ? startModelAudioRecording : startTextDictation}
+                  aria-label={modelAcceptsAudioInput(activeModel) ? "Voice" : "Dictate"}
                 >
                   <MicIcon className="unsloth-dictate-icon size-4" />
                 </TooltipIconButton>
