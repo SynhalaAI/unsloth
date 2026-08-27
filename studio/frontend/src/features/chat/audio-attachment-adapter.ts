@@ -89,9 +89,7 @@ export class AudioAttachmentAdapter implements AttachmentAdapter {
       const format =
         attachment.contentType === "audio/mpeg"
           ? "mp3"
-          : attachment.contentType === "audio/webm"
-            ? "webm"
-            : "wav";
+          : "wav";
       return {
         id: attachment.id,
         type: "file",
