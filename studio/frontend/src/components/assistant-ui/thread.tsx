@@ -158,7 +158,9 @@ import {
 import { create } from "zustand";
 import { getExternalReasoningCapabilities } from "@/features/chat/provider-capabilities";
 import { useRagToolDisabled } from "@/features/chat/hooks/use-rag-tool-disabled";
+import { useModelAudioRecording } from "@/features/chat/model-audio-recording";
 import { BypassPermissionsMenuItem } from "@/features/chat/bypass-permissions-menu-item";
+import { fileToBase64 } from "@/lib/audio-utils";
 import { PermissionModeComposerPill } from "@/features/chat/permission-mode-select";
 import {
   settleThreadScopedSettingsForCopy,
@@ -2256,6 +2258,22 @@ const Composer: FC<{
 }> = ({ disabled, threadId, menuSide, disableQueue }) => {
   const aui = useAui();
   const isDictating = useAuiState((s) => s.composer.dictation != null);
+  const activeModel = useChatRuntimeStore((s) =>
+    s.models.find((model) => model.id === s.params.checkpoint),
+  );
+  const setPendingAudio = useChatRuntimeStore((s) => s.setPendingAudio);
+  const attachRecordedAudio = useCallback(
+    async (file: File) => {
+      setPendingAudio(await fileToBase64(file), file.name);
+    },
+    [setPendingAudio],
+  );
+  const {
+    isRecording: isRecordingModelAudio,
+    start: startModelAudioRecording,
+    stop: stopModelAudioRecording,
+    cancel: cancelModelAudioRecording,
+  } = useModelAudioRecording(attachRecordedAudio);
   const pageDragging = useContext(PageDragContext);
   const { overlay, closeOverlay } = useGeneratedImageOverlay();
   const setImageToolsEnabled = useChatRuntimeStore(
@@ -4304,6 +4322,10 @@ const Composer: FC<{
   // Keep the mic clickable: if the engine can't run here, explain and point to
   // the local model instead of disabling the button.
   const startDictation = useCallback(() => {
+    if (activeModel?.hasAudioInput === true) {
+      void startModelAudioRecording();
+      return;
+    }
     if (!isStudioDictationAvailable()) {
       notifyStudioDictationUnavailable();
       return;
@@ -4313,7 +4335,7 @@ const Composer: FC<{
     } catch {
       notifyStudioDictationUnavailable();
     }
-  }, [aui]);
+  }, [activeModel?.hasAudioInput, aui, startModelAudioRecording]);
   const sendAfterDictation = useCallback(() => {
     sendAfterDictationRef.current = true;
     dictationComposerRef.current = composerIdentity;
@@ -4348,6 +4370,10 @@ const Composer: FC<{
       // to stop.
       if (isDictating) {
         aui.composer().stopDictation();
+        return;
+      }
+      if (isRecordingModelAudio) {
+        stopModelAudioRecording();
         return;
       }
       // A dialog over Chat leaves this registered, and a microphone opened
@@ -4802,6 +4828,11 @@ const Composer: FC<{
               onSendClick={handleSubmit}
               onStopClick={stopQueue}
               onDictateClick={startDictation}
+              isModelAudio={activeModel?.hasAudioInput === true}
+              isRecordingModelAudio={isRecordingModelAudio}
+              onStartModelAudio={startModelAudioRecording}
+              onStopModelAudio={stopModelAudioRecording}
+              onCancelModelAudio={cancelModelAudioRecording}
               pendingSend={pendingSend}
               menuSide={effectiveMenuSide}
               queueThreadIds={promptQueueThreadIds}
@@ -6522,6 +6553,11 @@ const ComposerRightControls: FC<{
   onSendClick?: (event: { preventDefault: () => void }) => void;
   onStopClick?: () => void;
   onDictateClick?: () => void;
+  isModelAudio?: boolean;
+  isRecordingModelAudio?: boolean;
+  onStartModelAudio?: () => void;
+  onStopModelAudio?: () => void;
+  onCancelModelAudio?: () => void;
   pendingSend?: boolean;
   menuSide?: "top" | "bottom";
   queueThreadIds: string[];
@@ -6532,6 +6568,11 @@ const ComposerRightControls: FC<{
   onSendClick,
   onStopClick,
   onDictateClick,
+  isModelAudio,
+  isRecordingModelAudio,
+  onStartModelAudio,
+  onStopModelAudio,
+  onCancelModelAudio,
   pendingSend,
   menuSide,
   queueThreadIds,
@@ -6605,17 +6646,42 @@ const ComposerRightControls: FC<{
       {/* Starts dictation; the recording bar then covers the input row and owns
           the stop and send actions. */}
       <ComposerPrimitive.If dictation={false}>
-        <TooltipIconButton
-          tooltip="Dictate"
-          aria-label="Dictate"
-          type="button"
-          variant="ghost"
-          className="size-8 rounded-full text-foreground"
-          onClick={onDictateClick}
-        >
-          {/* size-[22px] is the fallback; unsloth-dictate-icon sets the size. */}
-          <MicIcon className="unsloth-dictate-icon size-[22px]" />
-        </TooltipIconButton>
+        {isModelAudio && isRecordingModelAudio ? (
+          <>
+            <TooltipIconButton
+              tooltip="Stop recording"
+              aria-label="Stop audio recording"
+              type="button"
+              variant="ghost"
+              className="size-8 rounded-full text-destructive"
+              onClick={onStopModelAudio}
+            >
+              <SquareIcon className="size-3 animate-pulse fill-current" />
+            </TooltipIconButton>
+            <TooltipIconButton
+              tooltip="Cancel recording"
+              aria-label="Cancel audio recording"
+              type="button"
+              variant="ghost"
+              className="size-8 rounded-full text-muted-foreground"
+              onClick={onCancelModelAudio}
+            >
+              <XIcon className="size-4" />
+            </TooltipIconButton>
+          </>
+        ) : (
+          <TooltipIconButton
+            tooltip={isModelAudio ? "Record audio for model" : "Dictate"}
+            aria-label={isModelAudio ? "Record audio for model" : "Dictate"}
+            type="button"
+            variant="ghost"
+            className="size-8 rounded-full text-foreground"
+            onClick={isModelAudio ? onStartModelAudio : onDictateClick}
+          >
+            {/* size-[22px] is the fallback; unsloth-dictate-icon sets the size. */}
+            <MicIcon className="unsloth-dictate-icon size-[22px]" />
+          </TooltipIconButton>
+        )}
       </ComposerPrimitive.If>
       <AuiIf
         condition={({ thread }) =>
