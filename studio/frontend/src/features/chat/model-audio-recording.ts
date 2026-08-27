@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/lib/toast";
 import { getAudioSizeError, MAX_AUDIO_SIZE } from "@/lib/audio-utils";
 import {
-  createAudioRecorder,
+  PcmRecorder,
   type SegmentRecorder,
 } from "@/features/chat/adapters/pcm-recorder";
 
@@ -59,7 +59,9 @@ export function useModelAudioRecording(
         return;
       }
       streamRef.current = stream;
-      const recorder = createAudioRecorder(stream);
+      // GGUF audio VLMs accept the WAV shape used by the upload flow. Browser
+      // MediaRecorder commonly emits WebM, which llama-server cannot decode.
+      const recorder = new PcmRecorder(stream);
       const chunks: Blob[] = [];
       recorderRef.current = recorder;
       recorder.addEventListener("dataavailable", (event) => {

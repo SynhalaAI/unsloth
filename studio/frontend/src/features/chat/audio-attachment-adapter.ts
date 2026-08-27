@@ -86,7 +86,12 @@ export class AudioAttachmentAdapter implements AttachmentAdapter {
     try {
       const base64 = await fileToBase64(attachment.file);
       // Backend takes raw base64; format only satisfies the part type.
-      const format = attachment.contentType === "audio/mpeg" ? "mp3" : "wav";
+      const format =
+        attachment.contentType === "audio/mpeg"
+          ? "mp3"
+          : attachment.contentType === "audio/webm"
+            ? "webm"
+            : "wav";
       return {
         id: attachment.id,
         type: "file",

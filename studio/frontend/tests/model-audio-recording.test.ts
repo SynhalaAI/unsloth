@@ -37,7 +37,7 @@ test("model-audio recorder is visible only for audio-input models", () => {
 });
 
 test("stopping a recording creates the existing pending-audio attachment", () => {
-  assert.match(recorder, /createAudioRecorder\(stream\)/);
+  assert.match(recorder, /new PcmRecorder\(stream\)/);
   assert.match(recorder, /new File\(chunks, recordedAudioName\(contentType\), \{/);
   assert.match(recorder, /contentType === "audio\/wav"\) return "recording\.wav"/);
   assert.match(thread, /setPendingAudio\(await fileToBase64\(file\), file\.name\)/);
