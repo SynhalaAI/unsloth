@@ -776,6 +776,7 @@ export function SharedComposer({
         (m.name && m.name.toLowerCase().replace(/\\/g, "/").split("/").pop() === normalizedCp),
     );
   });
+  const canRecordModelAudio = activeModel?.hasAudioInput === true;
 
   const checkpoint = useChatRuntimeStore((s) => s.params.checkpoint);
   const connectionsEnabled = useExternalProvidersStore(
@@ -2497,10 +2498,7 @@ export function SharedComposer({
                 <HugeiconsIcon icon={AttachmentIcon} strokeWidth={2} />
                 Add photos &amp; files
               </DropdownMenuItem>
-              {Boolean(
-                activeModel?.hasAudioInput ||
-                  activeModel?.description?.includes("Audio Input"),
-              ) && (
+              {canRecordModelAudio && (
                 <DropdownMenuItem
                   onSelect={() => audioInputRef.current?.click()}
                 >
@@ -2930,10 +2928,7 @@ export function SharedComposer({
               </button>
             )
           ) : null}
-          {Boolean(
-            activeModel?.hasAudioInput ||
-              activeModel?.description?.includes("Audio Input"),
-          ) && (
+          {canRecordModelAudio && (
             isRecordingModelAudio ? (
 
               <>
