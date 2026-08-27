@@ -106,28 +106,51 @@ function ensureActiveModelInStoreList(
     hasAudioInput: Boolean(status.has_audio_input),
     hasVideoInput: status.has_video_input ?? false,
   };
-  const existing = store.models.find((model) => model.id === checkpointId);
-  if (existing) {
-    // Backend capability outranks catalog metadata, and adoption has no later
-    // syncModelCapabilities call. Write only on an actual change.
-    if (Object.entries(caps).some(([k, v]) => existing[k as keyof typeof caps] !== v)) {
-      store.setModels(
-        store.models.map((m) => (m.id === checkpointId ? { ...m, ...caps } : m)),
-      );
+  const ids = Array.from(
+    new Set(
+      [checkpointId, store.params.checkpoint].filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      ),
+    ),
+  );
+  let nextModels = store.models;
+  let changed = false;
+
+  for (const id of ids) {
+    const existing = nextModels.find((model) => model.id === id);
+    if (existing) {
+      // Backend capability outranks catalog metadata, and adoption has no later
+      // syncModelCapabilities call. Write only on an actual change. Also update
+      // the exact checkpoint the shared composer reads, which can differ from
+      // model_identifier for cached/snapshot-backed resident models.
+      if (
+        Object.entries(caps).some(
+          ([k, v]) => existing[k as keyof typeof caps] !== v,
+        )
+      ) {
+        nextModels = nextModels.map((m) =>
+          m.id === id ? { ...m, ...caps } : m,
+        );
+        changed = true;
+      }
+      continue;
     }
-    return;
+
+    const summary: ChatModelRow = {
+      id,
+      // active_model is already the clean public id; its leaf matches the catalog rows,
+      // and the fallback keeps a snapshot path out of the trigger.
+      name: modelDisplayName(status.active_model ?? id),
+      isVision: status.is_vision ?? false,
+      isLora: false,
+      isGguf: status.is_gguf ?? false,
+      ...caps,
+    };
+    nextModels = [...nextModels, summary];
+    changed = true;
   }
-  const summary: ChatModelRow = {
-    id: checkpointId,
-    // active_model is already the clean public id; its leaf matches the catalog rows,
-    // and the fallback keeps a snapshot path out of the trigger.
-    name: modelDisplayName(status.active_model ?? checkpointId),
-    isVision: status.is_vision ?? false,
-    isLora: false,
-    isGguf: status.is_gguf ?? false,
-    ...caps,
-  };
-  store.setModels([...store.models, summary]);
+
+  if (changed) store.setModels(nextModels);
 }
 
 export type ApplyInferenceStatusOptions = {
