@@ -1586,6 +1586,16 @@ def is_audio_input_type(audio_type: Optional[str]) -> bool:
     return audio_type in ("whisper", "audio_vlm")
 
 
+def model_defaults_has_audio_input(model_name: Optional[str]) -> bool:
+    """Return the declarative audio-input capability from model defaults."""
+    if not model_name:
+        return False
+    try:
+        return bool(load_model_defaults(model_name).get("audio_input"))
+    except Exception:
+        return False
+
+
 def _is_mmproj(filename: str) -> bool:
     """Check if a GGUF filename is a vision projection (mmproj) file."""
     return "mmproj" in filename.lower()
@@ -3835,6 +3845,9 @@ class ModelConfig:
 
             is_vision = is_vision_model(base_model, hf_token = hf_token)
             audio_type = detect_audio_type(base_model, hf_token = hf_token)
+            has_audio_in = is_audio_input_type(audio_type) or model_defaults_has_audio_input(
+                base_model
+            )
 
             display_name = lora_path_obj.name
             identifier = lora_path  # path is the identifier for local LoRAs
@@ -3849,7 +3862,7 @@ class ModelConfig:
                 is_lora = True,
                 is_audio = audio_type is not None and audio_type != "audio_vlm",
                 audio_type = audio_type,
-                has_audio_input = is_audio_input_type(audio_type),
+                has_audio_input = has_audio_in,
                 base_model = base_model,
             )
 
@@ -3995,6 +4008,7 @@ class ModelConfig:
                     accept = _drafter_accept_for("dflash"),
                 )
 
+                has_audio_in = model_defaults_has_audio_input(identifier)
                 return cls(
                     identifier = identifier,
                     display_name = display_name,
@@ -4015,6 +4029,7 @@ class ModelConfig:
                     gguf_mtp_file = mtp_file,
                     gguf_dspark_file = dspark_file,
                     gguf_dflash_file = dflash_file,
+                    has_audio_input = has_audio_in,
                 )
         else:
             # Does the HF repo contain GGUF files?
@@ -4103,6 +4118,7 @@ class ModelConfig:
                         verified_gguf = (identifier, variant, verified_file, sizes)
 
                 display_name = f"{identifier.split('/')[-1]} ({variant})"
+                has_audio_in = model_defaults_has_audio_input(identifier)
                 logger.info(
                     f"Detected remote GGUF repo '{identifier}', "
                     f"variant={variant}, vision={has_vision}"
@@ -4120,6 +4136,7 @@ class ModelConfig:
                     gguf_verified = verified_gguf,
                     gguf_hf_repo = identifier,
                     gguf_variant = variant,
+                    has_audio_input = has_audio_in,
                 )
 
         # Auto-detect LoRA for local paths (adapter_config.json on disk)
@@ -4188,7 +4205,9 @@ class ModelConfig:
         with _offline_while_reading(check_model):
             vision = is_vision_model(check_model, hf_token = hf_token)
             audio_type_val = detect_audio_type(check_model, hf_token = hf_token)
-        has_audio_in = is_audio_input_type(audio_type_val)
+        has_audio_in = is_audio_input_type(audio_type_val) or model_defaults_has_audio_input(
+            check_model
+        )
 
         display_name = Path(path).name if is_local else identifier.split("/")[-1]
 

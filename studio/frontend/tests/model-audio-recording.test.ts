@@ -13,10 +13,31 @@ const adapter = readFileSync(
   new URL("../src/features/chat/api/chat-adapter.ts", import.meta.url),
   "utf8",
 );
+const runtime = readFileSync(
+  new URL(
+    "../src/features/chat/hooks/use-chat-model-runtime.ts",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 test("model-audio recorder is visible only for audio-input models", () => {
-  assert.match(composer, /activeModel\?\.hasAudioInput === true && \(/);
+  assert.match(composer, /activeModel\?\.hasAudioInput/);
   assert.match(composer, /aria-label="Record audio for model"/);
+});
+
+test("Gemma 4 E2B audio-input rows expose the recorder button", () => {
+  const gemma4E2BRow = {
+    id: "unsloth/gemma-4-E2B-it",
+    has_audio_input: true,
+  };
+
+  assert.match(runtime, /hasAudioInput:\s*Boolean\(model\.has_audio_input\)/);
+  assert.equal(Boolean(gemma4E2BRow.has_audio_input), true);
+  assert.match(
+    composer,
+    /activeModel\?\.hasAudioInput[\s\S]*aria-label="Record audio for model"/,
+  );
 });
 
 test("stopping a recording creates the existing pending-audio attachment", () => {
@@ -31,7 +52,10 @@ test("stopping a recording creates the existing pending-audio attachment", () =>
 test("cancelling a recording neither attaches nor sends audio", () => {
   const cancel = composer.slice(
     composer.indexOf("const cancel = useCallback"),
-    composer.indexOf("const start = useCallback"),
+    composer.indexOf(
+      "const start = useCallback",
+      composer.indexOf("const cancel = useCallback"),
+    ),
   );
   assert.match(cancel, /cancelledRef\.current = true/);
   assert.match(cancel, /recorder\.stop\(\)/);
