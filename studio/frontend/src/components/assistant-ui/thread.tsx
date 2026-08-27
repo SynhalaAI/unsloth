@@ -2259,13 +2259,20 @@ const Composer: FC<{
 }> = ({ disabled, threadId, menuSide, disableQueue }) => {
   const aui = useAui();
   const isDictating = useAuiState((s) => s.composer.dictation != null);
+  const formRef = useRef<HTMLFormElement | null>(null);
+  const modelSendAfterRecordingRef = useRef(false);
   const activeModel = useChatRuntimeStore((s) =>
     s.models.find((model) => model.id === s.params.checkpoint),
   );
+  const isAudioInputModel = modelAcceptsAudioInput(activeModel);
   const setPendingAudio = useChatRuntimeStore((s) => s.setPendingAudio);
   const attachRecordedAudio = useCallback(
     async (file: File) => {
       setPendingAudio(await fileToBase64(file), file.name);
+      if (modelSendAfterRecordingRef.current) {
+        modelSendAfterRecordingRef.current = false;
+        queueMicrotask(() => formRef.current?.requestSubmit());
+      }
     },
     [setPendingAudio],
   );
@@ -4301,7 +4308,6 @@ const Composer: FC<{
   // Recording bar's send: stop dictating, then submit once the transcript
   // lands. Going through the form keeps queueing, indexing holds and draft
   // clearing identical to a typed send.
-  const formRef = useRef<HTMLFormElement | null>(null);
   // Mirrored into state so the publish effect re-runs when the node mounts: a
   // ref mutation does not re-render. See usePublishedFrame.
   const [composerEl, setComposerEl] = useState<HTMLFormElement | null>(null);
@@ -4324,7 +4330,7 @@ const Composer: FC<{
   // Keep the mic clickable: if the engine can't run here, explain and point to
   // the local model instead of disabling the button.
   const startDictation = useCallback(() => {
-    if (modelAcceptsAudioInput(activeModel)) {
+    if (isAudioInputModel) {
       void startModelAudioRecording();
       return;
     }
@@ -4337,7 +4343,7 @@ const Composer: FC<{
     } catch {
       notifyStudioDictationUnavailable();
     }
-  }, [activeModel?.hasAudioInput, aui, startModelAudioRecording]);
+  }, [aui, isAudioInputModel, startModelAudioRecording]);
   const sendAfterDictation = useCallback(() => {
     sendAfterDictationRef.current = true;
     dictationComposerRef.current = composerIdentity;
@@ -4692,10 +4698,12 @@ const Composer: FC<{
   );
 
   const queueContextValue: PromptQueueCallbacks = { startQueue, stopQueue };
+  const composerIsRecording =
+    isDictating || isRecordingModelAudio || isFinalizingModelAudio;
 
   const composerContent = (
     <>
-      {!isDictating ? (
+      {!composerIsRecording ? (
         <>
           <ComposerAttachments />
           <PendingAudioChip />
@@ -4703,19 +4711,19 @@ const Composer: FC<{
       ) : null}
       {/* Keep indexing state subscribed while dictating, but hide its chips so
           the waveform stays the composer's only status indicator. */}
-      <div className={isDictating ? "hidden" : "contents"}>
+      <div className={composerIsRecording ? "hidden" : "contents"}>
         <ThreadDocumentsBar
           threadId={referenceThreadId}
           onIndexingChange={handleIndexingChange}
         />
       </div>
-      {!isDictating ? <ToolStatusDisplay /> : null}
+      {!composerIsRecording ? <ToolStatusDisplay /> : null}
       <div
         className="unsloth-composer-line"
         // The permission pill is always visible, so keep the two-row layout
         // expanded whenever not dictating; dictation collapses to the bar.
-        data-expanded={!isDictating ? "true" : "false"}
-        data-dictating={isDictating ? "true" : undefined}
+        data-expanded={!composerIsRecording ? "true" : "false"}
+        data-dictating={composerIsRecording ? "true" : undefined}
       >
         <div
           ref={pillRowRef}
@@ -4728,7 +4736,7 @@ const Composer: FC<{
           />
           {/* While dictating, show only the "+"; hide the pill and tool toggles
               so the waveform is the sole status indicator. */}
-          {!isDictating ? (
+          {!composerIsRecording ? (
             <>
               {/* Permission-level pill: always visible, opens the level dropdown. */}
               <PermissionModeComposerPill side={effectiveMenuSide} />
@@ -4748,11 +4756,19 @@ const Composer: FC<{
             </>
           ) : null}
         </div>
-        {isDictating ? (
+        {composerIsRecording ? (
           // The recording UI replaces the input and send controls; only the
           // left plus stays visible alongside it.
           <ChatDictationBar
             onSend={sendAfterDictation}
+            modelRecording={isRecordingModelAudio}
+            modelFinalizing={isFinalizingModelAudio}
+            onModelStop={stopModelAudioRecording}
+            onModelCancel={cancelModelAudioRecording}
+            onModelSend={() => {
+              modelSendAfterRecordingRef.current = true;
+              stopModelAudioRecording();
+            }}
             // Every state handleSubmit rejects, since it would reject after
             // transcription with the send intent already spent. Text presence
             // is left out: the transcript supplies it.
@@ -4830,7 +4846,7 @@ const Composer: FC<{
               onSendClick={handleSubmit}
               onStopClick={stopQueue}
               onDictateClick={startDictation}
-              isModelAudio={modelAcceptsAudioInput(activeModel)}
+              isModelAudio={isAudioInputModel}
               isRecordingModelAudio={isRecordingModelAudio}
               isFinalizingModelAudio={isFinalizingModelAudio}
               onStartModelAudio={startModelAudioRecording}

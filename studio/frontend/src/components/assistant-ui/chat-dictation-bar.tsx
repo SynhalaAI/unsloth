@@ -45,9 +45,23 @@ export const ChatDictationBar: FC<{
   onSend?: () => void;
   /** Send is unavailable (e.g. an attachment is still uploading). */
   sendDisabled?: boolean;
-}> = ({ onSend, sendDisabled }) => {
+  modelRecording?: boolean;
+  modelFinalizing?: boolean;
+  onModelStop?: () => void;
+  onModelCancel?: () => void;
+  onModelSend?: () => void;
+}> = ({
+  onSend,
+  sendDisabled,
+  modelRecording = false,
+  modelFinalizing = false,
+  onModelStop,
+  onModelCancel,
+  onModelSend,
+}) => {
   const aui = useAui();
   const isDictating = useAuiState((s) => s.composer.dictation != null);
+  const isRecording = isDictating || modelRecording || modelFinalizing;
   // Which button started transcription, so only it shows the spinner.
   const [transcribing, setTranscribing] = useState<"stop" | "send" | null>(
     null,
@@ -59,7 +73,7 @@ export const ChatDictationBar: FC<{
   const rowRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!isDictating) {
+    if (!isRecording) {
       return;
     }
 
@@ -165,12 +179,12 @@ export const ChatDictationBar: FC<{
       setElapsed(0);
       barsRef.current = new Array(BAR_COUNT + 1).fill(0);
     };
-  }, [isDictating]);
+  }, [isRecording]);
 
   // No discard button, so Escape drops a recording without transcribing. It
   // stays live while transcribing too, where cancel aborts the request.
   useEffect(() => {
-    if (!isDictating) {
+    if (!isRecording) {
       return;
     }
     const onKeyDown = (event: KeyboardEvent) => {
@@ -178,13 +192,17 @@ export const ChatDictationBar: FC<{
       if (event.key !== "Escape" || event.defaultPrevented) {
         return;
       }
-      cancelActiveStudioDictation();
+      if (modelRecording || modelFinalizing) {
+        onModelCancel?.();
+      } else {
+        cancelActiveStudioDictation();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isDictating]);
+  }, [isRecording, modelFinalizing, modelRecording, onModelCancel]);
 
-  if (!isDictating) {
+  if (!isRecording) {
     return null;
   }
 
@@ -198,6 +216,11 @@ export const ChatDictationBar: FC<{
   // transcribing discards it instead, as Compare's does: Escape is otherwise
   // the only way out, which touch has no way to press.
   const stop = () => {
+    if (modelRecording || modelFinalizing) {
+      if (modelFinalizing) onModelCancel?.();
+      else onModelStop?.();
+      return;
+    }
     if (transcribing !== null) {
       cancelActiveStudioDictation();
       return;
@@ -209,6 +232,11 @@ export const ChatDictationBar: FC<{
   // Same transcription, then the message submits on its own.
   const send = () => {
     if (sendDisabled) return;
+    if (modelRecording) {
+      onModelSend?.();
+      return;
+    }
+    if (modelFinalizing) return;
     if (!onSend) {
       stop();
       return;
@@ -247,10 +275,22 @@ export const ChatDictationBar: FC<{
         <TooltipIconButton
           type="button"
           tooltip={
-            transcribing !== null ? "Cancel transcription" : "Stop recording"
+            modelRecording || modelFinalizing
+              ? modelFinalizing
+                ? "Cancel audio attachment"
+                : "Stop recording"
+              : transcribing !== null
+                ? "Cancel transcription"
+                : "Stop recording"
           }
           aria-label={
-            transcribing !== null ? "Cancel transcription" : "Stop recording"
+            modelRecording || modelFinalizing
+              ? modelFinalizing
+                ? "Cancel audio attachment"
+                : "Stop recording"
+              : transcribing !== null
+                ? "Cancel transcription"
+                : "Stop recording"
           }
           variant="ghost"
           onClick={stop}
@@ -258,7 +298,7 @@ export const ChatDictationBar: FC<{
           // default light palette, and too close to --card on dark.
           className="size-9 rounded-full bg-accent text-foreground hover:bg-accent/70 dark:bg-white/10 dark:hover:bg-white/[0.16]"
         >
-          {transcribing === "stop" ? (
+          {transcribing === "stop" || modelFinalizing ? (
             <Spinner className="size-3.5" />
           ) : (
             <SquareIcon className="aui-composer-cancel-icon size-3 fill-current" />
@@ -266,11 +306,17 @@ export const ChatDictationBar: FC<{
         </TooltipIconButton>
         <TooltipIconButton
           type="button"
-          tooltip={transcribing === "send" ? "Transcribing…" : "Send message"}
+          tooltip={
+            modelFinalizing
+              ? "Attaching audio…"
+              : transcribing === "send"
+                ? "Transcribing…"
+                : "Send message"
+          }
           aria-label="Send message"
           variant="default"
           onClick={send}
-          disabled={transcribing !== null || sendDisabled}
+          disabled={transcribing !== null || sendDisabled || modelFinalizing}
           className="aui-composer-send size-9 rounded-full"
         >
           {transcribing === "send" ? (

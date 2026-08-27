@@ -17,6 +17,10 @@ const thread = readFileSync(
   new URL("../src/components/assistant-ui/thread.tsx", import.meta.url),
   "utf8",
 );
+const dictationBar = readFileSync(
+  new URL("../src/components/assistant-ui/chat-dictation-bar.tsx", import.meta.url),
+  "utf8",
+);
 const adapter = readFileSync(
   new URL("../src/features/chat/api/chat-adapter.ts", import.meta.url),
   "utf8",
@@ -28,6 +32,8 @@ test("model-audio recorder is visible only for audio-input models", () => {
   assert.match(thread, /modelAcceptsAudioInput\(activeModel\)/);
   assert.match(thread, /useModelAudioRecording\(attachRecordedAudio\)/);
   assert.match(recorder, /isFinalizing/);
+  assert.match(dictationBar, /modelRecording\?/);
+  assert.match(thread, /<ChatDictationBar[\s\S]*modelRecording=\{isRecordingModelAudio\}/);
 });
 
 test("stopping a recording creates the existing pending-audio attachment", () => {
