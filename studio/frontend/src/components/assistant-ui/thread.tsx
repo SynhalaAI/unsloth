@@ -160,7 +160,6 @@ import { getExternalReasoningCapabilities } from "@/features/chat/provider-capab
 import { useRagToolDisabled } from "@/features/chat/hooks/use-rag-tool-disabled";
 import { useModelAudioRecording } from "@/features/chat/model-audio-recording";
 import { BypassPermissionsMenuItem } from "@/features/chat/bypass-permissions-menu-item";
-import { fileToBase64 } from "@/lib/audio-utils";
 import { modelAcceptsAudioInput } from "@/features/chat/types/runtime";
 import { PermissionModeComposerPill } from "@/features/chat/permission-mode-select";
 import {
@@ -2265,16 +2264,15 @@ const Composer: FC<{
     s.models.find((model) => model.id === s.params.checkpoint),
   );
   const isAudioInputModel = modelAcceptsAudioInput(activeModel);
-  const setPendingAudio = useChatRuntimeStore((s) => s.setPendingAudio);
   const attachRecordedAudio = useCallback(
     async (file: File) => {
-      setPendingAudio(await fileToBase64(file), file.name);
+      await aui.composer().addAttachment(file);
       if (modelSendAfterRecordingRef.current) {
         modelSendAfterRecordingRef.current = false;
         queueMicrotask(() => formRef.current?.requestSubmit());
       }
     },
-    [setPendingAudio],
+    [aui],
   );
   const {
     isRecording: isRecordingModelAudio,

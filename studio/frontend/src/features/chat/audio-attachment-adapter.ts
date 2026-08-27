@@ -15,6 +15,7 @@ import type {
 import { toast } from "sonner";
 import { externalModelLabel } from "./lib/external-model-label";
 import { useChatRuntimeStore } from "./stores/chat-runtime-store";
+import { modelAcceptsAudioInput } from "./types/runtime";
 
 // crypto.randomUUID is undefined in non-secure contexts (HTTP over a LAN IP).
 function newAttachmentId(): string {
@@ -44,7 +45,7 @@ export class AudioAttachmentAdapter implements AttachmentAdapter {
       unavailableReason = state.lastModelLoadError
         ? "The last model failed to load. Check the server logs, then load a model before adding audio files."
         : "Load a model before adding audio files.";
-    } else if (!activeModel?.hasAudioInput) {
+    } else if (!modelAcceptsAudioInput(activeModel)) {
       // A connected provider's model has no row in `models`, so without the parse this
       // named it by its raw `external::…` id (#8405).
       const label =
