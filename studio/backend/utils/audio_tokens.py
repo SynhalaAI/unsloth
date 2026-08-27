@@ -82,9 +82,36 @@ def may_hold_audio_tokens(raw: str) -> bool:
 def classify_audio_tokens(tok_config: dict) -> Optional[str]:
     """The audio_type a parsed tokenizer_config fingerprints, or None."""
     added = tok_config.get("added_tokens_decoder", {})
-    if not added:
+    
+    # Collect token contents from multiple sources:
+    # 1. added_tokens_decoder (standard location)
+    token_contents = [value.get("content", "") for value in added.values()] if added else []
+    
+    # 2. Top-level *_token fields (e.g., audio_token, image_token, etc.)
+    for key, value in tok_config.items():
+        if key.endswith("_token") or key.endswith("_tokens"):
+            if isinstance(value, str):
+                token_contents.append(value)
+            elif isinstance(value, dict) and "content" in value:
+                token_contents.append(value["content"])
+    
+    # 3. model_specific_special_tokens section
+    special_tokens = tok_config.get("model_specific_special_tokens", {})
+    if isinstance(special_tokens, dict):
+        for value in special_tokens.values():
+            if isinstance(value, str):
+                token_contents.append(value)
+            elif isinstance(value, dict) and "content" in value:
+                token_contents.append(value["content"])
+    
+    # 4. extra_special_tokens list
+    extra_tokens = tok_config.get("extra_special_tokens", [])
+    if isinstance(extra_tokens, list):
+        token_contents.extend([t for t in extra_tokens if isinstance(t, str)])
+    
+    if not token_contents:
         return None
-    token_contents = [value.get("content", "") for value in added.values()]
+    
     for audio_type, check_fn in AUDIO_TOKEN_PATTERNS.items():
         if check_fn(token_contents):
             return audio_type
