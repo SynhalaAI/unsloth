@@ -22,6 +22,7 @@ export function useModelAudioRecording(
   onRecorded: (file: File) => Promise<void>,
 ) {
   const [isRecording, setIsRecording] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
   const recorderRef = useRef<SegmentRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const cancelledRef = useRef(false);
@@ -41,12 +42,16 @@ export function useModelAudioRecording(
     const recorder = recorderRef.current;
     if (recorder?.state === "recording") recorder.stop();
     cleanup();
-    if (mountedRef.current) setIsRecording(false);
+    if (mountedRef.current) {
+      setIsRecording(false);
+      setIsFinalizing(false);
+    }
   }, [cleanup]);
 
   const start = useCallback(async () => {
     if (recorderRef.current || isRecording) return;
     cancelledRef.current = false;
+    setIsFinalizing(false);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (cancelledRef.current || !mountedRef.current) {
@@ -85,8 +90,11 @@ export function useModelAudioRecording(
           toast.error("No audio was recorded");
           return;
         }
+        if (mountedRef.current) setIsFinalizing(true);
         void onRecorded(clip).catch(() => {
           toast.error("Could not attach recorded audio");
+        }).finally(() => {
+          if (mountedRef.current) setIsFinalizing(false);
         });
       }, { once: true });
       recorder.start(250);
@@ -115,7 +123,19 @@ export function useModelAudioRecording(
 
   const stop = useCallback(() => {
     const recorder = recorderRef.current;
-    if (recorder?.state === "recording") recorder.stop();
+    if (recorder?.state !== "recording") return;
+    try {
+      recorder.stop();
+    } catch (error) {
+      cleanup();
+      if (mountedRef.current) {
+        setIsRecording(false);
+        setIsFinalizing(false);
+        toast.error("Could not stop audio recording", {
+          description: error instanceof Error ? error.message : undefined,
+        });
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -126,5 +146,5 @@ export function useModelAudioRecording(
     };
   }, [cancel]);
 
-  return { isRecording, start, stop, cancel };
+  return { isRecording, isFinalizing, start, stop, cancel };
 }

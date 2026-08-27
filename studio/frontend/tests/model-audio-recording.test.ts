@@ -27,6 +27,7 @@ test("model-audio recorder is visible only for audio-input models", () => {
   assert.match(composer, /aria-label=\{activeModel\?\.hasAudioInput \? "Record audio for model"/);
   assert.match(thread, /activeModel\?\.hasAudioInput === true/);
   assert.match(thread, /useModelAudioRecording\(attachRecordedAudio\)/);
+  assert.match(recorder, /isFinalizing/);
 });
 
 test("stopping a recording creates the existing pending-audio attachment", () => {
@@ -45,6 +46,7 @@ test("cancelling a recording neither attaches nor sends audio", () => {
   assert.match(cancel, /recorder\.stop\(\)/);
   assert.match(cancel, /cleanup\(\)/);
   assert.match(recorder, /if \(wasCancelled\) return/);
+  assert.match(recorder, /Could not stop audio recording/);
 });
 
 test("capture failures and oversized clips are reported and release resources", () => {

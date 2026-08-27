@@ -2765,13 +2765,13 @@ export function SharedComposer({
             <>
               {!isDictating && !isRecordingModelAudio ? (
                 <TooltipIconButton
-                  tooltip={activeModel?.hasAudioInput ? "Record audio for model" : "Dictate"}
+                  tooltip={activeModel?.hasAudioInput ? "Voice" : "Dictate"}
                   side="bottom"
                   variant="ghost"
                   size="icon"
                   className="size-8 rounded-full text-muted-foreground"
                   onClick={activeModel?.hasAudioInput ? startModelAudioRecording : startTextDictation}
-                  aria-label={activeModel?.hasAudioInput ? "Record audio for model" : "Dictate"}
+                  aria-label={activeModel?.hasAudioInput ? "Voice" : "Dictate"}
                 >
                   <MicIcon className="unsloth-dictate-icon size-4" />
                 </TooltipIconButton>

@@ -2270,6 +2270,7 @@ const Composer: FC<{
   );
   const {
     isRecording: isRecordingModelAudio,
+    isFinalizing: isFinalizingModelAudio,
     start: startModelAudioRecording,
     stop: stopModelAudioRecording,
     cancel: cancelModelAudioRecording,
@@ -4830,6 +4831,7 @@ const Composer: FC<{
               onDictateClick={startDictation}
               isModelAudio={activeModel?.hasAudioInput === true}
               isRecordingModelAudio={isRecordingModelAudio}
+              isFinalizingModelAudio={isFinalizingModelAudio}
               onStartModelAudio={startModelAudioRecording}
               onStopModelAudio={stopModelAudioRecording}
               onCancelModelAudio={cancelModelAudioRecording}
@@ -6555,6 +6557,7 @@ const ComposerRightControls: FC<{
   onDictateClick?: () => void;
   isModelAudio?: boolean;
   isRecordingModelAudio?: boolean;
+  isFinalizingModelAudio?: boolean;
   onStartModelAudio?: () => void;
   onStopModelAudio?: () => void;
   onCancelModelAudio?: () => void;
@@ -6570,6 +6573,7 @@ const ComposerRightControls: FC<{
   onDictateClick,
   isModelAudio,
   isRecordingModelAudio,
+  isFinalizingModelAudio,
   onStartModelAudio,
   onStopModelAudio,
   onCancelModelAudio,
@@ -6671,11 +6675,12 @@ const ComposerRightControls: FC<{
           </>
         ) : (
           <TooltipIconButton
-            tooltip={isModelAudio ? "Record audio for model" : "Dictate"}
-            aria-label={isModelAudio ? "Record audio for model" : "Dictate"}
+            tooltip={isModelAudio ? "Voice" : "Dictate"}
+            aria-label={isModelAudio ? "Voice" : "Dictate"}
             type="button"
             variant="ghost"
             className="size-8 rounded-full text-foreground"
+            disabled={isFinalizingModelAudio}
             onClick={isModelAudio ? onStartModelAudio : onDictateClick}
           >
             {/* size-[22px] is the fallback; unsloth-dictate-icon sets the size. */}
