@@ -343,3 +343,64 @@ def test_repo_in_any_hf_cache_matches_case_variant_in_legacy_cache(tmp_path, mon
     assert models_route._repo_in_any_hf_cache("unsloth/foo") is True
     # Absent from every cache -> reported absent.
     assert models_route._repo_in_any_hf_cache("unsloth/not-cached") is False
+
+
+def test_model_config_gemma4_e2b_defaults_mark_audio_input(monkeypatch):
+    monkeypatch.setattr(model_config_module, "is_local_path", lambda _: False)
+    monkeypatch.setattr(model_config_module, "resolve_cached_repo_id_case", lambda name: name)
+    monkeypatch.setattr(model_config_module, "detect_gguf_model_remote", lambda *a, **kw: None)
+    monkeypatch.setattr(model_config_module, "is_vision_model", lambda *a, **kw: False)
+    monkeypatch.setattr(model_config_module, "detect_audio_type", lambda *a, **kw: None)
+    monkeypatch.setattr(model_config_module, "is_model_cached", lambda *a, **kw: False)
+
+    class _MissingAdapter:
+        siblings = []
+
+    monkeypatch.setattr(
+        "huggingface_hub.model_info",
+        lambda *a, **kw: _MissingAdapter(),
+    )
+
+    config = model_config_module.ModelConfig.from_identifier("unsloth/gemma-4-E2B-it")
+
+    assert config is not None
+    assert config.has_audio_input is True
+
+
+def test_model_config_gemma4_e2b_gguf_alias_defaults_mark_audio_input(monkeypatch):
+    monkeypatch.setattr(model_config_module, "is_local_path", lambda _: False)
+    monkeypatch.setattr(model_config_module, "resolve_cached_repo_id_case", lambda name: name)
+    monkeypatch.setattr(model_config_module, "detect_gguf_model_remote", lambda *a, **kw: None)
+    monkeypatch.setattr(model_config_module, "is_vision_model", lambda *a, **kw: False)
+    monkeypatch.setattr(model_config_module, "detect_audio_type", lambda *a, **kw: None)
+    monkeypatch.setattr(model_config_module, "is_model_cached", lambda *a, **kw: False)
+
+    class _MissingAdapter:
+        siblings = []
+
+    monkeypatch.setattr(
+        "huggingface_hub.model_info",
+        lambda *a, **kw: _MissingAdapter(),
+    )
+
+    config = model_config_module.ModelConfig.from_identifier("unsloth/gemma-4-E2B-it-GGUF")
+
+    assert config is not None
+    assert config.has_audio_input is True
+
+
+def test_lora_model_config_uses_gemma4_e2b_base_audio_input_default(tmp_path, monkeypatch):
+    lora_path = tmp_path / "adapter"
+    lora_path.mkdir()
+    (lora_path / "adapter_config.json").write_text(
+        json.dumps({"base_model_name_or_path": "unsloth/gemma-4-E2B-it"}),
+        encoding = "utf-8",
+    )
+    monkeypatch.setattr(model_config_module, "is_vision_model", lambda *a, **kw: False)
+    monkeypatch.setattr(model_config_module, "detect_audio_type", lambda *a, **kw: None)
+
+    config = model_config_module.ModelConfig.from_lora_path(str(lora_path))
+
+    assert config is not None
+    assert config.base_model == "unsloth/gemma-4-E2B-it"
+    assert config.has_audio_input is True

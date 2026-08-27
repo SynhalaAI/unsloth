@@ -2376,7 +2376,9 @@ async def get_model_config(
                 is_audio = audio_type is not None,
                 audio_type = audio_type,
                 audio_type_known = audio_type_definitive,
-                has_audio_input = is_audio_input_type(audio_type),
+                has_audio_input = (
+                    is_audio_input_type(audio_type) or bool(config_dict.get("audio_input"))
+                ),
                 model_type = derive_model_type(is_vision, audio_type, is_embedding),
                 base_model = base_model,
                 max_position_embeddings = max_position_embeddings,
