@@ -16143,7 +16143,6 @@ async def transcribe_audio_raw(
 
 def _decode_audio_base64(b64: str) -> "np.ndarray":
     """Decode base64 audio (any format) → float32 numpy array at 16kHz."""
-    import torchaudio
     import tempfile
     import os
     from utils.paths import ensure_dir, tmp_root
@@ -16159,18 +16158,29 @@ def _decode_audio_base64(b64: str) -> "np.ndarray":
         tmp.write(raw)
         tmp_path = tmp.name
     try:
-        waveform, sr = torchaudio.load(tmp_path)
+        try:
+            import soundfile as sf
+
+            import numpy as np
+
+            audio, sr = sf.read(tmp_path, dtype = "float32", always_2d = True)
+            waveform = np.mean(audio, axis = 1)
+        except (ImportError, RuntimeError, OSError):
+            import torchaudio
+
+            waveform, sr = torchaudio.load(tmp_path)
+            if waveform.shape[0] > 1:
+                waveform = waveform.mean(dim = 0)
+            waveform = waveform.squeeze(0).numpy()
     finally:
         os.unlink(tmp_path)
 
-    if waveform.shape[0] > 1:
-        waveform = waveform.mean(dim = 0, keepdim = True)
-
     if sr != 16000:
-        resampler = torchaudio.transforms.Resample(orig_freq = sr, new_freq = 16000)
-        waveform = resampler(waveform)
+        import librosa
 
-    return waveform.squeeze(0).numpy()
+        waveform = librosa.resample(waveform, orig_sr = sr, target_sr = 16000)
+
+    return waveform
 
 
 # Reject oversized audio before decoding. base64 inflates raw bytes by ~4/3, so
