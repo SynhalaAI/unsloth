@@ -123,6 +123,18 @@ def _clear_colab_login_credentials() -> None:
         logger.info(f"Could not clear Colab login credentials ({e}).")
 
 
+def _seed_hf_token_from_environment() -> None:
+    """Persist a notebook-provided HF token so the Studio UI can reuse it."""
+    import os
+
+    token = (os.environ.get("HF_TOKEN") or "").strip()
+    if not token:
+        return
+    from storage import credential_secrets
+
+    credential_secrets.save_hf_token_if_absent(token)
+
+
 def _colab_credentials_still_valid(username: str, password: str) -> bool:
     """True when *password* still matches the stored admin hash.
 
@@ -624,6 +636,7 @@ def start(port: int = 8888, *, cloudflare: "bool | None" = None):
 
     logger.info("🦥 Starting Unsloth Studio...")
     use_cloudflare = _colab_wants_cloudflare(cloudflare)
+    _seed_hf_token_from_environment()
 
     # Fast path: already running (cell re-run); re-show link/iframe instead of rebinding the port.
     if _is_studio_healthy(port):
