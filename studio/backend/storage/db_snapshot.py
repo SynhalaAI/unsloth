@@ -34,14 +34,26 @@ def resolve_snapshot_path() -> Path | None:
 def _validate_database(path: Path) -> None:
     if not path.is_file():
         raise ValueError("snapshot is not a file")
-    with sqlite3.connect(f"file:{path}?mode=ro", uri = True) as conn:
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri = True)
+    try:
         result = conn.execute("PRAGMA quick_check").fetchone()
         if not result or result[0] != "ok":
             raise ValueError(f"SQLite quick_check failed: {result!r}")
+    finally:
+        conn.close()
+
+
+def _cleanup_temp_files(path: Path | None) -> None:
+    if path is None:
+        return
+    path.unlink(missing_ok = True)
+    path.with_name(f"{path.name}-wal").unlink(missing_ok = True)
+    path.with_name(f"{path.name}-shm").unlink(missing_ok = True)
 
 
 def restore_snapshot_if_needed(live_path: Path) -> bool:
     """Restore a valid snapshot only when no runtime-local database exists."""
+    temporary_path: Path | None = None
     try:
         snapshot = resolve_snapshot_path()
         if snapshot is None or live_path.exists() or not snapshot.exists():
@@ -51,17 +63,24 @@ def restore_snapshot_if_needed(live_path: Path) -> bool:
         fd, temporary = tempfile.mkstemp(prefix = f".{live_path.name}.restore-", dir = live_path.parent)
         os.close(fd)
         temporary_path = Path(temporary)
+        source = sqlite3.connect(str(snapshot))
         try:
-            with sqlite3.connect(str(snapshot)) as source, sqlite3.connect(str(temporary_path)) as target:
+            target = sqlite3.connect(str(temporary_path))
+            try:
                 source.backup(target)
-            _validate_database(temporary_path)
-            os.replace(temporary_path, live_path)
+            finally:
+                target.close()
         finally:
-            temporary_path.unlink(missing_ok = True)
+            source.close()
+        _validate_database(temporary_path)
+        os.replace(temporary_path, live_path)
+        temporary_path = None
         return True
     except (OSError, sqlite3.Error, ValueError) as exc:
         logger.warning("Studio DB snapshot restore skipped; using a fresh local DB: %s", exc)
         return False
+    finally:
+        _cleanup_temp_files(temporary_path)
 
 
 def create_snapshot(live_path: Path) -> bool:
@@ -77,18 +96,26 @@ def create_snapshot(live_path: Path) -> bool:
         fd, temporary = tempfile.mkstemp(prefix = f".{destination.name}.snapshot-", dir = destination.parent)
         os.close(fd)
         temporary_path = Path(temporary)
-        with sqlite3.connect(str(live_path)) as source, sqlite3.connect(str(temporary_path)) as target:
-            source.backup(target)
+        source = sqlite3.connect(str(live_path))
+        try:
+            target = sqlite3.connect(str(temporary_path))
+            try:
+                source.backup(target)
+                target.execute("PRAGMA journal_mode=DELETE")
+            finally:
+                target.close()
+        finally:
+            source.close()
         _validate_database(temporary_path)
         os.replace(temporary_path, destination)
+        _cleanup_temp_files(temporary_path)
         temporary_path = None
         return True
     except (OSError, sqlite3.Error, ValueError) as exc:
         logger.warning("Could not persist Studio DB snapshot; last successful snapshot retained: %s", exc)
         return False
     finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok = True)
+        _cleanup_temp_files(temporary_path)
 
 
 def _run_pending() -> None:

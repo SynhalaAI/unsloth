@@ -58,3 +58,26 @@ def test_corrupt_snapshot_falls_back_without_creating_live(monkeypatch, tmp_path
     monkeypatch.setenv("UNSLOTH_STUDIO_DB_BACKUP", str(snapshot))
     assert not restore_snapshot_if_needed(live)
     assert not live.exists()
+
+
+def test_storage_auxiliary_modules_restore_snapshot(monkeypatch, tmp_path):
+    from storage import credential_secrets, mcp_servers_db, providers_db
+    import storage.studio_db as studio_db
+
+    snapshot = tmp_path / "persistent" / "studio.db"
+    snapshot.parent.mkdir()
+    _database(snapshot, "snapshot_seeded")
+
+    live = tmp_path / "runtime" / "studio.db"
+    monkeypatch.setenv("UNSLOTH_STUDIO_DB_BACKUP", str(snapshot))
+    monkeypatch.setattr(credential_secrets, "studio_db_path", lambda: live)
+    monkeypatch.setattr(providers_db, "studio_db_path", lambda: live)
+    monkeypatch.setattr(mcp_servers_db, "studio_db_path", lambda: live)
+    monkeypatch.setattr(studio_db, "studio_db_path", lambda: live)
+
+    # Calling credential_secrets first (as colab.start() does for HF_TOKEN) restores snapshot
+    conn = credential_secrets.get_connection()
+    conn.close()
+    assert live.exists()
+    assert _value(live) == "snapshot_seeded"
+

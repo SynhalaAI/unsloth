@@ -90,6 +90,8 @@ def get_connection() -> sqlite3.Connection:
     global _schema_ready
     db_path = studio_db_path()
     ensure_dir(db_path.parent)
+    from storage.db_snapshot import restore_snapshot_if_needed
+    restore_snapshot_if_needed(db_path)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     if not _schema_ready:
