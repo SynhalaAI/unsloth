@@ -127,7 +127,11 @@ def _seed_hf_token_from_environment() -> None:
     """Persist a notebook-provided HF token so the Studio UI can reuse it."""
     import os
 
-    token = (os.environ.get("HF_TOKEN") or "").strip()
+    token = None
+    for env_var in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "HUGGINGFACE_TOKEN"):
+        token = (os.environ.get(env_var) or "").strip()
+        if token:
+            break
     if not token:
         return
     from storage import credential_secrets

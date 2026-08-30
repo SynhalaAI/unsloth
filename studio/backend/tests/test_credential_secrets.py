@@ -224,3 +224,30 @@ assert seen["api_key"] == "sk_restart"
         check = True,
         timeout = 30,
     )
+
+
+def test_hf_token_environment_fallback_and_healing(monkeypatch, tmp_path):
+    studio_db = tmp_path / "studio.db"
+    monkeypatch.setattr(credential_secrets, "studio_db_path", lambda: studio_db)
+    monkeypatch.delenv("HF_TOKEN", raising = False)
+
+    # Initial state: no token
+    assert credential_secrets.get_hf_token() is None
+
+    # Set HF_TOKEN in environment
+    monkeypatch.setenv("HF_TOKEN", "hf_from_env_test")
+    assert credential_secrets.get_hf_token() == "hf_from_env_test"
+
+    # Verify it was saved to DB and persists even if env var is removed
+    monkeypatch.delenv("HF_TOKEN", raising = False)
+    assert credential_secrets.get_hf_token() == "hf_from_env_test"
+
+
+def test_custom_credential_encryption_key_env(monkeypatch):
+    custom_key = "a" * 64
+    monkeypatch.setenv("UNSLOTH_CREDENTIAL_ENCRYPTION_KEY", custom_key)
+    auth_storage._credential_encryption_key_cache = None
+    key = auth_storage.get_or_create_credential_encryption_key()
+    assert key == bytes.fromhex(custom_key)
+    auth_storage._credential_encryption_key_cache = None
+

@@ -454,6 +454,20 @@ def get_or_create_credential_encryption_key() -> bytes:
     if _credential_encryption_key_cache is not None:
         return _credential_encryption_key_cache
 
+    env_key = (os.environ.get("UNSLOTH_CREDENTIAL_ENCRYPTION_KEY") or "").strip()
+    if env_key:
+        try:
+            if len(env_key) == 64:
+                secret = bytes.fromhex(env_key)
+            else:
+                import hashlib
+                secret = hashlib.sha256(env_key.encode("utf-8")).digest()
+            if len(secret) == 32:
+                _credential_encryption_key_cache = secret
+                return secret
+        except ValueError:
+            pass
+
     conn = get_connection()
     try:
         row = conn.execute(

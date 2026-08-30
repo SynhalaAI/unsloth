@@ -144,23 +144,11 @@ def upsert_secret(
 
 
 def insert_secret_if_absent(credential_kind: str, scope_id: str, plaintext: str) -> bool:
-    """Atomically insert a migration credential without replacing an existing value."""
-    nonce, ciphertext, now = _encrypted_secret(credential_kind, scope_id, plaintext)
-    conn = get_connection()
-    try:
-        cursor = conn.execute(
-            """
-            INSERT OR IGNORE INTO credential_secrets (
-                credential_kind, scope_id, format_version,
-                nonce, ciphertext, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (credential_kind, scope_id, _FORMAT_VERSION, nonce, ciphertext, now, now),
-        )
-        conn.commit()
-        return cursor.rowcount > 0
-    finally:
-        conn.close()
+    """Atomically insert a migration credential without replacing an existing readable value."""
+    if get_secret(credential_kind, scope_id) is not None:
+        return False
+    upsert_secret(credential_kind, scope_id, plaintext)
+    return True
 
 
 def get_secret(credential_kind: str, scope_id: str) -> Optional[str]:
@@ -221,7 +209,18 @@ def delete_secret(
 
 
 def get_hf_token() -> Optional[str]:
-    return get_secret(HF_TOKEN_KIND, HF_TOKEN_SCOPE)
+    token = get_secret(HF_TOKEN_KIND, HF_TOKEN_SCOPE)
+    if token:
+        return token
+    for env_var in ("HF_TOKEN", "HUGGING_FACE_HUB_TOKEN", "HUGGINGFACE_TOKEN"):
+        env_token = (os.environ.get(env_var) or "").strip()
+        if env_token:
+            try:
+                save_hf_token(env_token)
+            except Exception:
+                pass
+            return env_token
+    return None
 
 
 def save_hf_token(token: str) -> None:
