@@ -630,3 +630,40 @@ test("metrics are scoped to the current run", () => {
   assert.equal(current.currentStep, 8);
   assert.deepEqual(current.lossHistory, [{ step: 8, value: 2 }]);
 });
+
+test("OCR metric histories merge into the live runtime when present", () => {
+  useTrainingRuntimeStore.getState().resetRuntime();
+  useTrainingRuntimeStore.getState().setStartPending("job-ocr", "Starting");
+
+  useTrainingRuntimeStore.getState().applyStatus({
+    job_id: "job-ocr",
+    phase: "training",
+    is_training_running: true,
+    eval_enabled: false,
+    message: "Training",
+    error: null,
+    details: {
+      step: 4,
+      total_steps: 10,
+    },
+    metric_history: {
+      steps: [2, 4],
+      loss: [1.2, 1.0],
+      lr: [0.001, 0.0008],
+      cer: [0.18, 0.12],
+      cer_steps: [2, 4],
+      wer: [0.28, 0.22],
+      wer_steps: [2, 4],
+    },
+  });
+
+  const current = useTrainingRuntimeStore.getState();
+  assert.deepEqual(current.cerHistory, [
+    { step: 2, value: 0.18 },
+    { step: 4, value: 0.12 },
+  ]);
+  assert.deepEqual(current.werHistory, [
+    { step: 2, value: 0.28 },
+    { step: 4, value: 0.22 },
+  ]);
+});

@@ -128,3 +128,28 @@ test("the sibling clip knobs keep their existing wire contract", () => {
   assert.equal(payload.max_grad_value, null);
   assert.equal(payload.weight_decay, CONFIG.weightDecay);
 });
+
+test("DPO and CPO preference settings are serialized on the training payload", () => {
+  const dpoPayload = buildTrainingStartPayload(
+    { ...CONFIG, preferenceTrainingMethod: "dpo", dpoBeta: 0.25, maxPromptLength: 512 },
+    null,
+  );
+  assert.equal(dpoPayload.training_method, "DPO");
+  assert.equal(dpoPayload.dpo_beta, 0.25);
+  assert.equal(dpoPayload.max_prompt_length, 512);
+
+  const cpoPayload = buildTrainingStartPayload(
+    {
+      ...CONFIG,
+      preferenceTrainingMethod: "cpo",
+      dpoBeta: 0.1,
+      cpoAlpha: 1.5,
+      maxPromptLength: 1024,
+    },
+    null,
+  );
+  assert.equal(cpoPayload.training_method, "CPO");
+  assert.equal(cpoPayload.dpo_beta, 0.1);
+  assert.equal(cpoPayload.cpo_alpha, 1.5);
+  assert.equal(cpoPayload.max_prompt_length, 1024);
+});

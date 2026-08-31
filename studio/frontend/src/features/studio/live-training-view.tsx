@@ -63,6 +63,8 @@ export function LiveTrainingView(): ReactElement {
       lrHistory: state.lrHistory,
       gradNormHistory: state.gradNormHistory,
       evalLossHistory: state.evalLossHistory,
+      cerHistory: state.cerHistory,
+      werHistory: state.werHistory,
       firstStepReceived: state.firstStepReceived,
       isStarting: state.isStarting,
     })),
@@ -73,6 +75,7 @@ export function LiveTrainingView(): ReactElement {
       selectedModel: state.selectedModel,
       projectName: state.projectName,
       trainingMethod: state.trainingMethod,
+      isOcrTraining: state.isOcrTraining,
     })),
   );
 
@@ -159,6 +162,8 @@ export function LiveTrainingView(): ReactElement {
     lrHistory: runtime.lrHistory,
     gradNormHistory: runtime.gradNormHistory,
     evalLossHistory: runtime.evalLossHistory,
+    cerHistory: runtime.cerHistory,
+    werHistory: runtime.werHistory,
   };
 
   const isPreparingPhase =
@@ -193,11 +198,14 @@ export function LiveTrainingView(): ReactElement {
           currentStep={viewData.currentStep}
           totalSteps={viewData.totalSteps}
           isTraining={viewData.isTrainingRunning}
+          isOcrTraining={config.isOcrTraining}
           evalEnabled={viewData.evalEnabled}
           lossHistory={viewData.lossHistory}
           lrHistory={viewData.lrHistory}
           gradNormHistory={viewData.gradNormHistory}
           evalLossHistory={viewData.evalLossHistory}
+          cerHistory={viewData.cerHistory}
+          werHistory={viewData.werHistory}
         />
       </div>
       {showOverlay ? (

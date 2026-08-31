@@ -7,6 +7,7 @@ import type {
   DatasetSource,
   GradientCheckpointing,
   ModelType,
+  PreferenceTrainingMethod,
   S3Config,
   TrainingMethod,
 } from "@/types/training";
@@ -99,6 +100,10 @@ export interface TrainingConfigState {
   contextLength: number;
   learningRate: number;
   embeddingLearningRate: number | null;
+  preferenceTrainingMethod: PreferenceTrainingMethod;
+  dpoBeta: number;
+  cpoAlpha: number;
+  maxPromptLength: number;
   optimizerType: string;
   lrSchedulerType: string;
   loraRank: number;
@@ -235,6 +240,10 @@ export interface TrainingConfigActions {
   setVisionImageSize: (size: number | null) => void;
   setLearningRate: (rate: number) => void;
   setEmbeddingLearningRate: (rate: number | null) => void;
+  setPreferenceTrainingMethod: (value: PreferenceTrainingMethod) => void;
+  setDpoBeta: (value: number) => void;
+  setCpoAlpha: (value: number) => void;
+  setMaxPromptLength: (value: number) => void;
   setOptimizerType: (value: string) => void;
   setLrSchedulerType: (value: string) => void;
   setLoraRank: (rank: number) => void;

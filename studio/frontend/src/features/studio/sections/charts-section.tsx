@@ -20,22 +20,28 @@ interface ChartsSectionProps {
   currentStep: number;
   totalSteps: number;
   isTraining: boolean;
+  isOcrTraining?: boolean;
   evalEnabled: boolean;
   lossHistory: TrainingSeriesPoint[];
   lrHistory: TrainingSeriesPoint[];
   gradNormHistory: TrainingSeriesPoint[];
   evalLossHistory: TrainingSeriesPoint[];
+  cerHistory?: TrainingSeriesPoint[];
+  werHistory?: TrainingSeriesPoint[];
 }
 
 export function ChartsSection({
   currentStep,
   totalSteps,
   isTraining,
+  isOcrTraining = false,
   evalEnabled,
   lossHistory,
   lrHistory,
   gradNormHistory,
   evalLossHistory,
+  cerHistory = [],
+  werHistory = [],
 }: ChartsSectionProps): ReactElement | null {
   const series = useMemo(
     () => ({
@@ -57,14 +63,26 @@ export function ChartsSection({
         step: point.step,
         loss: point.value,
       })),
+      cerHistory: cerHistory.map((point) => ({
+        step: point.step,
+        cer: point.value,
+      })),
+      werHistory: werHistory.map((point) => ({
+        step: point.step,
+        wer: point.value,
+      })),
     }),
-    [currentStep, evalLossHistory, gradNormHistory, lossHistory, lrHistory, totalSteps],
+    [cerHistory, currentStep, evalLossHistory, gradNormHistory, lossHistory, lrHistory, totalSteps, werHistory],
   );
 
   if (
     series.lossHistory.length === 0 &&
     series.lrHistory.length === 0 &&
-    series.gradNormHistory.length === 0
+    series.gradNormHistory.length === 0 &&
+    series.evalLossHistory.length === 0 &&
+    series.cerHistory.length === 0 &&
+    series.werHistory.length === 0 &&
+    !isOcrTraining
   ) {
     return null;
   }
@@ -82,7 +100,12 @@ export function ChartsSection({
         </div>
       }
     >
-      <ChartsContent metrics={series} isTraining={isTraining} evalEnabled={evalEnabled} />
+      <ChartsContent
+        metrics={series}
+        isTraining={isTraining}
+        isOcrTraining={isOcrTraining}
+        evalEnabled={evalEnabled}
+      />
     </Suspense>
   );
 }

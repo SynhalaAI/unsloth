@@ -9,6 +9,10 @@ export interface TrainingStartRequest {
   actual_model_repo_id?: string | null;
   project_name: string | null;
   training_type: string;
+  training_method?: "SFT" | "DPO" | "CPO";
+  dpo_beta?: number;
+  cpo_alpha?: number;
+  max_prompt_length?: number | null;
   hf_token: string | null;
   model_known_cached?: boolean;
   model_local_path?: string | null;

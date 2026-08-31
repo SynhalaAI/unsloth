@@ -1264,6 +1264,12 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
           })),
         setEmbeddingLearningRate: (embeddingLearningRate) =>
           setUserEdit({ embeddingLearningRate }),
+        setPreferenceTrainingMethod: (preferenceTrainingMethod) =>
+          setUserEdit({ preferenceTrainingMethod }),
+        setDpoBeta: (dpoBeta) => setUserEdit({ dpoBeta }),
+        setCpoAlpha: (cpoAlpha) => setUserEdit({ cpoAlpha }),
+        setMaxPromptLength: (maxPromptLength) =>
+          setUserEdit({ maxPromptLength }),
         setOptimizerType: (optimizerType) => setUserEdit({ optimizerType }),
         setLrSchedulerType: (lrSchedulerType) =>
           setUserEdit({ lrSchedulerType }),

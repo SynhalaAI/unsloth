@@ -81,6 +81,8 @@ const initialState: TrainingRuntimeState = {
   lrHistory: [],
   gradNormHistory: [],
   evalLossHistory: [],
+  cerHistory: [],
+  werHistory: [],
   resetGeneration: 0,
   stopRequested: false,
   selectedHistoryRunId: null,
@@ -208,6 +210,8 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
       lrHistory: null,
       gradNormHistory: null,
       evalLossHistory: null,
+      cerHistory: null,
+      werHistory: null,
     };
   }
 
@@ -222,8 +226,12 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
     history.eval_loss && history.eval_steps
       ? toSeries(history.eval_steps, history.eval_loss)
       : null;
+  const cerHistory =
+    history.cer && history.cer_steps ? toSeries(history.cer_steps, history.cer) : null;
+  const werHistory =
+    history.wer && history.wer_steps ? toSeries(history.wer_steps, history.wer) : null;
 
-  return { lossHistory, lrHistory, gradNormHistory, evalLossHistory };
+  return { lossHistory, lrHistory, gradNormHistory, evalLossHistory, cerHistory, werHistory };
 }
 
 export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
@@ -281,6 +289,8 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
         lrHistory: [],
         gradNormHistory: [],
         evalLossHistory: [],
+        cerHistory: [],
+        werHistory: [],
         resetGeneration: state.resetGeneration + 1,
       })),
 
@@ -473,6 +483,12 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
                 metricHistory.evalLossHistory,
               )
             : runtimeState.evalLossHistory,
+          cerHistory: metricHistory.cerHistory
+            ? mergeSeries(runtimeState.cerHistory, metricHistory.cerHistory)
+            : runtimeState.cerHistory,
+          werHistory: metricHistory.werHistory
+            ? mergeSeries(runtimeState.werHistory, metricHistory.werHistory)
+            : runtimeState.werHistory,
         };
       }),
 
@@ -490,6 +506,14 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
           payload.grad_norm_step_history,
           payload.grad_norm_history,
         );
+        const cerHistory =
+          payload.cer_step_history && payload.cer_history
+            ? toSeries(payload.cer_step_history, payload.cer_history)
+            : [];
+        const werHistory =
+          payload.wer_step_history && payload.wer_history
+            ? toSeries(payload.wer_step_history, payload.wer_history)
+            : [];
         const latestStep =
           payload.current_step ??
           (payload.step_history.length > 0
@@ -507,6 +531,8 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
           lossHistory: mergeSeries(state.lossHistory, lossHistory),
           lrHistory: mergeSeries(state.lrHistory, lrHistory),
           gradNormHistory: mergeSeries(state.gradNormHistory, gradNormHistory),
+          cerHistory: cerHistory.length ? mergeSeries(state.cerHistory, cerHistory) : state.cerHistory,
+          werHistory: werHistory.length ? mergeSeries(state.werHistory, werHistory) : state.werHistory,
           currentStep:
             normalizedLatestStep !== null
               ? Math.max(normalizedLatestStep, state.currentStep)

@@ -42,6 +42,10 @@ export interface TrainingRunMetrics {
   grad_norm_step_history: number[];
   eval_loss_history: number[];
   eval_step_history: number[];
+  cer_history?: number[];
+  cer_step_history?: number[];
+  wer_history?: number[];
+  wer_step_history?: number[];
   final_epoch: number | null;
   final_num_tokens: number | null;
 }
