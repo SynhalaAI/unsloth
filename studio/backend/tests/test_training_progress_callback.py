@@ -191,6 +191,15 @@ def test_training_warning_is_emitted_once_and_survives_later_status_updates():
     assert backend._progress.status_message == ACTIVE
 
 
+def test_backend_training_progress_keeps_num_tokens():
+    from core.training.training import TrainingProgress
+
+    progress = TrainingProgress()
+    progress.num_tokens = 1234
+
+    assert progress.num_tokens == 1234
+
+
 def test_mlx_adapter_deduplicates_warning_events():
     adapter = _MLXTrainerAdapter()
 

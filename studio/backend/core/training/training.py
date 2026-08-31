@@ -623,6 +623,7 @@ class TrainingProgress:
     elapsed_seconds: Optional[float] = None
     eta_seconds: Optional[float] = None
     grad_norm: Optional[float] = None
+    num_tokens: Optional[int] = None
     eval_loss: Optional[float] = None
     rewards_chosen: Optional[float] = None
     rewards_rejected: Optional[float] = None
