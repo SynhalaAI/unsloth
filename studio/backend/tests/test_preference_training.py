@@ -16,6 +16,7 @@ from utils.datasets.preference import (
 )
 from utils.datasets.format_detection import detect_dataset_format
 from models.training import TrainingStartRequest
+from core.training.trainer import resolve_training_format_type
 
 
 class MockDataset:
@@ -167,3 +168,8 @@ def test_training_start_request_cpo_validation():
     assert req.training_method == "CPO"
     assert req.cpo_alpha == 1.5
     assert req.dpo_beta == 0.1
+
+
+def test_resolve_training_format_type_uses_detected_preference_format():
+    assert resolve_training_format_type({"format_type": "auto"}, {"final_format": "preference_dpo"}, "") == "preference_dpo"
+    assert resolve_training_format_type({"format_type": "chatml"}, None, "") == "chatml"

@@ -750,6 +750,24 @@ class TrainingProgress(BaseModel):
     eval_loss: Optional[float] = Field(
         None, description = "Eval loss from the most recent evaluation step"
     )
+    rewards_chosen: Optional[float] = Field(
+        None, description = "Mean reward/log-probability for chosen responses"
+    )
+    rewards_rejected: Optional[float] = Field(
+        None, description = "Mean reward/log-probability for rejected responses"
+    )
+    rewards_accuracies: Optional[float] = Field(
+        None, description = "Accuracy of preferring chosen over rejected responses"
+    )
+    rewards_margins: Optional[float] = Field(
+        None, description = "Reward margin between chosen and rejected responses"
+    )
+    eval_rewards_accuracies: Optional[float] = Field(
+        None, description = "Evaluation reward accuracy"
+    )
+    eval_rewards_margins: Optional[float] = Field(
+        None, description = "Evaluation reward margin"
+    )
     checkpoint_backup: Optional[dict] = Field(
         None, description = "Current asynchronous checkpoint backup snapshot"
     )

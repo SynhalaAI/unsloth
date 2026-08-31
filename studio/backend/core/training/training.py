@@ -623,8 +623,13 @@ class TrainingProgress:
     elapsed_seconds: Optional[float] = None
     eta_seconds: Optional[float] = None
     grad_norm: Optional[float] = None
-    num_tokens: Optional[int] = None
     eval_loss: Optional[float] = None
+    rewards_chosen: Optional[float] = None
+    rewards_rejected: Optional[float] = None
+    rewards_accuracies: Optional[float] = None
+    rewards_margins: Optional[float] = None
+    eval_rewards_accuracies: Optional[float] = None
+    eval_rewards_margins: Optional[float] = None
     peak_memory_gb: Optional[float] = None
     output_dir: Optional[str] = None
     # Set on the end-of-run record HF emits after leaving the training loop. It has no

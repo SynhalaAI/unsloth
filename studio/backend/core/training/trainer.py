@@ -139,6 +139,34 @@ def _hf_stdout_progress_disabled() -> bool:
     return not _verbose_logging_requested()
 
 
+def resolve_training_format_type(
+    training_args: Dict[str, Any],
+    dataset_info: Optional[Dict[str, Any]] = None,
+    dataset_final_format: str = "",
+) -> str:
+    """Resolve the effective dataset format for trainer branching.
+
+    An explicit non-"auto" format wins. When the user leaves the field at "auto",
+    prefer the dataset's resolved final format so DPO/CPO preference detection still
+    drives the correct trainer branch.
+    """
+    explicit = str(training_args.get("format_type") or "").strip().lower()
+
+    derived = str(dataset_final_format or "").strip().lower()
+    if not derived and isinstance(dataset_info, dict):
+        for key in ("final_format", "detected_format"):
+            value = str(dataset_info.get(key) or "").strip().lower()
+            if value:
+                derived = value
+                break
+
+    if derived and explicit in ("", "auto"):
+        return derived
+    if explicit:
+        return explicit
+    return derived or "auto"
+
+
 # Keys that only ever appear on Trainer's end-of-run / end-of-eval summary record.
 _TRAINER_SUMMARY_KEYS = (
     "train_runtime",
@@ -638,6 +666,12 @@ class UnslothTrainer:
                     grad_norm = grad_norm,
                     num_tokens = num_tokens,
                     eval_loss = logs.get("eval_loss", None),
+                    rewards_chosen = logs.get("rewards/chosen", logs.get("rewards_chosen")),
+                    rewards_rejected = logs.get("rewards/rejected", logs.get("rewards_rejected")),
+                    rewards_accuracies = logs.get("rewards/accuracies", logs.get("rewards_accuracies")),
+                    rewards_margins = logs.get("rewards/margins", logs.get("rewards_margins")),
+                    eval_rewards_accuracies = logs.get("eval_rewards/accuracies", logs.get("eval_rewards_accuracies")),
+                    eval_rewards_margins = logs.get("eval_rewards/margins", logs.get("eval_rewards_margins")),
                     is_run_summary = is_run_summary,
                     status_message = "",
                 )
@@ -3934,6 +3968,11 @@ class UnslothTrainer:
 
             dataset_final_format = (
                 str(dataset.get("final_format", "")).lower() if isinstance(dataset, dict) else ""
+            )
+            format_type = resolve_training_format_type(
+                training_args,
+                dataset if isinstance(dataset, dict) else None,
+                dataset_final_format,
             )
             raw_text_mode = dataset_final_format == "raw_text"
 
