@@ -97,6 +97,7 @@ export const initialTrainingConfigState: TrainingConfigState = {
   advancedSettingsBaseline: null,
   trainOnCompletionsDefaultPendingFor: null,
   isCheckingDataset: false,
+  isPreferenceDataset: false,
   isDatasetImage: null,
   isDatasetAudio: false,
   isOcrTraining: false,

@@ -534,9 +534,15 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
               current.datasetStreaming && (isImage || isAudio);
             const autoOcrTraining =
               current.isVisionModel && isImage && !current.isEmbeddingModel;
+            const isPreferenceDataset =
+              res.detected_format === "preference_dpo" ||
+              res.detected_format === "preference_cpo" ||
+              res.detected_format === "dpo" ||
+              res.detected_format === "cpo";
             const updates: Partial<TrainingConfigState> = {
               isDatasetImage: isImage,
               isDatasetAudio: isAudio,
+              isPreferenceDataset,
               isCheckingDataset: false,
               datasetCheckFailed: false,
               isOcrTraining: autoOcrTraining
@@ -689,6 +695,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
         uploadedEvalFile: null,
         isDatasetImage: null,
         isDatasetAudio: false,
+        isPreferenceDataset: false,
         isCheckingDataset: false,
         datasetCheckFailed: false,
       });

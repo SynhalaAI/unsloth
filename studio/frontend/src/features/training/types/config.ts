@@ -139,6 +139,7 @@ export interface TrainingConfigState {
   advancedSettingsBaseline: AdvancedSettingsBaseline | null;
   trainOnCompletionsDefaultPendingFor: string | null;
   isCheckingDataset: boolean;
+  isPreferenceDataset: boolean;
   isDatasetImage: boolean | null;
   isDatasetAudio: boolean;
   isOcrTraining: boolean;
