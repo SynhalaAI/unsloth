@@ -8,6 +8,7 @@ import { EvalLossChartCard } from "./charts/eval-loss-chart-card";
 import { GradNormChartCard } from "./charts/grad-norm-chart-card";
 import { LearningRateChartCard } from "./charts/learning-rate-chart-card";
 import { OcrMetricsChartCard } from "./charts/ocr-metrics-chart-card";
+import { PreferenceMetricsChartCard } from "./charts/preference-metrics-chart-card";
 import { TrainingLossChartCard } from "./charts/training-loss-chart-card";
 import type { TrainingChartSeries } from "./charts/types";
 import {
@@ -118,6 +119,28 @@ export function ChartsContent({
     () => compressSeries(metrics.evalLossHistory, MAX_RENDER_POINTS),
     [metrics.evalLossHistory],
   );
+  const reducedPreferenceData = useMemo(() => {
+    const points = new Map<number, { step: number; accuracy: number; margin: number }>();
+    for (const point of metrics.rewardAccuracyHistory) {
+      points.set(point.step, { step: point.step, accuracy: point.accuracy, margin: Number.NaN });
+    }
+    for (const point of metrics.rewardMarginHistory) {
+      const existing = points.get(point.step) ?? { step: point.step, accuracy: Number.NaN, margin: Number.NaN };
+      points.set(point.step, { ...existing, margin: point.margin });
+    }
+    return compressSeries(Array.from(points.values()), MAX_RENDER_POINTS);
+  }, [metrics.rewardAccuracyHistory, metrics.rewardMarginHistory]);
+  const reducedEvalPreferenceData = useMemo(() => {
+    const points = new Map<number, { step: number; accuracy: number; margin: number }>();
+    for (const point of metrics.evalRewardAccuracyHistory) {
+      points.set(point.step, { step: point.step, accuracy: point.accuracy, margin: Number.NaN });
+    }
+    for (const point of metrics.evalRewardMarginHistory) {
+      const existing = points.get(point.step) ?? { step: point.step, accuracy: Number.NaN, margin: Number.NaN };
+      points.set(point.step, { ...existing, margin: point.margin });
+    }
+    return compressSeries(Array.from(points.values()), MAX_RENDER_POINTS);
+  }, [metrics.evalRewardAccuracyHistory, metrics.evalRewardMarginHistory]);
   const reducedCerData = useMemo(
     () => compressSeries(metrics.cerHistory, MAX_RENDER_POINTS),
     [metrics.cerHistory],
@@ -351,6 +374,12 @@ export function ChartsContent({
         isTraining={isTraining}
         evalEnabled={evalEnabled}
       />
+      {(reducedPreferenceData.length > 0 || reducedEvalPreferenceData.length > 0) && (
+        <PreferenceMetricsChartCard
+          trainData={reducedPreferenceData}
+          evalData={reducedEvalPreferenceData}
+        />
+      )}
       {isOcrTraining && (
         <OcrMetricsChartCard
           data={

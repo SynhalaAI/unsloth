@@ -26,6 +26,10 @@ interface ChartsSectionProps {
   lrHistory: TrainingSeriesPoint[];
   gradNormHistory: TrainingSeriesPoint[];
   evalLossHistory: TrainingSeriesPoint[];
+  rewardAccuracyHistory?: TrainingSeriesPoint[];
+  rewardMarginHistory?: TrainingSeriesPoint[];
+  evalRewardAccuracyHistory?: TrainingSeriesPoint[];
+  evalRewardMarginHistory?: TrainingSeriesPoint[];
   cerHistory?: TrainingSeriesPoint[];
   werHistory?: TrainingSeriesPoint[];
 }
@@ -40,6 +44,10 @@ export function ChartsSection({
   lrHistory,
   gradNormHistory,
   evalLossHistory,
+  rewardAccuracyHistory = [],
+  rewardMarginHistory = [],
+  evalRewardAccuracyHistory = [],
+  evalRewardMarginHistory = [],
   cerHistory = [],
   werHistory = [],
 }: ChartsSectionProps): ReactElement | null {
@@ -63,6 +71,22 @@ export function ChartsSection({
         step: point.step,
         loss: point.value,
       })),
+      rewardAccuracyHistory: rewardAccuracyHistory.map((point) => ({
+        step: point.step,
+        accuracy: point.value,
+      })),
+      rewardMarginHistory: rewardMarginHistory.map((point) => ({
+        step: point.step,
+        margin: point.value,
+      })),
+      evalRewardAccuracyHistory: evalRewardAccuracyHistory.map((point) => ({
+        step: point.step,
+        accuracy: point.value,
+      })),
+      evalRewardMarginHistory: evalRewardMarginHistory.map((point) => ({
+        step: point.step,
+        margin: point.value,
+      })),
       cerHistory: cerHistory.map((point) => ({
         step: point.step,
         cer: point.value,
@@ -72,7 +96,7 @@ export function ChartsSection({
         wer: point.value,
       })),
     }),
-    [cerHistory, currentStep, evalLossHistory, gradNormHistory, lossHistory, lrHistory, totalSteps, werHistory],
+    [cerHistory, currentStep, evalLossHistory, evalRewardAccuracyHistory, evalRewardMarginHistory, gradNormHistory, lossHistory, lrHistory, rewardAccuracyHistory, rewardMarginHistory, totalSteps, werHistory],
   );
 
   if (
@@ -80,6 +104,10 @@ export function ChartsSection({
     series.lrHistory.length === 0 &&
     series.gradNormHistory.length === 0 &&
     series.evalLossHistory.length === 0 &&
+    series.rewardAccuracyHistory.length === 0 &&
+    series.rewardMarginHistory.length === 0 &&
+    series.evalRewardAccuracyHistory.length === 0 &&
+    series.evalRewardMarginHistory.length === 0 &&
     series.cerHistory.length === 0 &&
     series.werHistory.length === 0 &&
     !isOcrTraining

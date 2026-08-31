@@ -78,6 +78,12 @@ export interface TrainingProgressPayload {
   grad_norm: number | null;
   num_tokens: number | null;
   eval_loss: number | null;
+  rewards_chosen: number | null;
+  rewards_rejected: number | null;
+  rewards_accuracies: number | null;
+  rewards_margins: number | null;
+  eval_rewards_accuracies: number | null;
+  eval_rewards_margins: number | null;
 }
 
 export interface TrainingSeriesPoint {
@@ -121,6 +127,10 @@ export interface TrainingRuntimeState {
   lrHistory: TrainingSeriesPoint[];
   gradNormHistory: TrainingSeriesPoint[];
   evalLossHistory: TrainingSeriesPoint[];
+  rewardAccuracyHistory: TrainingSeriesPoint[];
+  rewardMarginHistory: TrainingSeriesPoint[];
+  evalRewardAccuracyHistory: TrainingSeriesPoint[];
+  evalRewardMarginHistory: TrainingSeriesPoint[];
   cerHistory: TrainingSeriesPoint[];
   werHistory: TrainingSeriesPoint[];
   resetGeneration: number;
@@ -191,6 +201,10 @@ export interface TrainingViewData {
   lrHistory: TrainingSeriesPoint[];
   gradNormHistory: TrainingSeriesPoint[];
   evalLossHistory: TrainingSeriesPoint[];
+  rewardAccuracyHistory: TrainingSeriesPoint[];
+  rewardMarginHistory: TrainingSeriesPoint[];
+  evalRewardAccuracyHistory: TrainingSeriesPoint[];
+  evalRewardMarginHistory: TrainingSeriesPoint[];
   cerHistory: TrainingSeriesPoint[];
   werHistory: TrainingSeriesPoint[];
 }

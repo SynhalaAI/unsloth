@@ -12,6 +12,10 @@ export interface TrainingChartSeries {
   lrHistory: { step: number; lr: number }[];
   gradNormHistory: { step: number; gradNorm: number }[];
   evalLossHistory: { step: number; loss: number }[];
+  rewardAccuracyHistory: { step: number; accuracy: number }[];
+  rewardMarginHistory: { step: number; margin: number }[];
+  evalRewardAccuracyHistory: { step: number; accuracy: number }[];
+  evalRewardMarginHistory: { step: number; margin: number }[];
   cerHistory: { step: number; cer: number }[];
   werHistory: { step: number; wer: number }[];
 }

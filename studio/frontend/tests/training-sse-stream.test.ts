@@ -21,6 +21,12 @@ function progressPayload(jobId: string, step: number): TrainingProgressPayload {
     grad_norm: null,
     num_tokens: null,
     eval_loss: null,
+    rewards_chosen: null,
+    rewards_rejected: null,
+    rewards_accuracies: null,
+    rewards_margins: null,
+    eval_rewards_accuracies: null,
+    eval_rewards_margins: null,
   };
 }
 
@@ -237,6 +243,47 @@ test("non-progress events accept backend preparation and terminal values", async
   });
 
   assert.deepEqual(received, ["heartbeat:0:0", "complete:-1:0", "error:-1:0"]);
+  assert.equal(body.locked, false);
+});
+
+test("preference reward metrics are accepted from backend progress events", async () => {
+  const body = new ReadableStream<Uint8Array>({
+    start(streamController) {
+      streamController.enqueue(
+        new TextEncoder().encode(
+          rawEvent(
+            JSON.stringify({
+              job_id: "job-pref",
+              step: 5,
+              total_steps: 10,
+              progress_percent: 50,
+              rewards_accuracies: 0.82,
+              rewards_margins: 0.41,
+              eval_rewards_accuracies: 0.84,
+              eval_rewards_margins: 0.46,
+            }),
+            { event: "progress", id: 5 },
+          ),
+        ),
+      );
+      streamController.close();
+    },
+  });
+
+  const received: number[] = [];
+
+  await consumeTrainingProgressStream({
+    body,
+    signal: new AbortController().signal,
+    onEvent: ({ payload }) => {
+      received.push(payload.rewards_accuracies ?? -1);
+      received.push(payload.rewards_margins ?? -1);
+      received.push(payload.eval_rewards_accuracies ?? -1);
+      received.push(payload.eval_rewards_margins ?? -1);
+    },
+  });
+
+  assert.deepEqual(received, [0.82, 0.41, 0.84, 0.46]);
   assert.equal(body.locked, false);
 });
 

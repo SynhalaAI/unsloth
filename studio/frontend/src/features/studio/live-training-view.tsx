@@ -63,6 +63,10 @@ export function LiveTrainingView(): ReactElement {
       lrHistory: state.lrHistory,
       gradNormHistory: state.gradNormHistory,
       evalLossHistory: state.evalLossHistory,
+      rewardAccuracyHistory: state.rewardAccuracyHistory,
+      rewardMarginHistory: state.rewardMarginHistory,
+      evalRewardAccuracyHistory: state.evalRewardAccuracyHistory,
+      evalRewardMarginHistory: state.evalRewardMarginHistory,
       cerHistory: state.cerHistory,
       werHistory: state.werHistory,
       firstStepReceived: state.firstStepReceived,
@@ -162,6 +166,10 @@ export function LiveTrainingView(): ReactElement {
     lrHistory: runtime.lrHistory,
     gradNormHistory: runtime.gradNormHistory,
     evalLossHistory: runtime.evalLossHistory,
+    rewardAccuracyHistory: runtime.rewardAccuracyHistory,
+    rewardMarginHistory: runtime.rewardMarginHistory,
+    evalRewardAccuracyHistory: runtime.evalRewardAccuracyHistory,
+    evalRewardMarginHistory: runtime.evalRewardMarginHistory,
     cerHistory: runtime.cerHistory,
     werHistory: runtime.werHistory,
   };
@@ -204,6 +212,10 @@ export function LiveTrainingView(): ReactElement {
           lrHistory={viewData.lrHistory}
           gradNormHistory={viewData.gradNormHistory}
           evalLossHistory={viewData.evalLossHistory}
+          rewardAccuracyHistory={viewData.rewardAccuracyHistory}
+          rewardMarginHistory={viewData.rewardMarginHistory}
+          evalRewardAccuracyHistory={viewData.evalRewardAccuracyHistory}
+          evalRewardMarginHistory={viewData.evalRewardMarginHistory}
           cerHistory={viewData.cerHistory}
           werHistory={viewData.werHistory}
         />

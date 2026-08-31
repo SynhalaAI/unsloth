@@ -32,6 +32,12 @@ const NULLABLE_NUMERIC_FIELDS = [
   "grad_norm",
   "num_tokens",
   "eval_loss",
+  "rewards_chosen",
+  "rewards_rejected",
+  "rewards_accuracies",
+  "rewards_margins",
+  "eval_rewards_accuracies",
+  "eval_rewards_margins",
 ] as const;
 
 function isFiniteNumber(value: unknown): value is number {
@@ -91,6 +97,16 @@ function parseTrainingProgressPayload(
     grad_norm: normalizeNullableFiniteNumber(payload.grad_norm),
     num_tokens: normalizeNullableFiniteNumber(payload.num_tokens),
     eval_loss: normalizeNullableFiniteNumber(payload.eval_loss),
+    rewards_chosen: normalizeNullableFiniteNumber(payload.rewards_chosen),
+    rewards_rejected: normalizeNullableFiniteNumber(payload.rewards_rejected),
+    rewards_accuracies: normalizeNullableFiniteNumber(payload.rewards_accuracies),
+    rewards_margins: normalizeNullableFiniteNumber(payload.rewards_margins),
+    eval_rewards_accuracies: normalizeNullableFiniteNumber(
+      payload.eval_rewards_accuracies,
+    ),
+    eval_rewards_margins: normalizeNullableFiniteNumber(
+      payload.eval_rewards_margins,
+    ),
   };
 }
 
