@@ -44,6 +44,18 @@ def detect_dataset_format(dataset) -> dict:
     if sample is None:
         return _unknown_dataset_format()
     column_names = set(sample.keys())
+    # Preference / DPO dataset detection
+    from utils.datasets.preference import detect_preference_columns
+    pref_cols = detect_preference_columns(list(column_names))
+    if pref_cols is not None:
+        return {
+            "format": "preference_dpo",
+            "chat_column": None,
+            "needs_standardization": False,
+            "sample_keys": [],
+            "preference_columns": pref_cols,
+        }
+
     if {"instruction", "output"}.issubset(column_names):
         return {
             "format": "alpaca",

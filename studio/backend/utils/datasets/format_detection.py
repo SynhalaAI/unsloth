@@ -148,6 +148,18 @@ def detect_dataset_format(dataset):
     column_names = _get_dataset_column_names(dataset, sample_rows[0])
     column_name_set = set(column_names)
 
+    # Preference (DPO/CPO: chosen, rejected, prompt/instruction)
+    from .preference import detect_preference_columns
+    pref_cols = detect_preference_columns(column_names)
+    if pref_cols is not None:
+        return {
+            "format": "preference_dpo",
+            "chat_column": None,
+            "needs_standardization": False,
+            "sample_keys": [],
+            "preference_columns": pref_cols,
+        }
+
     # Alpaca
     alpaca_columns = {"instruction", "output"}
     if alpaca_columns.issubset(column_name_set):

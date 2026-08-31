@@ -21,7 +21,7 @@ def _stub_if_missing(name, attrs):
     except Exception:  # noqa: BLE001 - stub unavailable optional training dependencies
         pass
     module = types.ModuleType(name)
-    module.__spec__ = None
+    module.__spec__ = importlib.machinery.ModuleSpec(name, loader = None)
     for attr in attrs:
         setattr(module, attr, MagicMock())
     sys.modules[name] = module
@@ -30,6 +30,7 @@ def _stub_if_missing(name, attrs):
         setattr(sys.modules[parent], child, module)
 
 
+_stub_if_missing("torch", ("cuda", "nn", "Tensor", "optim", "_dynamo"))
 _stub_if_missing(
     "unsloth", ("FastLanguageModel", "FastVisionModel", "is_bfloat16_supported")
 )
@@ -106,3 +107,49 @@ def test_whisper_audio_text_dataset_keeps_transcription_fallback():
         dataset.messages[0][1]["content"][1]["text"]
         == "Please transcribe this audio."
     )
+
+
+def test_audio_vlm_auto_splits_eval_dataset():
+    class _SplitableAudioDataset(_AudioDataset):
+        def train_test_split(self, test_size, seed = 3407):
+            return {
+                "train": _SplitableAudioDataset(self.rows[:-test_size]),
+                "test": _SplitableAudioDataset(self.rows[-test_size:]),
+            }
+
+    rows = [_row(text = f"Sample {i}") for i in range(100)]
+    dataset = _SplitableAudioDataset(rows)
+
+    trainer = SimpleNamespace(
+        _update_progress = lambda **kwargs: None,
+        is_audio_vlm = True,
+        _audio_type = None,
+        is_vlm = False,
+        is_audio = False,
+        should_stop = False,
+        model_name = "google/gemma-4-E2B-it",
+        tokenizer = None,
+    )
+    from unittest.mock import patch
+
+    trainer._resolve_audio_columns = UnslothTrainer._resolve_audio_columns.__get__(trainer)
+    trainer._format_audio_vlm_dataset = UnslothTrainer._format_audio_vlm_dataset.__get__(trainer)
+    trainer._resolve_eval_split_from_dataset = UnslothTrainer._resolve_eval_split_from_dataset.__get__(trainer)
+    trainer._auto_detect_eval_split_from_hf = lambda **kwargs: None
+    trainer._record_warning = lambda msg: None
+
+    with patch("core.training.trainer.load_dataset", return_value = dataset), \
+         patch("core.training.trainer.ensure_audio_decoding", return_value = True):
+        train_info, eval_ds = UnslothTrainer.load_and_format_dataset(
+            trainer,
+            dataset_source = "fake/audio-dataset",
+            eval_steps = 0.1,
+        )
+
+    assert eval_ds is not None
+    assert len(eval_ds) == 16
+    assert len(train_info["dataset"]) == 84
+    assert train_info["detected_format"] == "audio_vlm"
+
+
+

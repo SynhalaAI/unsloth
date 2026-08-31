@@ -3178,21 +3178,51 @@ class UnslothTrainer:
 
             elif self.is_audio_vlm:
                 formatted = self._format_audio_vlm_dataset(dataset, custom_format_mapping)
-                return (formatted, None)
+                dataset_info = {
+                    "dataset": formatted,
+                    "detected_format": "audio_vlm",
+                    "final_format": "audio_vlm",
+                    "success": True,
+                }
+                if has_separate_eval_source and eval_dataset is not None:
+                    eval_dataset = self._format_audio_vlm_dataset(
+                        eval_dataset, custom_format_mapping
+                    )
+                elif eval_enabled and not has_separate_eval_source and not dataset_streaming:
+                    split_result = self._resolve_eval_split_from_dataset(formatted)
+                    if split_result is not None:
+                        train_portion, eval_dataset = split_result
+                        dataset_info["dataset"] = train_portion
+
+                return (dataset_info, eval_dataset)
 
             # ========== FORMAT FIRST ==========
             logger.info(f"Formatting dataset with format_type='{format_type}'...\n")
 
-            dataset_info = format_and_template_dataset(
-                dataset,
-                model_name = self.model_name,
-                tokenizer = self.tokenizer,
-                is_vlm = self.is_vlm,
-                format_type = format_type,
-                dataset_name = dataset_source,
-                custom_format_mapping = custom_format_mapping,
-                progress_callback = self._update_progress,
-            )
+            from utils.datasets.preference import is_preference_dataset, standardize_preference_dataset
+
+            if format_type in ("preference_dpo", "preference_cpo", "dpo", "cpo") or (
+                format_type == "auto" and is_preference_dataset(dataset)
+            ):
+                logger.info("Preference dataset detected. Standardizing for DPO/CPO training...\n")
+                formatted_ds = standardize_preference_dataset(dataset)
+                dataset_info = {
+                    "dataset": formatted_ds,
+                    "detected_format": "preference_dpo",
+                    "final_format": "preference_dpo",
+                    "success": True,
+                }
+            else:
+                dataset_info = format_and_template_dataset(
+                    dataset,
+                    model_name = self.model_name,
+                    tokenizer = self.tokenizer,
+                    is_vlm = self.is_vlm,
+                    format_type = format_type,
+                    dataset_name = dataset_source,
+                    custom_format_mapping = custom_format_mapping,
+                    progress_callback = self._update_progress,
+                )
 
             if self.should_stop:
                 logger.info("Stopped during dataset formatting\n")
@@ -4265,6 +4295,39 @@ class UnslothTrainer:
                     if eval_dataset is not None:
                         trainer_kwargs["eval_dataset"] = eval_dataset
                     self.trainer = _UnslothCPTTrainer(**trainer_kwargs)
+                elif (
+                    training_args.get("training_method") == "DPO"
+                    or format_type in ("preference_dpo", "dpo")
+                ):
+                    from core.training.preference_trainer import setup_dpo_trainer
+
+                    self.trainer = setup_dpo_trainer(
+                        model = self.model,
+                        tokenizer = sft_tokenizer,
+                        train_dataset = dataset["dataset"],
+                        eval_dataset = eval_dataset,
+                        config_args = config_args,
+                        dpo_beta = float(training_args.get("dpo_beta", 0.1)),
+                        max_prompt_length = int(training_args.get("max_prompt_length", 512)),
+                        max_length = int(training_args.get("max_seq_length", 2048)),
+                    )
+                elif (
+                    training_args.get("training_method") == "CPO"
+                    or format_type in ("preference_cpo", "cpo")
+                ):
+                    from core.training.preference_trainer import setup_cpo_trainer
+
+                    self.trainer = setup_cpo_trainer(
+                        model = self.model,
+                        tokenizer = sft_tokenizer,
+                        train_dataset = dataset["dataset"],
+                        eval_dataset = eval_dataset,
+                        config_args = config_args,
+                        dpo_beta = float(training_args.get("dpo_beta", 0.1)),
+                        cpo_alpha = float(training_args.get("cpo_alpha", 1.0)),
+                        max_prompt_length = int(training_args.get("max_prompt_length", 512)),
+                        max_length = int(training_args.get("max_seq_length", 2048)),
+                    )
                 else:
                     trainer_kwargs = {
                         "model": self.model,
@@ -4282,16 +4345,22 @@ class UnslothTrainer:
             logger.info("Trainer initialized\n")
 
             # ========== TRAIN ON RESPONSES ONLY ==========
-            # Raw-text datasets always train on all tokens.
+            # Raw-text datasets and preference datasets (DPO/CPO) always skip response masking.
             is_cpt = training_args.get("is_cpt", False)
+            is_preference_training = (
+                training_args.get("training_method") in ("DPO", "CPO")
+                or format_type in ("preference_dpo", "preference_cpo", "dpo", "cpo")
+            )
             train_on_responses_enabled = (
                 False
-                if (is_cpt or raw_text_mode)
+                if (is_cpt or raw_text_mode or is_preference_training)
                 else training_args.get("train_on_completions", False)
             )
 
             if is_cpt:
                 logger.info("CPT mode: skipping train_on_responses_only — training on all tokens\n")
+            elif is_preference_training:
+                logger.info("Preference mode: skipping train_on_responses_only — handled by DPO/CPO trainer\n")
             elif raw_text_mode:
                 logger.info(
                     "Raw-text mode: skipping train_on_responses_only — training on all tokens\n"

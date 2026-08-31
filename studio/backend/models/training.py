@@ -121,6 +121,28 @@ class TrainingStartRequest(BaseModel):
         ...,
         description = "Training type: 'LoRA/QLoRA', 'Full Finetuning', or 'Continued Pretraining'",
     )
+    training_method: Literal["SFT", "DPO", "CPO"] = Field(
+        "SFT",
+        description = "Training method: 'SFT' (Supervised Fine-Tuning), 'DPO' (Direct Preference Optimization), or 'CPO' (Contrastive Preference Optimization)",
+    )
+    dpo_beta: float = Field(
+        0.1,
+        ge = 0.001,
+        le = 2.0,
+        description = "Beta regularization parameter for DPO and CPO",
+    )
+    cpo_alpha: float = Field(
+        1.0,
+        ge = 0.0,
+        le = 10.0,
+        description = "Weight factor for CPO loss",
+    )
+    max_prompt_length: Optional[int] = Field(
+        512,
+        ge = 1,
+        le = _MAX_SEQ_LENGTH,
+        description = "Maximum prompt length for DPO/CPO training",
+    )
     hf_token: Optional[str] = Field(None, description = "HuggingFace token")
     load_in_4bit: bool = Field(True, description = "Load model in 4-bit quantization")
     max_seq_length: int = Field(2048, description = "Maximum sequence length")

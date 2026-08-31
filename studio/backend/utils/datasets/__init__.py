@@ -50,14 +50,23 @@ from .dataset_utils import (
     format_dataset,
 )
 
+from .preference import (
+    detect_preference_columns,
+    is_preference_dataset,
+    standardize_preference_dataset,
+)
+
 __all__ = [
     # Detection
     "detect_dataset_format",
     "detect_custom_format_heuristic",
     "detect_multimodal_dataset",
     "detect_vlm_dataset_structure",
+    "detect_preference_columns",
+    "is_preference_dataset",
     # Conversion
     "standardize_chat_format",
+    "standardize_preference_dataset",
     "convert_chatml_to_alpaca",
     "convert_alpaca_to_chatml",
     "convert_to_vlm_format",
