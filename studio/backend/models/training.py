@@ -570,6 +570,10 @@ class TrainingStartRequest(BaseModel):
     finetune_mlp_modules: bool = Field(True, description = "Finetune MLP modules")
     is_dataset_image: bool = Field(False, description = "Whether the dataset contains image data")
     is_dataset_audio: bool = Field(False, description = "Whether the dataset contains audio data")
+    is_ocr_training: bool = Field(
+        False,
+        description = "Whether this run is an OCR/vision transcription training task.",
+    )
     is_embedding: bool = Field(
         False, description = "Whether model is an embedding/sentence-transformer model"
     )

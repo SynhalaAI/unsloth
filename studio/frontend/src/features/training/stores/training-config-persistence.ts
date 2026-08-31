@@ -24,7 +24,7 @@ import {
 } from "./training-config-policy";
 
 export const TRAINING_CONFIG_PERSISTENCE_NAME = "unsloth_training_config_v1";
-export const TRAINING_CONFIG_PERSISTENCE_VERSION = 21;
+export const TRAINING_CONFIG_PERSISTENCE_VERSION = 22;
 
 const NON_PERSISTED_STATE_KEYS: ReadonlySet<keyof TrainingConfigState> =
   new Set([
@@ -238,6 +238,18 @@ function migrateThroughVersion21(
   }
 }
 
+function migrateThroughVersion22(
+  state: PersistedTrainingConfig,
+  version: number,
+): void {
+  if (version < 22) {
+    state.isOcrTraining =
+      typeof state.isOcrTraining === "boolean"
+        ? state.isOcrTraining
+        : false;
+  }
+}
+
 function isDatasetFormat(value: unknown): value is DatasetFormat {
   return (
     value === "auto" ||
@@ -297,6 +309,7 @@ export function migrateTrainingConfig(
   migrateThroughVersion18(state, version);
   migrateThroughVersion19(state, version);
   migrateThroughVersion21(state, version);
+  migrateThroughVersion22(state, version);
   return state as unknown as TrainingConfigStore;
 }
 

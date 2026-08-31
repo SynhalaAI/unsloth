@@ -136,6 +136,7 @@ export interface TrainingConfigState {
   isCheckingDataset: boolean;
   isDatasetImage: boolean | null;
   isDatasetAudio: boolean;
+  isOcrTraining: boolean;
   datasetCheckFailed: boolean;
   trustRemoteCode: boolean;
   approvedRemoteCodeFingerprint?: string | null;
@@ -250,6 +251,7 @@ export interface TrainingConfigActions {
   setEvalSteps: (value: number) => void;
   setPacking: (value: boolean) => void;
   setTrainOnCompletions: (value: boolean) => void;
+  setIsOcrTraining: (value: boolean) => void;
   setGradientCheckpointing: (value: GradientCheckpointing) => void;
   setRandomSeed: (value: number) => void;
   setEnableWandb: (value: boolean) => void;

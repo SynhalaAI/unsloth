@@ -177,6 +177,7 @@ export function buildTrainingStartPayload(
     finetune_mlp_modules: config.finetuneMLPModules,
     is_dataset_image: isEmbedding ? false : !!config.isDatasetImage,
     is_dataset_audio: isEmbedding ? false : config.isDatasetAudio,
+    is_ocr_training: isEmbedding ? false : !!config.isOcrTraining,
     is_embedding: isEmbedding,
     enable_wandb: config.enableWandb,
     wandb_token: config.enableWandb ? config.wandbToken.trim() || null : null,

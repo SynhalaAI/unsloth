@@ -78,6 +78,8 @@ let _modelConfigController: AbortController | null = null;
 
 // Has the user manually toggled trainOnCompletions since the last auto-set?
 let _trainOnCompletionsManuallySet = false;
+// Has the user manually overridden OCR metric selection for this run?
+let _ocrTrainingManuallySet = false;
 
 let _trainingMethodEditGeneration = 0;
 let _modelDefaultsEditGeneration = 0;
@@ -260,6 +262,11 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             // Vision model + known image dataset: force trainOnCompletions off.
             if (modelDetails.is_vision && get().isDatasetImage === true) {
               modelDefaultsPatch.trainOnCompletions = false;
+              if (get().isDatasetImage === true) {
+                patch.isOcrTraining = _ocrTrainingManuallySet
+                  ? get().isOcrTraining
+                  : true;
+              }
             }
 
             const isAudio = !!modelDetails.is_audio;
@@ -327,11 +334,22 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
                   }
                 : {};
 
+            const autoOcrTraining =
+              modelDetails.is_vision &&
+              get().isDatasetImage === true &&
+              !get().isEmbeddingModel;
+            const effectiveOcrTraining = _ocrTrainingManuallySet
+              ? get().isOcrTraining
+              : autoOcrTraining;
+
             set({
               ...patch,
               ...cptOverrides,
               ...cptTargetOverrides,
               ...deferredCompletionDefault,
+              ...(shouldApplyTrainingDefaults
+                ? { isOcrTraining: effectiveOcrTraining }
+                : {}),
               ...(shouldApplyTrainingDefaults
                 ? {
                     trainingMethodProvenance: {
@@ -514,11 +532,18 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             const current = get();
             const streamingDisabled =
               current.datasetStreaming && (isImage || isAudio);
+            const autoOcrTraining =
+              current.isVisionModel && isImage && !current.isEmbeddingModel;
             const updates: Partial<TrainingConfigState> = {
               isDatasetImage: isImage,
               isDatasetAudio: isAudio,
               isCheckingDataset: false,
               datasetCheckFailed: false,
+              isOcrTraining: autoOcrTraining
+                ? _ocrTrainingManuallySet
+                  ? current.isOcrTraining
+                  : true
+                : false,
               ...(streamingDisabled ? { datasetStreaming: false } : {}),
             };
             if (!_trainOnCompletionsManuallySet) {
@@ -806,6 +831,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
           patch.modelType = effectiveModelType;
         }
         if (selectionChanged) {
+          _ocrTrainingManuallySet = false;
           patch.visionImageSize = DEFAULT_HYPERPARAMS.visionImageSize;
           patch.trustRemoteCode = false;
           patch.approvedRemoteCodeFingerprint = null;
@@ -825,6 +851,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
         if (!selectedModel) {
           _modelConfigController?.abort();
           _modelConfigController = null;
+          _ocrTrainingManuallySet = false;
           set({
             isCheckingVision: false,
             isVisionModel: false,
@@ -832,6 +859,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             isAudioModel: false,
             audioCapabilityUnknown: false,
             isDatasetAudio: false,
+            isOcrTraining: false,
             isLoadingModelDefaults: false,
             modelDefaultsError: null,
             modelDefaultsAppliedFor: null,
@@ -1285,6 +1313,12 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             ...(trainOnCompletions ? { datasetStreaming: false } : {}),
           });
         },
+        setIsOcrTraining: (isOcrTraining) => {
+          _ocrTrainingManuallySet = true;
+          setUserEdit({
+            isOcrTraining,
+          });
+        },
         setGradientCheckpointing: (gradientCheckpointing) =>
           setUserEdit({ gradientCheckpointing }),
         setRandomSeed: (randomSeed) => setUserEdit({ randomSeed }),
@@ -1311,6 +1345,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
         reset: () => {
           trainingDatasetCacheRejections.reset();
           _trainOnCompletionsManuallySet = false;
+          _ocrTrainingManuallySet = false;
           _targetModulesEditGeneration += 1;
           _modelDefaultsEditBaseline = null;
           setUserEdit(initialTrainingConfigState);

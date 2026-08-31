@@ -903,6 +903,7 @@ _RESUME_DATASET_DEFAULTS = {
     "custom_format_mapping": None,
     "is_dataset_image": False,
     "is_dataset_audio": False,
+    "is_ocr_training": False,
     "is_embedding": False,
 }
 _RESUME_CACHE_FIELDS = (
@@ -1487,6 +1488,7 @@ async def start_training(
             "finetune_mlp_modules": request.finetune_mlp_modules,
             "is_dataset_image": request.is_dataset_image,
             "is_dataset_audio": request.is_dataset_audio,
+            "is_ocr_training": request.is_ocr_training,
             "is_embedding": request.is_embedding,
             "enable_wandb": request.enable_wandb,
             "wandb_token": request.wandb_token or "",

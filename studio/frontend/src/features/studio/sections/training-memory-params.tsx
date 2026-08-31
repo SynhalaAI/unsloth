@@ -126,14 +126,18 @@ export function TrainingMemoryParams(): ReactElement {
       isVisionModel: state.isVisionModel,
       isEmbeddingModel: state.isEmbeddingModel,
       isDatasetImage: state.isDatasetImage,
+      isOcrTraining: state.isOcrTraining,
       visionImageSize: state.visionImageSize,
       setVisionImageSize: state.setVisionImageSize,
       setPacking: state.setPacking,
       setTrainOnCompletions: state.setTrainOnCompletions,
+      setIsOcrTraining: state.setIsOcrTraining,
       setGradientCheckpointing: state.setGradientCheckpointing,
     })),
   );
   const showVisionLora = store.isVisionModel && store.isDatasetImage === true;
+  const showOcrTraining =
+    store.isVisionModel && store.isDatasetImage === true && !store.isEmbeddingModel;
   const selectedModelLower = (store.selectedModel ?? "").toLowerCase();
   const showVisionImageSize =
     showVisionLora &&
@@ -243,6 +247,23 @@ export function TrainingMemoryParams(): ReactElement {
           checked={store.packing}
           onChange={store.setPacking}
         />
+      )}
+      {showOcrTraining && (
+        <ParamsRow
+          label="OCR Training"
+          tooltip="Mark this run as OCR document training so the live dashboard and backend can use OCR-specific metrics and labels."
+        >
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="ocrTraining"
+              checked={store.isOcrTraining}
+              onCheckedChange={(value) => store.setIsOcrTraining(!!value)}
+            />
+            <label htmlFor="ocrTraining" className="cursor-pointer text-xs text-muted-foreground">
+              Use OCR metrics
+            </label>
+          </div>
+        </ParamsRow>
       )}
       {showTrainOnCompletions && (
         <TrainOnCompletionsOption

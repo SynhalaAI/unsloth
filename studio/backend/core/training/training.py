@@ -204,6 +204,7 @@ def _build_training_worker_config(values: dict[str, Any]) -> dict[str, Any]:
         "custom_format_mapping": values.get("custom_format_mapping"),
         "is_dataset_image": values.get("is_dataset_image", False),
         "is_dataset_audio": values.get("is_dataset_audio", False),
+        "is_ocr_training": values.get("is_ocr_training", False),
         "is_embedding": values.get("is_embedding", False),
         "num_epochs": values.get("num_epochs", 3),
         "learning_rate": values.get("learning_rate", "2e-4"),
