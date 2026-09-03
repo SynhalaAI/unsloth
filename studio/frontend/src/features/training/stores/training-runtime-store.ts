@@ -371,6 +371,8 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
           rewardMarginHistory: [],
           evalRewardAccuracyHistory: [],
           evalRewardMarginHistory: [],
+          cerHistory: [],
+          werHistory: [],
           resetGeneration: state.resetGeneration + 1,
         };
       }),
@@ -454,6 +456,8 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
               rewardMarginHistory: [],
               evalRewardAccuracyHistory: [],
               evalRewardMarginHistory: [],
+              cerHistory: [],
+              werHistory: [],
               resetGeneration: state.resetGeneration + 1,
               stopRequested: false,
             }

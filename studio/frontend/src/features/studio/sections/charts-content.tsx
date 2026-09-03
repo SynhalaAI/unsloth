@@ -28,6 +28,12 @@ type LossDisplayPoint = {
   displaySmoothed: number;
 };
 
+type OcrMetricPoint = {
+  step: number;
+  cer: number;
+  wer: number;
+};
+
 function isStepVisible(step: number, domain: [number, number]): boolean {
   return step >= domain[0] && step <= domain[1];
 }
@@ -338,6 +344,25 @@ export function ChartsContent({
         ).toFixed(4)
       : 0;
   const avgDisplay = lossScale === "log" ? toLog1p(avgRaw) : avgRaw;
+  const ocrData = useMemo<OcrMetricPoint[]>(() => {
+    const points = new Map<number, OcrMetricPoint>();
+    for (const point of reducedCerData) {
+      points.set(point.step, {
+        step: point.step,
+        cer: point.cer,
+        wer: Number.NaN,
+      });
+    }
+    for (const point of reducedWerData) {
+      const current = points.get(point.step);
+      points.set(point.step, {
+        step: point.step,
+        cer: current?.cer ?? Number.NaN,
+        wer: point.wer,
+      });
+    }
+    return Array.from(points.values()).sort((a, b) => a.step - b.step);
+  }, [reducedCerData, reducedWerData]);
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -382,22 +407,7 @@ export function ChartsContent({
       )}
       {isOcrTraining && (
         <OcrMetricsChartCard
-          data={
-            reducedCerData.length > 0 || reducedWerData.length > 0
-              ? Array.from(
-                  new Map(
-                    [
-                      ...reducedCerData.map((point) => [point.step, { step: point.step, cer: point.cer, wer: Number.NaN }]),
-                      ...reducedWerData.map((point) => [point.step, { step: point.step, cer: Number.NaN, wer: point.wer }]),
-                    ],
-                  ).values(),
-                ).map((point) => ({
-                  step: point.step,
-                  cer: Number.isFinite(point.cer) ? point.cer : Number.NaN,
-                  wer: Number.isFinite(point.wer) ? point.wer : Number.NaN,
-                }))
-              : []
-          }
+          data={ocrData}
           domain={ocrDomain}
           ticks={ocrStepTicks}
         />
