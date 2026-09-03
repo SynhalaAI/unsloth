@@ -112,6 +112,10 @@ function mapToViewData(
     lrHistory,
     gradNormHistory,
     evalLossHistory,
+    rewardAccuracyHistory: [],
+    rewardMarginHistory: [],
+    evalRewardAccuracyHistory: [],
+    evalRewardMarginHistory: [],
     cerHistory,
     werHistory,
   };
