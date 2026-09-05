@@ -1725,6 +1725,7 @@ class UnslothTrainer:
         self._update_progress(status_message = "Preprocessing CSM dataset...")
         processed_examples = []
         skipped = 0
+        speaker_id_map: dict[str, str] = {}
         for idx in range(len(dataset)):
             if self.should_stop:
                 logger.info("Stopped during CSM preprocessing\n")
@@ -1732,9 +1733,17 @@ class UnslothTrainer:
 
             example = dataset[idx]
             try:
+                raw_speaker = str(example[speaker_key]).strip() if example[speaker_key] is not None else "0"
+                if raw_speaker.isdigit() or (raw_speaker.startswith("-") and raw_speaker[1:].isdigit()):
+                    role_str = str(int(raw_speaker))
+                else:
+                    if raw_speaker not in speaker_id_map:
+                        speaker_id_map[raw_speaker] = str(len(speaker_id_map))
+                    role_str = speaker_id_map[raw_speaker]
+
                 conversation = [
                     {
-                        "role": str(example[speaker_key]),
+                        "role": role_str,
                         "content": [
                             {"type": "text", "text": example.get(text_col, "")},
                             {"type": "audio", "path": example[audio_col]["array"]},
