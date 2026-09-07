@@ -301,7 +301,7 @@ export const ChatDictationBar: FC<{
           {transcribing === "stop" || modelFinalizing ? (
             <Spinner className="size-3.5" />
           ) : (
-            <SquareIcon className="aui-composer-cancel-icon size-3 fill-current" />
+            <SquareIcon className="size-3 fill-current" />
           )}
         </TooltipIconButton>
         <TooltipIconButton
