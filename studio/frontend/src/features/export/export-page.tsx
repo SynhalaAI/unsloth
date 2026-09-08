@@ -405,6 +405,7 @@ export function ExportPage() {
     Record<string, string[]>
   >({});
   const configFileInputRef = useRef<HTMLInputElement>(null);
+  const startRequestInFlightRef = useRef(false);
 
   const hardware = useHardwareInfo();
   // GGUF LoRA conversion is rejected on the macOS / MLX path, so gate it out on a Mac host.
@@ -460,6 +461,9 @@ export function ExportPage() {
   const runExport = useExportRuntimeStore((s) => s.runExport);
   const resetExportRun = useExportRuntimeStore((s) => s.reset);
   const isExporting = useExportRuntimeStore((s) => s.isExporting);
+  useEffect(() => {
+    if (!isExporting) startRequestInFlightRef.current = false;
+  }, [isExporting]);
   const panelActive = useExportRuntimeStore(isExportPanelActive);
 
   const hfComboboxAnchorRef = useRef<HTMLDivElement>(null);
@@ -1041,15 +1045,28 @@ export function ExportPage() {
   };
 
   const handleStart = useCallback(async () => {
+    if (startRequestInFlightRef.current || isExporting) return;
+    startRequestInFlightRef.current = true;
     const source =
       sourceMode === "checkpoint" ? checkpoint : selectedSourceModel;
-    if (!source || !exportMethod) return;
-    // No supported accelerator (or PyTorch/MLX missing): the backend would reject anyway; don't submit.
-    if (exportUnsupported) return;
-    // GGUF with no quant, or merged with no format, would run an empty export; require at least one.
-    if (exportMethod === "gguf" && !ggufAsLora && quantLevels.length === 0)
+    if (!source || !exportMethod) {
+      startRequestInFlightRef.current = false;
       return;
-    if (exportMethod === "merged" && selectedFormats.length === 0) return;
+    }
+    // No supported accelerator (or PyTorch/MLX missing): the backend would reject anyway; don't submit.
+    if (exportUnsupported) {
+      startRequestInFlightRef.current = false;
+      return;
+    }
+    // GGUF with no quant, or merged with no format, would run an empty export; require at least one.
+    if (exportMethod === "gguf" && !ggufAsLora && quantLevels.length === 0) {
+      startRequestInFlightRef.current = false;
+      return;
+    }
+    if (exportMethod === "merged" && selectedFormats.length === 0) {
+      startRequestInFlightRef.current = false;
+      return;
+    }
     if (
       multiAdapterMerge &&
       (adapterMergeSelections.length < 2 ||
@@ -1063,17 +1080,27 @@ export function ExportPage() {
             Number(mergeDensity) <= 0 ||
             Number(mergeDensity) > 1)))
     ) {
+      startRequestInFlightRef.current = false;
       return;
     }
-    if (!ggufShardSizeValid) return;
+    if (!ggufShardSizeValid) {
+      startRequestInFlightRef.current = false;
+      return;
+    }
     // A Hub merged push writes each format to the repo root; several would collide (mirrors canExport).
-    if (hubMultiFormat) return;
+    if (hubMultiFormat) {
+      startRequestInFlightRef.current = false;
+      return;
+    }
 
     const selectedCp =
       sourceMode === "checkpoint"
         ? checkpointsForModel.find((cp) => cp.display_name === checkpoint)
         : null;
-    if (sourceMode === "checkpoint" && !selectedCp) return;
+    if (sourceMode === "checkpoint" && !selectedCp) {
+      startRequestInFlightRef.current = false;
+      return;
+    }
     const checkpointPath = selectedCp?.path ?? null;
     const mergeDensityValue = Number(mergeDensity);
     const mergeConfig = multiAdapterMerge && exportMethod === "merged"
@@ -1102,7 +1129,10 @@ export function ExportPage() {
     const preparedToken = await prepareHfTokenForUse(hfToken, {
       allowAnonymous: !pushToHub,
     });
-    if (!preparedToken.proceed) return;
+    if (!preparedToken.proceed) {
+      startRequestInFlightRef.current = false;
+      return;
+    }
     const actionHfToken = preparedToken.token ?? "";
 
     const repoId =
@@ -1136,7 +1166,10 @@ export function ExportPage() {
           approvedRemoteCodeFingerprint = fingerprint;
         },
       });
-      if (!remoteCodeOk) return;
+      if (!remoteCodeOk) {
+        startRequestInFlightRef.current = false;
+        return;
+      }
     }
 
     void runExport({
@@ -1209,6 +1242,7 @@ export function ExportPage() {
     privateRepo,
     modelSource,
     runExport,
+    isExporting,
   ]);
 
   // Open the inline panel into a fresh config state, clearing any previous terminal run.
