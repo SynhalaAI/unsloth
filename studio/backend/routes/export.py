@@ -49,13 +49,25 @@ logger = get_logger(__name__)
 
 @router.get("/adapter-checkpoints")
 async def list_adapter_checkpoints(
-    repo_id: str = Query(..., min_length = 1),
+    repo_id: Optional[str] = Query(None, min_length = 1),
+    local_path: Optional[str] = Query(None, min_length = 1),
     current_subject: str = Depends(get_current_subject),
     allow_ambient: bool = Depends(allow_ambient_hf_token),
     hf_token: Optional[str] = Header(None, alias = "X-HF-Token"),
 ):
-    """List adapter checkpoint subdirectories available in a Hugging Face repo."""
+    """List adapter checkpoint subdirectories in a local adapter or HF repo."""
     try:
+        if local_path:
+            root = Path(local_path).expanduser()
+            if not root.is_dir():
+                raise HTTPException(status_code = 400, detail = "Local adapter path not found")
+            folders = {""} if (root / "adapter_config.json").is_file() else set()
+            for child in root.iterdir():
+                if child.is_dir() and (child / "adapter_config.json").is_file():
+                    folders.add(child.name)
+            return {"checkpoints": sorted(folders, key = lambda value: (value != "", value))}
+        if not repo_id:
+            raise HTTPException(status_code = 400, detail = "repo_id or local_path is required")
         from huggingface_hub import HfApi
 
         token = _resolve_export_hf_token(hf_token, allow_ambient = allow_ambient)
@@ -67,7 +79,7 @@ async def list_adapter_checkpoints(
                 folders.add(name.rsplit("/", 1)[0])
         return {"checkpoints": sorted(folders, key = lambda value: (value != "", value))}
     except Exception as exc:
-        logger.warning("Could not list adapter checkpoints for %s: %s", repo_id, exc)
+        logger.warning("Could not list adapter checkpoints: %s", exc)
         raise HTTPException(status_code = 400, detail = "Could not list adapter checkpoints")
 
 

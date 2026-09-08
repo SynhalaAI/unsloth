@@ -105,6 +105,7 @@ const SEARCH_INPUT_REASONS = new Set([
 
 // GGUF LoRA output float types (Q8_0 default). Q8_0 falls back to F16 per tensor for dims not divisible by 32; no "auto".
 const LORA_GGUF_OUTTYPES = ["q8_0", "f16", "bf16", "f32"] as const;
+const ROOT_CHECKPOINT_VALUE = "__repository_root__";
 
 type SourceTab = "local" | "checkpoint" | "hf";
 type SourceMode = "checkpoint" | "model";
@@ -612,18 +613,31 @@ export function ExportPage() {
     const repos = [
       ...new Set(
         adapterMergeSelections
-          .filter((item) => item.source === "hf" && item.path.trim())
+          .filter((item) => item.path.trim())
           .map((item) => item.path.trim()),
       ),
     ];
-    for (const repo of repos) {
-      if (adapterCheckpointOptions[repo]) continue;
-      void fetchAdapterCheckpoints(repo, hfToken)
+    for (const path of repos) {
+      const source = adapterMergeSelections.find((item) => item.path.trim() === path)?.source;
+      const cacheKey = `${source}:${path}`;
+      if (adapterCheckpointOptions[cacheKey]) continue;
+      void fetchAdapterCheckpoints(
+        source === "hf" ? { repoId: path } : { localPath: path },
+        hfToken,
+      )
         .then((checkpoints) =>
-          setAdapterCheckpointOptions((current) => ({ ...current, [repo]: checkpoints })),
+          setAdapterCheckpointOptions((current) => ({
+            ...current,
+            [cacheKey]: checkpoints.map((checkpoint) =>
+              checkpoint || ROOT_CHECKPOINT_VALUE,
+            ),
+          })),
         )
         .catch(() =>
-          setAdapterCheckpointOptions((current) => ({ ...current, [repo]: [""] })),
+          setAdapterCheckpointOptions((current) => ({
+            ...current,
+            [cacheKey]: [ROOT_CHECKPOINT_VALUE],
+          })),
         );
     }
   }, [adapterMergeSelections, adapterCheckpointOptions, hfToken]);
@@ -849,8 +863,16 @@ export function ExportPage() {
       ? {
           adapter_paths: adapterMergeSelections.map((item) =>
             item.source === "hf"
-              ? { repo_id: item.path, subfolder: item.checkpoint }
-              : item.path,
+              ? {
+                  repo_id: item.path,
+                  subfolder:
+                    item.checkpoint === ROOT_CHECKPOINT_VALUE
+                      ? ""
+                      : item.checkpoint,
+                }
+                : item.checkpoint && item.checkpoint !== ROOT_CHECKPOINT_VALUE
+                  ? `${item.path.replace(/[\\/]+$/, "")}/${item.checkpoint}`
+                  : item.path,
           ),
           weights: adapterMergeSelections.map((item) => Number(item.weight)),
           method: mergeMethod,
@@ -1715,6 +1737,7 @@ export function ExportPage() {
                               </SelectContent>
                             </Select>
                             <Input
+                              list={`adapter-source-${selection.source}-${index}`}
                               placeholder={
                                 selection.source === "hf"
                                   ? "org/adapter-repo"
@@ -1733,7 +1756,15 @@ export function ExportPage() {
                               }
                               className="w-full"
                             />
-                            {selection.source === "hf" ? (
+                            <datalist id={`adapter-source-${selection.source}-${index}`}>
+                              {(selection.source === "hf"
+                                ? hfResultIds
+                                : localResultIds
+                              ).map((value) => (
+                                <option key={value} value={value} />
+                              ))}
+                            </datalist>
+                            {selection.path.trim() ? (
                               <Select
                                 value={selection.checkpoint}
                                 onValueChange={(checkpoint) =>
@@ -1748,17 +1779,23 @@ export function ExportPage() {
                                   <SelectValue placeholder="Checkpoint" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  {(adapterCheckpointOptions[selection.path] ?? [""]).map(
+                                  {(adapterCheckpointOptions[
+                                    `${selection.source}:${selection.path}`
+                                  ] ?? [ROOT_CHECKPOINT_VALUE]).map(
                                     (checkpoint) => (
-                                      <SelectItem key={checkpoint || "root"} value={checkpoint}>
-                                        {checkpoint || "Repository root"}
+                                      <SelectItem key={checkpoint} value={checkpoint}>
+                                        {checkpoint === ROOT_CHECKPOINT_VALUE
+                                          ? "Repository root"
+                                          : checkpoint}
                                       </SelectItem>
                                     ),
                                   )}
                                 </SelectContent>
                               </Select>
                             ) : (
-                              <span />
+                              <div className="text-xs text-muted-foreground sm:col-span-2">
+                                Enter an adapter path or repository first.
+                              </div>
                             )}
                             <Input
                               type="number"

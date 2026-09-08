@@ -89,13 +89,16 @@ export async function fetchCheckpoints(): Promise<CheckpointListResponse> {
 }
 
 export async function fetchAdapterCheckpoints(
-  repoId: string,
+  source: { repoId?: string; localPath?: string },
   hfToken?: string | null,
 ): Promise<string[]> {
   const headers: Record<string, string> = {};
   if (hfToken) headers["X-HF-Token"] = hfToken;
+  const query = source.repoId
+    ? `repo_id=${encodeURIComponent(source.repoId)}`
+    : `local_path=${encodeURIComponent(source.localPath ?? "")}`;
   const response = await authFetch(
-    `/api/export/adapter-checkpoints?repo_id=${encodeURIComponent(repoId)}`,
+    `/api/export/adapter-checkpoints?${query}`,
     { headers },
   );
   const data = await parseJson<{ checkpoints: string[] }>(response);
