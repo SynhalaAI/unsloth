@@ -129,6 +129,10 @@ type AdapterMergeConfig = {
   adapters: AdapterMergeSelection[];
   method: "linear" | "ties";
   density: string;
+  destination: "local" | "hub";
+  hfUsername: string;
+  modelName: string;
+  privateRepo: boolean;
 };
 
 
@@ -979,6 +983,10 @@ export function ExportPage() {
       adapters: adapterMergeSelections,
       method: mergeMethod,
       density: mergeDensity,
+      destination,
+      hfUsername,
+      modelName,
+      privateRepo,
     };
     const blob = new Blob([dumpYaml(config)], {
       type: "application/yaml",
@@ -1019,6 +1027,12 @@ export function ExportPage() {
         if (typeof config.density === "string") {
           setMergeDensity(config.density);
         }
+        if (config.destination === "local" || config.destination === "hub") {
+          setDestination(config.destination);
+        }
+        if (typeof config.hfUsername === "string") setHfUsername(config.hfUsername);
+        if (typeof config.modelName === "string") setModelName(config.modelName);
+        if (typeof config.privateRepo === "boolean") setPrivateRepo(config.privateRepo);
       } catch {
         // Ignore invalid config files; the current merge setup is preserved.
       }
