@@ -36,6 +36,7 @@ export function useExportRuntimeLifecycle(): void {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let logPolling = false;
     let logPollTimer: ReturnType<typeof setTimeout> | null = null;
+    let runGeneration = 0;
 
     const store = useExportRuntimeStore;
 
@@ -62,11 +63,21 @@ export function useExportRuntimeLifecycle(): void {
     // seq; over a Cloudflare tunnel the SSE is buffered and these polls are
     // what actually fill the log panel. A successful poll marks the stream
     // "connected" so the panel shows "streaming" rather than "connecting...".
-    const pollLogsOnce = async () => {
-      if (disposed || !store.getState().isExporting) return;
+    const pollLogsOnce = async (generation: number) => {
+      if (
+        disposed ||
+        generation !== runGeneration ||
+        !store.getState().isExporting
+      )
+        return;
       try {
         const res = await fetchExportLogs(store.getState().lastSeq);
-        if (disposed) return;
+        if (
+          disposed ||
+          generation !== runGeneration ||
+          !store.getState().isExporting
+        )
+          return;
         store.getState().setConnected(true);
         if (res.entries.length > 0) {
           store.getState().appendLogs(res.entries);
@@ -76,19 +87,25 @@ export function useExportRuntimeLifecycle(): void {
       }
     };
 
-    const logPollLoop = async () => {
-      if (disposed || !logPolling) return;
-      await pollLogsOnce();
-      if (disposed || !logPolling) return;
+    const logPollLoop = async (generation: number) => {
+      if (disposed || !logPolling || generation !== runGeneration) return;
+      await pollLogsOnce(generation);
+      if (
+        disposed ||
+        !logPolling ||
+        generation !== runGeneration ||
+        !store.getState().isExporting
+      )
+        return;
       logPollTimer = setTimeout(() => {
-        void logPollLoop();
+        void logPollLoop(generation);
       }, LOG_POLL_INTERVAL_MS);
     };
 
-    const startLogPolling = () => {
+    const startLogPolling = (generation: number) => {
       if (logPolling || disposed) return;
       logPolling = true;
-      void logPollLoop();
+      void logPollLoop(generation);
     };
 
     function stopLogPolling() {
@@ -99,9 +116,10 @@ export function useExportRuntimeLifecycle(): void {
       }
     }
 
-    const ensureStream = async () => {
+    const ensureStream = async (generation: number) => {
       if (
         disposed ||
+        generation !== runGeneration ||
         openingStream ||
         streamController ||
         !store.getState().isExporting
@@ -118,8 +136,17 @@ export function useExportRuntimeLifecycle(): void {
         await streamExportLogs({
           signal: controller.signal,
           since: store.getState().lastSeq,
-          onOpen: () => store.getState().setConnected(true),
+          onOpen: () => {
+            if (generation === runGeneration && store.getState().isExporting) {
+              store.getState().setConnected(true);
+            }
+          },
           onEvent: (event) => {
+            if (
+              generation !== runGeneration ||
+              !store.getState().isExporting
+            )
+              return;
             if (event.event === "log" && event.entry) {
               store.getState().appendLog(event.entry, event.id ?? undefined);
             }
@@ -142,11 +169,12 @@ export function useExportRuntimeLifecycle(): void {
 
         if (
           !disposed &&
+          generation === runGeneration &&
           !controller.signal.aborted &&
           store.getState().isExporting
         ) {
           reconnectTimer = setTimeout(() => {
-            void ensureStream();
+            void ensureStream(generation);
           }, STREAM_RECONNECT_DELAY_MS);
         }
       }
@@ -159,8 +187,8 @@ export function useExportRuntimeLifecycle(): void {
         if (disposed) return;
         store.getState().applyBackendStatus(status);
         if (store.getState().isExporting) {
-          void ensureStream();
-          startLogPolling();
+          void ensureStream(runGeneration);
+          startLogPolling(runGeneration);
         }
       } catch {
         // ignore transient status failures
@@ -174,8 +202,9 @@ export function useExportRuntimeLifecycle(): void {
       if (state.isExporting === prevExporting) return;
       prevExporting = state.isExporting;
       if (state.isExporting) {
-        void ensureStream();
-        startLogPolling();
+        runGeneration += 1;
+        void ensureStream(runGeneration);
+        startLogPolling(runGeneration);
       } else {
         stopStream();
       }
@@ -183,8 +212,9 @@ export function useExportRuntimeLifecycle(): void {
 
     void pollStatus();
     if (store.getState().isExporting) {
-      void ensureStream();
-      startLogPolling();
+      runGeneration += 1;
+      void ensureStream(runGeneration);
+      startLogPolling(runGeneration);
     }
 
     const statusTimer = setInterval(() => {
