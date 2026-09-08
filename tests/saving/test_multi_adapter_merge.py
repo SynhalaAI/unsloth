@@ -27,6 +27,7 @@ import torch
 
 from unsloth.multi_adapter_merge import (
     MultiAdapterMergeConfig,
+    _resolve_adapter_path,
     _linear_merge,
     _load_adapter_config,
     _load_adapter_state_dict,
@@ -141,6 +142,24 @@ class TestMultiAdapterMergeConfig:
 # ---------------------------------------------------------------------------
 
 class TestAdapterIO:
+    def test_local_adapter_path_is_preserved(self, tmp_path):
+        path = _make_adapter_dir(str(tmp_path), "adapter1")
+        assert _resolve_adapter_path(path) == path
+
+    def test_hf_adapter_repo_is_downloaded(self, monkeypatch):
+        calls = {}
+
+        def fake_snapshot_download(**kwargs):
+            calls.update(kwargs)
+            return "C:/cached/adapter"
+
+        monkeypatch.setattr(
+            "huggingface_hub.snapshot_download", fake_snapshot_download
+        )
+        assert _resolve_adapter_path("org/adapter", hf_token="hf_test") == "C:/cached/adapter"
+        assert calls["repo_id"] == "org/adapter"
+        assert calls["token"] == "hf_test"
+
     def test_load_config(self, tmp_path):
         path = _make_adapter_dir(str(tmp_path), "adapter1")
         cfg = _load_adapter_config(path)

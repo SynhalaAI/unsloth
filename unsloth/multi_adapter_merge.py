@@ -53,6 +53,21 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union
 import torch
 
 
+def _resolve_adapter_path(adapter_path: str, hf_token=None) -> str:
+    """Return a local adapter directory for a filesystem path or HF repo id."""
+    if os.path.isdir(adapter_path):
+        return adapter_path
+
+    from huggingface_hub import snapshot_download
+
+    return snapshot_download(
+        repo_id=adapter_path,
+        token=hf_token,
+        allow_patterns=["adapter_config.json", "adapter_model*.safetensors", "adapter_model*.bin"],
+        max_workers=1,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -354,6 +369,7 @@ def merge_adapters_into_model(
     method: str = "linear",
     normalize_weights: bool = True,
     density: float = 0.5,
+    hf_token=None,
 ) -> torch.nn.Module:
     """Merge multiple LoRA adapters into *model* in-place.
 
@@ -383,8 +399,11 @@ def merge_adapters_into_model(
     if weights is None:
         weights = [1.0] * len(adapter_paths)
 
+    resolved_adapter_paths = [
+        _resolve_adapter_path(path, hf_token=hf_token) for path in adapter_paths
+    ]
     config = MultiAdapterMergeConfig(
-        adapter_paths=list(adapter_paths),
+        adapter_paths=resolved_adapter_paths,
         weights=list(weights),
         method=method,
         normalize_weights=normalize_weights,

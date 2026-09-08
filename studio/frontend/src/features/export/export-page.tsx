@@ -112,6 +112,7 @@ type SourceMode = "checkpoint" | "model";
 type AdapterMergeSelection = {
   path: string;
   weight: string;
+  source: "local" | "hf";
 };
 
 function safePathSegment(
@@ -413,19 +414,6 @@ export function ExportPage() {
     () => checkpointsForModel.find((cp) => cp.display_name === checkpoint) ?? null,
     [checkpointsForModel, checkpoint],
   );
-  const adapterOptions = useMemo(
-    () =>
-      models.flatMap((model) =>
-        model.peft_type && model.base_model === selectedModelData?.base_model
-          ? model.checkpoints.map((cp) => ({
-              path: cp.path,
-              label: `${model.name} / ${cp.display_name}`,
-              baseModel: model.base_model ?? null,
-            }))
-          : [],
-      ),
-    [models, selectedModelData?.base_model],
-  );
 
   const baseModelName = selectedModelData?.base_model ?? "—";
   const isAdapter = !!selectedModelData?.peft_type;
@@ -536,8 +524,8 @@ export function ExportPage() {
       sourceMode === "model"
         ? [
             "Select a Hugging Face or local model to export from",
-            "GGUF is used for non-finetuned model exports",
-            "Pick one or more GGUF quantization levels",
+            "Select Merged Model to combine LoRA adapters",
+            "Add local adapter paths or Hugging Face adapter repos",
             "Click Export and choose your destination",
             "Test your model and compare outputs in Chat",
           ]
@@ -596,6 +584,8 @@ export function ExportPage() {
     setSelectedSourceModel(null);
     setLocalModelInput("");
     setModelInput("");
+    setMultiAdapterMerge(false);
+    setAdapterMergeSelections([]);
     hfModelInputRef.current = "";
     localModelInputRef.current = "";
   }, []);
@@ -785,7 +775,7 @@ export function ExportPage() {
     setMultiAdapterMerge(checked);
     if (checked && adapterMergeSelections.length === 0 && selectedCheckpointData) {
       setAdapterMergeSelections([
-        { path: selectedCheckpointData.path, weight: "1" },
+        { path: selectedCheckpointData.path, weight: "1", source: "local" },
       ]);
     }
   };
@@ -1420,7 +1410,8 @@ export function ExportPage() {
 
                       <div className="rounded-xl bg-foreground/[0.04] p-3">
                         <p className="text-ui-11 text-muted-foreground">
-                          Direct model exports currently support GGUF only.
+                          Select Merged Model to combine local or Hugging Face
+                          LoRA adapters with this base model.
                         </p>
                       </div>
                     </div>
@@ -1645,7 +1636,7 @@ export function ExportPage() {
               )}
 
               {exportMethod === "merged" &&
-                effectiveIsAdapter &&
+                (sourceMode === "model" || effectiveIsAdapter) &&
                 !exportUnsupported && (
                   <div className="space-y-3 rounded-lg border p-3">
                     <div className="flex items-center justify-between gap-3">
@@ -1671,33 +1662,44 @@ export function ExportPage() {
                             className="flex flex-col gap-2 sm:flex-row sm:items-center"
                           >
                             <Select
-                              value={selection.path}
-                              onValueChange={(path) =>
+                              value={selection.source}
+                              onValueChange={(source: "local" | "hf") =>
                                 setAdapterMergeSelections((current) =>
                                   current.map((item, itemIndex) =>
-                                    itemIndex === index ? { ...item, path } : item,
+                                    itemIndex === index
+                                      ? { ...item, source, path: "" }
+                                      : item,
                                   ),
                                 )
                               }
                             >
-                              <SelectTrigger className="min-w-0 flex-1">
-                                <SelectValue placeholder="Select adapter" />
+                              <SelectTrigger className="w-full sm:w-28">
+                                <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                {adapterOptions.map((option) => (
-                                  <SelectItem
-                                    key={option.path}
-                                    value={option.path}
-                                    disabled={adapterMergeSelections.some(
-                                      (item, itemIndex) =>
-                                        itemIndex !== index && item.path === option.path,
-                                    )}
-                                  >
-                                    {option.label}
-                                  </SelectItem>
-                                ))}
+                                <SelectItem value="local">Local</SelectItem>
+                                <SelectItem value="hf">Hugging Face</SelectItem>
                               </SelectContent>
                             </Select>
+                            <Input
+                              placeholder={
+                                selection.source === "hf"
+                                  ? "org/adapter-repo"
+                                  : "./path/to/adapter"
+                              }
+                              aria-label={`Adapter ${index + 1} path`}
+                              value={selection.path}
+                              onChange={(event) =>
+                                setAdapterMergeSelections((current) =>
+                                  current.map((item, itemIndex) =>
+                                    itemIndex === index
+                                      ? { ...item, path: event.target.value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              className="min-w-0 flex-1"
+                            />
                             <Input
                               type="number"
                               min="-10"
@@ -1736,20 +1738,11 @@ export function ExportPage() {
                             type="button"
                             variant="outline"
                             size="sm"
-                            disabled={adapterMergeSelections.length >= adapterOptions.length}
                             onClick={() => {
-                              const used = new Set(
-                                adapterMergeSelections.map((item) => item.path),
-                              );
-                              const next = adapterOptions.find(
-                                (option) => !used.has(option.path),
-                              );
-                              if (next) {
-                                setAdapterMergeSelections((current) => [
-                                  ...current,
-                                  { path: next.path, weight: "1" },
-                                ]);
-                              }
+                              setAdapterMergeSelections((current) => [
+                                ...current,
+                                { path: "", weight: "1", source: "local" },
+                              ]);
                             }}
                           >
                             Add adapter

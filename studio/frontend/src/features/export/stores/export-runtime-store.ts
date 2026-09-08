@@ -461,6 +461,7 @@ export const useExportRuntimeStore = create<ExportRuntimeStore>()((set, get) => 
             approved_remote_code_fingerprint:
               params.approvedRemoteCodeFingerprint ?? null,
             hf_token: params.loadToken ?? null,
+            merge_adapters: params.multiAdapterMerge ?? null,
           }),
         );
       }

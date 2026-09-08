@@ -690,6 +690,7 @@ class ExportBackend:
                     method = merge_adapters.get("method", "linear"),
                     normalize_weights = merge_adapters.get("normalize_weights", True),
                     density = merge_adapters.get("density", 0.5),
+                    hf_token = token,
                 )
                 self.is_peft = False
 
