@@ -821,10 +821,6 @@ export function ExportPage() {
       })),
       loraGguf: emitLoraGguf,
       loraGgufOuttype,
-      adapterPaths: exportMethod === "multi-adapter-merge" ? selectedAdapterPaths : undefined,
-      weights: exportMethod === "multi-adapter-merge" ? adapterWeights : undefined,
-      mergeMethod: exportMethod === "multi-adapter-merge" ? mergeMethod : undefined,
-      density: exportMethod === "multi-adapter-merge" ? density : undefined,
       saveDirectory,
       destination,
       repoId,
@@ -839,12 +835,6 @@ export function ExportPage() {
         quantLevels,
         ggufShardSize: normalizedGgufShardSize,
         mergedFormats: exportMethod === "merged" ? selectedFormats : [],
-        multiAdapterMerge: exportMethod === "multi-adapter-merge" ? {
-          adapterPaths: selectedAdapterPaths,
-          weights: adapterWeights,
-          mergeMethod,
-          density,
-        } : undefined,
         destination,
       },
     });
@@ -876,10 +866,6 @@ export function ExportPage() {
     hfToken,
     privateRepo,
     modelSource,
-    selectedAdapterPaths,
-    adapterWeights,
-    mergeMethod,
-    density,
     runExport,
   ]);
 
@@ -1577,202 +1563,6 @@ export function ExportPage() {
                   </div>
                 </div>
               )}
-
-              {exportMethod === "multi-adapter-merge" &&
-                !exportUnsupported && (
-                  <div className="space-y-4">
-                    {/* Adapter Selection */}
-                    <div className="space-y-2">
-                      <div className="text-sm font-medium">
-                        Select Adapters (minimum 2)
-                      </div>
-                      <div className="space-y-2">
-                        {selectedAdapterPaths.length === 0 && (
-                          <div className="text-xs text-muted-foreground">
-                            No adapters selected. Click "Add Adapter" to start.
-                          </div>
-                        )}
-                        {selectedAdapterPaths.map((adapterPath, index) => (
-                          <div
-                            key={`${adapterPath}-${index}`}
-                            className="flex items-center gap-2 rounded-lg border p-2"
-                          >
-                            <div className="flex-1 min-w-0">
-                              <div className="text-sm font-medium truncate">
-                                Adapter {index + 1}
-                              </div>
-                              <div className="text-xs text-muted-foreground truncate">
-                                {adapterPath}
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <InputGroup className="w-24">
-                                <InputGroupAddon>Weight:</InputGroupAddon>
-                                <InputGroupInput
-                                  type="number"
-                                  step="0.1"
-                                  min="0"
-                                  max="1"
-                                  value={adapterWeights[index]?.toString() ?? "1.0"}
-                                  onChange={(e) => {
-                                    const newWeights = [...adapterWeights];
-                                    newWeights[index] = parseFloat(
-                                      e.target.value || "0",
-                                    );
-                                    setAdapterWeights(newWeights);
-                                  }}
-                                  className="w-16"
-                                />
-                              </InputGroup>
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedAdapterPaths((prev) =>
-                                    prev.filter((_, i) => i !== index),
-                                  );
-                                  setAdapterWeights((prev) =>
-                                    prev.filter((_, i) => i !== index),
-                                  );
-                                }}
-                                title="Remove adapter"
-                              >
-                                ✕
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                        <Combobox
-                          value=""
-                          onValueChange={(value) => {
-                            if (
-                              value &&
-                              !selectedAdapterPaths.includes(value)
-                            ) {
-                              setSelectedAdapterPaths((prev) => [
-                                ...prev,
-                                value,
-                              ]);
-                              setAdapterWeights((prev) => [...prev, 1.0]);
-                            }
-                          }}
-                        >
-                          <ComboboxInput placeholder="Search for adapters..." />
-                          <ComboboxContent>
-                            <ComboboxEmpty>
-                              No adapters found. Select from checkpoint list.
-                            </ComboboxEmpty>
-                            <ComboboxList>
-                              {models.flatMap((model) =>
-                                model.checkpoints
-                                  .filter((cp) => cp.is_adapter)
-                                  .map((cp) => ({
-                                    value: `${model.name}/${cp.checkpoint}`,
-                                    label: `${model.name} - ${cp.checkpoint}`,
-                                  })),
-                              ).map((adapter) => (
-                                <ComboboxItem
-                                  key={adapter.value}
-                                  value={adapter.value}
-                                  disabled={selectedAdapterPaths.includes(
-                                    adapter.value,
-                                  )}
-                                >
-                                  {adapter.label}
-                                </ComboboxItem>
-                              ))}
-                            </ComboboxList>
-                          </ComboboxContent>
-                        </Combobox>
-                        {selectedAdapterPaths.length > 0 && (
-                          <div className="flex items-center justify-between text-xs text-muted-foreground">
-                            <span>
-                              {selectedAdapterPaths.length} adapter(s) selected
-                            </span>
-                            {selectedAdapterPaths.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setSelectedAdapterPaths([]);
-                                  setAdapterWeights([1.0]);
-                                }}
-                                className="hover:text-foreground transition-colors"
-                              >
-                                Clear all
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Merge Method */}
-                    <div className="space-y-2">
-                      <div className="text-sm font-medium">Merge Method</div>
-                      <Select value={mergeMethod} onValueChange={(v) => setMergeMethod(v as "linear" | "ties")}>
-                        <SelectTrigger className="w-full sm:w-56">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="linear">
-                            Linear (Weighted Average)
-                          </SelectItem>
-                          <SelectItem value="ties">
-                            TIES-Merging (Task Interference Elimination)
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <div className="text-xs text-muted-foreground">
-                        {mergeMethod === "linear"
-                          ? "Simple weighted average of adapter weights. Good for similar tasks."
-                          : "Advanced merging that reduces task interference. Better for diverse tasks."}
-                      </div>
-                    </div>
-
-                    {/* Density Slider (TIES only) */}
-                    {mergeMethod === "ties" && (
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <div className="text-sm font-medium">Density</div>
-                          <span className="text-xs text-muted-foreground">
-                            {density.toFixed(2)}
-                          </span>
-                        </div>
-                        <input
-                          type="range"
-                          min="0.01"
-                          max="1.0"
-                          step="0.01"
-                          value={density}
-                          onChange={(e) => setDensity(parseFloat(e.target.value))}
-                          className="w-full"
-                        />
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>Sparse (0.01)</span>
-                          <span>Dense (1.0)</span>
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Controls how many parameters are kept after merging. Lower values create sparser models.
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Info Alert */}
-                    {selectedAdapterPaths.length < 2 && (
-                      <Alert>
-                        <HugeiconsIcon
-                          icon={InformationCircleIcon}
-                          className="size-4"
-                        />
-                        <AlertTitle>Need More Adapters</AlertTitle>
-                        <AlertDescription>
-                          Please select at least 2 adapters to perform multi-adapter merging.
-                        </AlertDescription>
-                      </Alert>
-                    )}
-                  </div>
-                )}
 
               {exportMethod === "lora" &&
                 effectiveIsAdapter &&
