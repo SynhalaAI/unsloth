@@ -379,6 +379,7 @@ def merge_adapters_into_model(
     normalize_weights: bool = True,
     density: float = 0.5,
     hf_token=None,
+    report_callback=None,
 ) -> torch.nn.Module:
     """Merge multiple LoRA adapters into *model* in-place.
 
@@ -419,10 +420,14 @@ def merge_adapters_into_model(
         density=density,
     )
 
-    print(f"Unsloth: Merging {len(config.adapter_paths)} adapters "
-          f"using '{config.method}' strategy...")
-    print(
-        "Unsloth: Normalized adapter weights: "
+    def report(message: str) -> None:
+        print(message)
+        if report_callback is not None:
+            report_callback(message)
+
+    report(f"Merge: {len(config.adapter_paths)} adapters, method={config.method}")
+    report(
+        "Merge weights: "
         + ", ".join(
             f"{Path(path).name}={weight:.4f}"
             for path, weight in zip(config.adapter_paths, config.weights)
@@ -463,8 +468,8 @@ def merge_adapters_into_model(
             delta_norm = sum(
                 float(delta.float().norm().item() ** 2) for delta in deltas.values()
             ) ** 0.5
-            print(
-                f"  Adapter report: modules={len(deltas)}, elements={delta_elements}, "
+            report(
+                f"Merge adapter {Path(path).name}: modules={len(deltas)}, elements={delta_elements}, "
                 f"delta_norm={delta_norm:.6g}, effective_norm={abs(weight) * delta_norm:.6g}, "
                 f"weight={weight:.4f}"
             )
@@ -480,8 +485,8 @@ def merge_adapters_into_model(
                 param.data.add_(delta.to(device=param.device, dtype=param.dtype), alpha=weight)
                 applied += 1
                 adapter_applied += 1
-            print(
-                f"  Adapter coverage: applied={adapter_applied}, "
+            report(
+                f"Merge coverage {Path(path).name}: applied={adapter_applied}, "
                 f"skipped={adapter_skipped}"
             )
             del deltas
@@ -507,14 +512,15 @@ def merge_adapters_into_model(
                 continue
             param.data.add_(delta.to(device=param.device, dtype=param.dtype))
             applied += 1
-        print(
-            f"  TIES report: merged_modules={len(merged_deltas)}, "
+        report(
+            f"Merge TIES: merged_modules={len(merged_deltas)}, "
             f"density={config.density:.4f}"
         )
         del merged_deltas
         gc.collect()
 
-    print(f"  Applied merged deltas to {applied} parameters"
-          f"{f' (skipped {skipped} unmatched keys)' if skipped else ''}.")
-    print("Unsloth: Multi-adapter merge complete!")
+    report(
+        f"Merge complete: applied={applied}"
+        f"{f', skipped={skipped}' if skipped else ''}"
+    )
     return base_model

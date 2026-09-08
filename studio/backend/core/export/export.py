@@ -512,6 +512,7 @@ class ExportBackend:
         hf_token: HfTokenArg = None,
         _device_map_override: Optional[dict] = None,
         merge_adapters: Optional[dict] = None,
+        merge_report_callback=None,
     ) -> Tuple[bool, str]:
         """
         Load a checkpoint for export.
@@ -691,6 +692,7 @@ class ExportBackend:
                     normalize_weights = merge_adapters.get("normalize_weights", True),
                     density = merge_adapters.get("density", 0.5),
                     hf_token = token,
+                    report_callback = merge_report_callback,
                 )
                 self.is_peft = False
 
@@ -753,6 +755,7 @@ class ExportBackend:
             # upgrades back to the planner, re-running the placement that just failed.
             _device_map_override = {"device_map": "sequential"},
             merge_adapters = merge_adapters,
+            merge_report_callback = merge_report_callback,
         )
 
     def _write_export_metadata(self, save_directory: str):

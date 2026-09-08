@@ -383,6 +383,14 @@ def _handle_load(backend, cmd: dict, resp_queue: Any) -> None:
             trust_remote_code = trust_remote_code,
             hf_token = hf_token,
             merge_adapters = merge_adapters,
+            merge_report_callback = (
+                lambda message: _send_response(
+                    resp_queue,
+                    {"type": "status", "message": message, "ts": time.time()},
+                )
+                if merge_adapters
+                else None
+            ),
         )
 
         _send_response(
