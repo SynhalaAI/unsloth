@@ -140,6 +140,7 @@ type AdapterSourcePickerProps = {
   localResultIds: string[];
   localMetaById: Map<string, LocalModelInfo>;
   selectedPaths: string[];
+  excludedPath?: string;
   onChange: (value: string) => void;
 };
 
@@ -151,6 +152,7 @@ function AdapterSourcePicker({
   localResultIds,
   localMetaById,
   selectedPaths,
+  excludedPath,
   onChange,
 }: AdapterSourcePickerProps) {
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -164,7 +166,9 @@ function AdapterSourcePicker({
       excludeGguf: true,
       ownerScope: adapterSearchQuery.trim() ? "all" : "unsloth",
     });
-  const adapterHfResultIds = adapterHfResults.map((result) => result.id);
+  const adapterHfResultIds = adapterHfResults
+    .map((result) => result.id)
+    .filter((id) => id !== excludedPath);
   if (source === "hf" && value && !adapterHfResultIds.includes(value)) {
     adapterHfResultIds.push(value);
   }
@@ -1997,6 +2001,7 @@ export function ExportPage() {
                               selectedPaths={adapterMergeSelections
                                 .filter((_, itemIndex) => itemIndex !== index)
                                 .map((item) => item.path)}
+                              excludedPath={sourceBaseModelName}
                               onChange={(path) =>
                                 setAdapterMergeSelections((current) =>
                                   current.map((item, itemIndex) =>
