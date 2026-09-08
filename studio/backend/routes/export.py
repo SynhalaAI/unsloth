@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 import structlog
 from loggers import get_logger
@@ -45,6 +45,30 @@ from models import (
 
 router = APIRouter()
 logger = get_logger(__name__)
+
+
+@router.get("/adapter-checkpoints")
+async def list_adapter_checkpoints(
+    repo_id: str = Query(..., min_length = 1),
+    current_subject: str = Depends(get_current_subject),
+    allow_ambient: bool = Depends(allow_ambient_hf_token),
+    hf_token: Optional[str] = Header(None, alias = "X-HF-Token"),
+):
+    """List adapter checkpoint subdirectories available in a Hugging Face repo."""
+    try:
+        from huggingface_hub import HfApi
+
+        token = _resolve_export_hf_token(hf_token, allow_ambient = allow_ambient)
+        info = await asyncio.to_thread(HfApi(token = token).model_info, repo_id)
+        folders = {""}
+        for sibling in info.siblings:
+            name = getattr(sibling, "rfilename", "")
+            if "/adapter_config.json" in name:
+                folders.add(name.rsplit("/", 1)[0])
+        return {"checkpoints": sorted(folders, key = lambda value: (value != "", value))}
+    except Exception as exc:
+        logger.warning("Could not list adapter checkpoints for %s: %s", repo_id, exc)
+        raise HTTPException(status_code = 400, detail = "Could not list adapter checkpoints")
 
 
 async def _ensure_export_supported() -> None:

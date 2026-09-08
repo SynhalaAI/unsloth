@@ -138,7 +138,7 @@ export interface RunExportParams {
   /** HF token for loading a gated/private source model (separate from the Hub upload token). */
   loadToken?: string | null;
   multiAdapterMerge?: {
-    adapter_paths: string[];
+    adapter_paths: (string | { repo_id: string; subfolder?: string })[];
     weights: number[];
     method: "linear" | "ties";
     normalize_weights: boolean;

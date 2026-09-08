@@ -63,7 +63,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import type { ModelCheckpoints } from "./api/export-api";
+import { fetchAdapterCheckpoints, type ModelCheckpoints } from "./api/export-api";
 import { ExportRunPanel } from "./components/export-run-panel";
 import { MethodPicker } from "./components/method-picker";
 import { QuantPicker } from "./components/quant-picker";
@@ -113,6 +113,7 @@ type AdapterMergeSelection = {
   path: string;
   weight: string;
   source: "local" | "hf";
+  checkpoint: string;
 };
 
 function safePathSegment(
@@ -245,6 +246,9 @@ export function ExportPage() {
   const [adapterMergeSelections, setAdapterMergeSelections] = useState<
     AdapterMergeSelection[]
   >([]);
+  const [adapterCheckpointOptions, setAdapterCheckpointOptions] = useState<
+    Record<string, string[]>
+  >({});
 
   const hardware = useHardwareInfo();
   // GGUF LoRA conversion is rejected on the macOS / MLX path, so gate it out on a Mac host.
@@ -604,6 +608,26 @@ export function ExportPage() {
     localModelInputRef.current = localModelInput;
   }, [localModelInput]);
 
+  useEffect(() => {
+    const repos = [
+      ...new Set(
+        adapterMergeSelections
+          .filter((item) => item.source === "hf" && item.path.trim())
+          .map((item) => item.path.trim()),
+      ),
+    ];
+    for (const repo of repos) {
+      if (adapterCheckpointOptions[repo]) continue;
+      void fetchAdapterCheckpoints(repo, hfToken)
+        .then((checkpoints) =>
+          setAdapterCheckpointOptions((current) => ({ ...current, [repo]: checkpoints })),
+        )
+        .catch(() =>
+          setAdapterCheckpointOptions((current) => ({ ...current, [repo]: [""] })),
+        );
+    }
+  }, [adapterMergeSelections, adapterCheckpointOptions, hfToken]);
+
   const handleMethodChange = (method: ExportMethod) => {
     setExportMethod(method);
     if (method !== "merged") {
@@ -775,7 +799,12 @@ export function ExportPage() {
     setMultiAdapterMerge(checked);
     if (checked && adapterMergeSelections.length === 0 && selectedCheckpointData) {
       setAdapterMergeSelections([
-        { path: selectedCheckpointData.path, weight: "1", source: "local" },
+        {
+          path: selectedCheckpointData.path,
+          weight: "1",
+          source: "local",
+          checkpoint: "",
+        },
       ]);
     }
   };
@@ -818,7 +847,11 @@ export function ExportPage() {
     const mergeDensityValue = Number(mergeDensity);
     const mergeConfig = multiAdapterMerge && exportMethod === "merged"
       ? {
-          adapter_paths: adapterMergeSelections.map((item) => item.path),
+          adapter_paths: adapterMergeSelections.map((item) =>
+            item.source === "hf"
+              ? { repo_id: item.path, subfolder: item.checkpoint }
+              : item.path,
+          ),
           weights: adapterMergeSelections.map((item) => Number(item.weight)),
           method: mergeMethod,
           normalize_weights: true,
@@ -1658,8 +1691,8 @@ export function ExportPage() {
                       <div className="space-y-3">
                         {adapterMergeSelections.map((selection, index) => (
                           <div
-                            key={`${selection.path}-${index}`}
-                            className="grid grid-cols-1 gap-2 sm:grid-cols-[7rem_minmax(0,1fr)_6rem_auto] sm:items-center"
+                            key={`adapter-row-${index}`}
+                            className="grid grid-cols-1 gap-2 sm:grid-cols-[7rem_minmax(0,1fr)_minmax(10rem,auto)_6rem_auto] sm:items-center"
                           >
                             <Select
                               value={selection.source}
@@ -1667,7 +1700,7 @@ export function ExportPage() {
                                 setAdapterMergeSelections((current) =>
                                   current.map((item, itemIndex) =>
                                     itemIndex === index
-                                      ? { ...item, source, path: "" }
+                                      ? { ...item, source, path: "", checkpoint: "" }
                                       : item,
                                   ),
                                 )
@@ -1700,6 +1733,33 @@ export function ExportPage() {
                               }
                               className="w-full"
                             />
+                            {selection.source === "hf" ? (
+                              <Select
+                                value={selection.checkpoint}
+                                onValueChange={(checkpoint) =>
+                                  setAdapterMergeSelections((current) =>
+                                    current.map((item, itemIndex) =>
+                                      itemIndex === index ? { ...item, checkpoint } : item,
+                                    ),
+                                  )
+                                }
+                              >
+                                <SelectTrigger className="w-full">
+                                  <SelectValue placeholder="Checkpoint" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(adapterCheckpointOptions[selection.path] ?? [""]).map(
+                                    (checkpoint) => (
+                                      <SelectItem key={checkpoint || "root"} value={checkpoint}>
+                                        {checkpoint || "Repository root"}
+                                      </SelectItem>
+                                    ),
+                                  )}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <span />
+                            )}
                             <Input
                               type="number"
                               min="-10"
@@ -1741,7 +1801,7 @@ export function ExportPage() {
                             onClick={() => {
                               setAdapterMergeSelections((current) => [
                                 ...current,
-                                { path: "", weight: "1", source: "local" },
+                                { path: "", weight: "1", source: "local", checkpoint: "" },
                               ]);
                             }}
                           >

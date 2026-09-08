@@ -88,6 +88,20 @@ export async function fetchCheckpoints(): Promise<CheckpointListResponse> {
   return parseJson<CheckpointListResponse>(response);
 }
 
+export async function fetchAdapterCheckpoints(
+  repoId: string,
+  hfToken?: string | null,
+): Promise<string[]> {
+  const headers: Record<string, string> = {};
+  if (hfToken) headers["X-HF-Token"] = hfToken;
+  const response = await authFetch(
+    `/api/export/adapter-checkpoints?repo_id=${encodeURIComponent(repoId)}`,
+    { headers },
+  );
+  const data = await parseJson<{ checkpoints: string[] }>(response);
+  return data.checkpoints;
+}
+
 /** Estimate a model's fp16-equivalent size to scale the GGUF quant labels; nulls (not error) when unknown. */
 export async function fetchExportSize(
   modelId: string,
@@ -117,7 +131,7 @@ export async function loadCheckpoint(params: {
   /** HF token so the worker scans/loads gated checkpoints and base models with the same auth as preflight. */
   hf_token?: string | null;
   merge_adapters?: {
-    adapter_paths: string[];
+    adapter_paths: (string | { repo_id: string; subfolder?: string })[];
     weights?: number[];
     method?: "linear" | "ties";
     normalize_weights?: boolean;

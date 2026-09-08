@@ -63,7 +63,7 @@ def _validate_gguf_shard_size(value: Optional[str]) -> Optional[str]:
 class MultiAdapterMergeRequest(BaseModel):
     """Configuration for merging several LoRA adapters into the loaded model."""
 
-    adapter_paths: List[str] = Field(..., min_length = 2)
+    adapter_paths: List[Union[str, Dict[str, str]]] = Field(..., min_length = 2)
     weights: Optional[List[float]] = None
     method: Literal["linear", "ties"] = "linear"
     normalize_weights: bool = True

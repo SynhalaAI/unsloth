@@ -53,19 +53,28 @@ from typing import Dict, List, Optional, Sequence, Tuple, Union
 import torch
 
 
-def _resolve_adapter_path(adapter_path: str, hf_token=None) -> str:
+def _resolve_adapter_path(adapter_path, hf_token=None) -> str:
     """Return a local adapter directory for a filesystem path or HF repo id."""
+    subfolder = ""
+    if isinstance(adapter_path, dict):
+        subfolder = str(adapter_path.get("subfolder") or "").strip("/\\")
+        adapter_path = adapter_path.get("repo_id", "")
     if os.path.isdir(adapter_path):
         return adapter_path
 
     from huggingface_hub import snapshot_download
 
-    return snapshot_download(
+    snapshot_path = snapshot_download(
         repo_id=adapter_path,
         token=hf_token,
-        allow_patterns=["adapter_config.json", "adapter_model*.safetensors", "adapter_model*.bin"],
+        allow_patterns=[
+            f"{subfolder + '/' if subfolder else ''}adapter_config.json",
+            f"{subfolder + '/' if subfolder else ''}adapter_model*.safetensors",
+            f"{subfolder + '/' if subfolder else ''}adapter_model*.bin",
+        ],
         max_workers=1,
     )
+    return os.path.join(snapshot_path, subfolder) if subfolder else snapshot_path
 
 
 # ---------------------------------------------------------------------------

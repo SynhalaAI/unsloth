@@ -289,7 +289,10 @@ def _handle_load(backend, cmd: dict, resp_queue: Any) -> None:
 
     requested_security_targets = [checkpoint_path]
     if merge_adapters:
-        requested_security_targets.extend(merge_adapters.get("adapter_paths", []))
+        requested_security_targets.extend(
+            path["repo_id"] if isinstance(path, dict) else path
+            for path in merge_adapters.get("adapter_paths", [])
+        )
     try:
         from utils.models.model_config import get_base_model_from_lora_identifier
 
