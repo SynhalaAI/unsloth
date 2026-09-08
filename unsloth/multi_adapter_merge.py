@@ -421,6 +421,13 @@ def merge_adapters_into_model(
 
     print(f"Unsloth: Merging {len(config.adapter_paths)} adapters "
           f"using '{config.method}' strategy...")
+    print(
+        "Unsloth: Normalized adapter weights: "
+        + ", ".join(
+            f"{Path(path).name}={weight:.4f}"
+            for path, weight in zip(config.adapter_paths, config.weights)
+        )
+    )
 
     # 1. Load and validate adapter configs.
     adapter_configs: List[dict] = []
@@ -452,14 +459,31 @@ def merge_adapters_into_model(
             state_dict = _load_adapter_state_dict(path)
             deltas = _reconstruct_deltas(state_dict, cfg)
             del state_dict
+            delta_elements = sum(delta.numel() for delta in deltas.values())
+            delta_norm = sum(
+                float(delta.float().norm().item() ** 2) for delta in deltas.values()
+            ) ** 0.5
+            print(
+                f"  Adapter report: modules={len(deltas)}, elements={delta_elements}, "
+                f"delta_norm={delta_norm:.6g}, effective_norm={abs(weight) * delta_norm:.6g}, "
+                f"weight={weight:.4f}"
+            )
+            adapter_applied = 0
+            adapter_skipped = 0
             for key, delta in deltas.items():
                 param = model_params.get(key)
                 if param is None:
                     skipped += 1
+                    adapter_skipped += 1
                     continue
                 # Update in place; do not materialize a second full model state dict.
                 param.data.add_(delta.to(device=param.device, dtype=param.dtype), alpha=weight)
                 applied += 1
+                adapter_applied += 1
+            print(
+                f"  Adapter coverage: applied={adapter_applied}, "
+                f"skipped={adapter_skipped}"
+            )
             del deltas
             gc.collect()
     else:
@@ -483,6 +507,10 @@ def merge_adapters_into_model(
                 continue
             param.data.add_(delta.to(device=param.device, dtype=param.dtype))
             applied += 1
+        print(
+            f"  TIES report: merged_modules={len(merged_deltas)}, "
+            f"density={config.density:.4f}"
+        )
         del merged_deltas
         gc.collect()
 
