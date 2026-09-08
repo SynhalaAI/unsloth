@@ -429,29 +429,6 @@ def merge_adapters_into_model(
         adapter_configs.append(cfg)
     _validate_adapters(adapter_configs, config.adapter_paths)
 
-    # 2. Reconstruct deltas layer-by-layer for each adapter.
-    all_deltas: List[Dict[str, torch.Tensor]] = []
-    for path, cfg in zip(config.adapter_paths, adapter_configs):
-        print(f"  Loading adapter: {path}")
-        state_dict = _load_adapter_state_dict(path)
-        deltas = _reconstruct_deltas(state_dict, cfg)
-        all_deltas.append(deltas)
-        del state_dict  # free raw A/B matrices
-        gc.collect()
-
-    # 3. Merge deltas.
-    print(f"  Computing merged deltas ({config.method})...")
-    if config.method == "linear":
-        merged_deltas = _linear_merge(all_deltas, config.weights)
-    elif config.method == "ties":
-        merged_deltas = _ties_merge(all_deltas, config.weights, config.density)
-    else:
-        raise ValueError(f"Unsupported method: {config.method}")
-
-    del all_deltas
-    gc.collect()
-
-    # 4. Apply merged deltas to the base model.
     # If model is a PeftModel, get the underlying base model first.
     base_model = model
     try:
@@ -462,24 +439,52 @@ def merge_adapters_into_model(
     except ImportError:
         pass
 
-    state_dict = base_model.state_dict()
-    applied = 0
-    skipped = 0
-    for key, delta in merged_deltas.items():
-        if key in state_dict:
-            param = state_dict[key]
-            device = param.device
-            dtype = param.dtype
-            # Add delta (computed in float32) cast to the param's dtype.
-            new_val = param.to(torch.float32) + delta.to(param.device)
-            state_dict[key] = new_val.to(dtype)
+    # Linear merging is streamed so only one adapter's deltas and one layer's
+    # device copy exist at a time. This avoids an O(N adapters) memory spike.
+    if config.method == "linear":
+        model_params = dict(base_model.named_parameters())
+        applied = 0
+        skipped = 0
+        for path, cfg, weight in zip(
+            config.adapter_paths, adapter_configs, config.weights
+        ):
+            print(f"  Loading adapter: {path}")
+            state_dict = _load_adapter_state_dict(path)
+            deltas = _reconstruct_deltas(state_dict, cfg)
+            del state_dict
+            for key, delta in deltas.items():
+                param = model_params.get(key)
+                if param is None:
+                    skipped += 1
+                    continue
+                # Update in place; do not materialize a second full model state dict.
+                param.data.add_(delta.to(device=param.device, dtype=param.dtype), alpha=weight)
+                applied += 1
+            del deltas
+            gc.collect()
+    else:
+        # TIES needs all adapter tensors for sign election and disjoint merging.
+        all_deltas: List[Dict[str, torch.Tensor]] = []
+        for path, cfg in zip(config.adapter_paths, adapter_configs):
+            print(f"  Loading adapter: {path}")
+            state_dict = _load_adapter_state_dict(path)
+            all_deltas.append(_reconstruct_deltas(state_dict, cfg))
+            del state_dict
+            gc.collect()
+        merged_deltas = _ties_merge(all_deltas, config.weights, config.density)
+        del all_deltas
+        model_params = dict(base_model.named_parameters())
+        applied = 0
+        skipped = 0
+        for key, delta in merged_deltas.items():
+            param = model_params.get(key)
+            if param is None:
+                skipped += 1
+                continue
+            param.data.add_(delta.to(device=param.device, dtype=param.dtype))
             applied += 1
-        else:
-            skipped += 1
-
-    base_model.load_state_dict(state_dict, strict=False)
-    del merged_deltas, state_dict
-    gc.collect()
+        del merged_deltas
+        gc.collect()
 
     print(f"  Applied merged deltas to {applied} parameters"
           f"{f' (skipped {skipped} unmatched keys)' if skipped else ''}.")
