@@ -124,6 +124,7 @@ async def load_checkpoint(
             # A supplied token cannot say whether it came from a session or an API key.
             allow_ambient = allow_ambient,
             subject = current_subject,
+            merge_adapters = request.merge_adapters.model_dump() if request.merge_adapters else None,
         )
 
         if not success:

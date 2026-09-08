@@ -60,6 +60,23 @@ def _validate_gguf_shard_size(value: Optional[str]) -> Optional[str]:
     return f"{magnitude}{unit}B"
 
 
+class MultiAdapterMergeRequest(BaseModel):
+    """Configuration for merging several LoRA adapters into the loaded model."""
+
+    adapter_paths: List[str] = Field(..., min_length = 2)
+    weights: Optional[List[float]] = None
+    method: Literal["linear", "ties"] = "linear"
+    normalize_weights: bool = True
+    density: float = Field(0.5, gt = 0.0, le = 1.0)
+
+    @field_validator("weights")
+    @classmethod
+    def _check_weights(cls, value, info):
+        if value is not None and len(value) != len(info.data.get("adapter_paths", [])):
+            raise ValueError("weights must match adapter_paths")
+        return value
+
+
 class LoadCheckpointRequest(BaseModel):
     """Request for loading a checkpoint into the export backend."""
 
@@ -85,6 +102,10 @@ class LoadCheckpointRequest(BaseModel):
     hf_token: Optional[str] = Field(
         None,
         description = "Hugging Face token used to scan/load gated checkpoints and their base models.",
+    )
+    merge_adapters: Optional[MultiAdapterMergeRequest] = Field(
+        None,
+        description = "Optional multi-adapter merge to apply after loading the base model.",
     )
 
 

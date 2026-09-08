@@ -1,3 +1,4 @@
+import { Input } from "@/components/ui/input";
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
@@ -107,6 +108,11 @@ const LORA_GGUF_OUTTYPES = ["q8_0", "f16", "bf16", "f32"] as const;
 
 type SourceTab = "local" | "checkpoint" | "hf";
 type SourceMode = "checkpoint" | "model";
+
+type AdapterMergeSelection = {
+  path: string;
+  weight: string;
+};
 
 function safePathSegment(
   value: string | null | undefined,
@@ -232,6 +238,12 @@ export function ExportPage() {
   const [loraGgufOuttype, setLoraGgufOuttype] = useState<string>("q8_0");
   // GGUF method: export the full model as GGUF quants, or (for an adapter checkpoint) a GGUF LoRA.
   const [ggufTarget, setGgufTarget] = useState<"model" | "lora">("model");
+  const [multiAdapterMerge, setMultiAdapterMerge] = useState(false);
+  const [mergeMethod, setMergeMethod] = useState<"linear" | "ties">("linear");
+  const [mergeDensity, setMergeDensity] = useState("0.5");
+  const [adapterMergeSelections, setAdapterMergeSelections] = useState<
+    AdapterMergeSelection[]
+  >([]);
 
   const hardware = useHardwareInfo();
   // GGUF LoRA conversion is rejected on the macOS / MLX path, so gate it out on a Mac host.
@@ -397,6 +409,23 @@ export function ExportPage() {
     () => selectedModelData?.checkpoints ?? [],
     [selectedModelData],
   );
+  const selectedCheckpointData = useMemo(
+    () => checkpointsForModel.find((cp) => cp.display_name === checkpoint) ?? null,
+    [checkpointsForModel, checkpoint],
+  );
+  const adapterOptions = useMemo(
+    () =>
+      models.flatMap((model) =>
+        model.peft_type && model.base_model === selectedModelData?.base_model
+          ? model.checkpoints.map((cp) => ({
+              path: cp.path,
+              label: `${model.name} / ${cp.display_name}`,
+              baseModel: model.base_model ?? null,
+            }))
+          : [],
+      ),
+    [models, selectedModelData?.base_model],
+  );
 
   const baseModelName = selectedModelData?.base_model ?? "—";
   const isAdapter = !!selectedModelData?.peft_type;
@@ -520,6 +549,8 @@ export function ExportPage() {
 
   useEffect(() => {
     setCheckpoint(null);
+    setMultiAdapterMerge(false);
+    setAdapterMergeSelections([]);
   }, [selectedModelIdx]);
 
   // Default to the newest checkpoint when none is chosen. Declared after the reset effect above
@@ -585,6 +616,10 @@ export function ExportPage() {
 
   const handleMethodChange = (method: ExportMethod) => {
     setExportMethod(method);
+    if (method !== "merged") {
+      setMultiAdapterMerge(false);
+      setAdapterMergeSelections([]);
+    }
     if (method !== "gguf") {
       setQuantLevels([]);
     }
@@ -667,6 +702,18 @@ export function ExportPage() {
     ggufShardSizeValid &&
     (exportMethod !== "gguf" || ggufAsLora || quantLevels.length > 0) &&
     (exportMethod !== "merged" || selectedFormats.length > 0)
+    &&
+    (!multiAdapterMerge || exportMethod !== "merged" ||
+      (adapterMergeSelections.length >= 2 &&
+        new Set(adapterMergeSelections.map((item) => item.path)).size ===
+          adapterMergeSelections.length &&
+        adapterMergeSelections.every(
+          (item) => item.path && Number.isFinite(Number(item.weight)),
+        ) &&
+        (mergeMethod !== "ties" ||
+          (Number.isFinite(Number(mergeDensity)) &&
+            Number(mergeDensity) > 0 &&
+            Number(mergeDensity) <= 1))))
   );
 
   const applyHfSourceModel = useCallback((value: string) => {
@@ -734,6 +781,15 @@ export function ExportPage() {
 
   // ---- Export handlers ----
   // Assemble the run params and hand off to the global runtime store, which drives the run.
+  const handleMultiAdapterToggle = (checked: boolean) => {
+    setMultiAdapterMerge(checked);
+    if (checked && adapterMergeSelections.length === 0 && selectedCheckpointData) {
+      setAdapterMergeSelections([
+        { path: selectedCheckpointData.path, weight: "1" },
+      ]);
+    }
+  };
+
   const handleStart = useCallback(async () => {
     const source =
       sourceMode === "checkpoint" ? checkpoint : selectedSourceModel;
@@ -744,6 +800,21 @@ export function ExportPage() {
     if (exportMethod === "gguf" && !ggufAsLora && quantLevels.length === 0)
       return;
     if (exportMethod === "merged" && selectedFormats.length === 0) return;
+    if (
+      multiAdapterMerge &&
+      (adapterMergeSelections.length < 2 ||
+        new Set(adapterMergeSelections.map((item) => item.path)).size !==
+          adapterMergeSelections.length ||
+        adapterMergeSelections.some(
+          (item) => !item.path || !Number.isFinite(Number(item.weight)),
+        ) ||
+        (mergeMethod === "ties" &&
+          (!Number.isFinite(Number(mergeDensity)) ||
+            Number(mergeDensity) <= 0 ||
+            Number(mergeDensity) > 1)))
+    ) {
+      return;
+    }
     if (!ggufShardSizeValid) return;
     // A Hub merged push writes each format to the repo root; several would collide (mirrors canExport).
     if (hubMultiFormat) return;
@@ -754,6 +825,16 @@ export function ExportPage() {
         : null;
     if (sourceMode === "checkpoint" && !selectedCp) return;
     const checkpointPath = selectedCp?.path ?? null;
+    const mergeDensityValue = Number(mergeDensity);
+    const mergeConfig = multiAdapterMerge && exportMethod === "merged"
+      ? {
+          adapter_paths: adapterMergeSelections.map((item) => item.path),
+          weights: adapterMergeSelections.map((item) => Number(item.weight)),
+          method: mergeMethod,
+          normalize_weights: true,
+          density: mergeDensityValue,
+        }
+      : undefined;
 
     const pushToHub = destination === "hub";
     const preparedToken = await prepareHfTokenForUse(hfToken, {
@@ -804,6 +885,7 @@ export function ExportPage() {
       trustRemoteCode,
       approvedRemoteCodeFingerprint,
       loadToken: actionHfToken || null,
+      multiAdapterMerge: mergeConfig,
       exportMethod: effectiveMethod,
       isAdapter: adapterExport,
       quantLevels,
@@ -852,6 +934,10 @@ export function ExportPage() {
     loraAsGguf,
     isMacHost,
     loraGgufOuttype,
+    multiAdapterMerge,
+    adapterMergeSelections,
+    mergeMethod,
+    mergeDensity,
     exportUnsupported,
     destination,
     saveDirectory,
@@ -1557,6 +1643,153 @@ export function ExportPage() {
                   </div>
                 </div>
               )}
+
+              {exportMethod === "merged" &&
+                effectiveIsAdapter &&
+                !exportUnsupported && (
+                  <div className="space-y-3 rounded-lg border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="space-y-0.5">
+                        <div className="text-sm font-medium">
+                          Multi-adapter merge
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          Blend two or more LoRA checkpoints into one model.
+                        </div>
+                      </div>
+                      <Switch
+                        checked={multiAdapterMerge}
+                        onCheckedChange={handleMultiAdapterToggle}
+                      />
+                    </div>
+
+                    {multiAdapterMerge && (
+                      <div className="space-y-3">
+                        {adapterMergeSelections.map((selection, index) => (
+                          <div
+                            key={`${selection.path}-${index}`}
+                            className="flex flex-col gap-2 sm:flex-row sm:items-center"
+                          >
+                            <Select
+                              value={selection.path}
+                              onValueChange={(path) =>
+                                setAdapterMergeSelections((current) =>
+                                  current.map((item, itemIndex) =>
+                                    itemIndex === index ? { ...item, path } : item,
+                                  ),
+                                )
+                              }
+                            >
+                              <SelectTrigger className="min-w-0 flex-1">
+                                <SelectValue placeholder="Select adapter" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {adapterOptions.map((option) => (
+                                  <SelectItem
+                                    key={option.path}
+                                    value={option.path}
+                                    disabled={adapterMergeSelections.some(
+                                      (item, itemIndex) =>
+                                        itemIndex !== index && item.path === option.path,
+                                    )}
+                                  >
+                                    {option.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <Input
+                              type="number"
+                              min="-10"
+                              max="10"
+                              step="0.1"
+                              aria-label={`Weight for adapter ${index + 1}`}
+                              value={selection.weight}
+                              onChange={(event) =>
+                                setAdapterMergeSelections((current) =>
+                                  current.map((item, itemIndex) =>
+                                    itemIndex === index
+                                      ? { ...item, weight: event.target.value }
+                                      : item,
+                                  ),
+                                )
+                              }
+                              className="w-full sm:w-24"
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                setAdapterMergeSelections((current) =>
+                                  current.filter((_, itemIndex) => itemIndex !== index),
+                                )
+                              }
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        ))}
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={adapterMergeSelections.length >= adapterOptions.length}
+                            onClick={() => {
+                              const used = new Set(
+                                adapterMergeSelections.map((item) => item.path),
+                              );
+                              const next = adapterOptions.find(
+                                (option) => !used.has(option.path),
+                              );
+                              if (next) {
+                                setAdapterMergeSelections((current) => [
+                                  ...current,
+                                  { path: next.path, weight: "1" },
+                                ]);
+                              }
+                            }}
+                          >
+                            Add adapter
+                          </Button>
+                          <Select
+                            value={mergeMethod}
+                            onValueChange={(value: "linear" | "ties") =>
+                              setMergeMethod(value)
+                            }
+                          >
+                            <SelectTrigger className="w-36">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="linear">Linear</SelectItem>
+                              <SelectItem value="ties">TIES</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {mergeMethod === "ties" && (
+                            <Input
+                              type="number"
+                              min="0.01"
+                              max="1"
+                              step="0.05"
+                              aria-label="TIES density"
+                              value={mergeDensity}
+                              onChange={(event) => setMergeDensity(event.target.value)}
+                              className="w-28"
+                            />
+                          )}
+                        </div>
+                        {adapterMergeSelections.length < 2 && (
+                          <p className="text-xs text-destructive">
+                            Select at least two different adapters.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
               {exportMethod === "lora" &&
                 effectiveIsAdapter &&

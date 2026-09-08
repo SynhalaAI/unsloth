@@ -511,6 +511,7 @@ class ExportBackend:
         trust_remote_code: bool = False,
         hf_token: HfTokenArg = None,
         _device_map_override: Optional[dict] = None,
+        merge_adapters: Optional[dict] = None,
     ) -> Tuple[bool, str]:
         """
         Load a checkpoint for export.
@@ -679,6 +680,19 @@ class ExportBackend:
             else:
                 self.is_peft = isinstance(model, (PeftModel, PeftModelForCausalLM))
 
+            if merge_adapters:
+                from unsloth.multi_adapter_merge import merge_adapters_into_model
+
+                model = merge_adapters_into_model(
+                    model,
+                    adapter_paths = merge_adapters["adapter_paths"],
+                    weights = merge_adapters.get("weights"),
+                    method = merge_adapters.get("method", "linear"),
+                    normalize_weights = merge_adapters.get("normalize_weights", True),
+                    density = merge_adapters.get("density", 0.5),
+                )
+                self.is_peft = False
+
             restored_repo_id = restore_hf_cache_repo_identity(model, base_model)
             if restored_repo_id:
                 logger.info(
@@ -737,6 +751,7 @@ class ExportBackend:
             # Name the map: an omitted one is unsloth's DEFAULT_DEVICE_MAP, which requested_device_map
             # upgrades back to the planner, re-running the placement that just failed.
             _device_map_override = {"device_map": "sequential"},
+            merge_adapters = merge_adapters,
         )
 
     def _write_export_metadata(self, save_directory: str):

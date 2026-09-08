@@ -137,6 +137,13 @@ export interface RunExportParams {
   approvedRemoteCodeFingerprint?: string | null;
   /** HF token for loading a gated/private source model (separate from the Hub upload token). */
   loadToken?: string | null;
+  multiAdapterMerge?: {
+    adapter_paths: string[];
+    weights: number[];
+    method: "linear" | "ties";
+    normalize_weights: boolean;
+    density: number;
+  };
   exportMethod: ExportMethod;
   isAdapter: boolean;
   quantLevels: string[];
@@ -436,8 +443,12 @@ export const useExportRuntimeStore = create<ExportRuntimeStore>()((set, get) => 
         const checkpointPath = params.checkpointPath;
         await runRecoverableOp(() =>
           loadCheckpoint({
-            checkpoint_path: checkpointPath,
+            checkpoint_path: params.multiAdapterMerge
+              ? params.baseModelId ?? checkpointPath
+              : checkpointPath,
+            load_in_4bit: params.multiAdapterMerge ? false : undefined,
             hf_token: params.loadToken ?? null,
+            merge_adapters: params.multiAdapterMerge ?? null,
           }),
         );
       } else {

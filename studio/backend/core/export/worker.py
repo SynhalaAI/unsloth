@@ -260,6 +260,7 @@ def _handle_load(backend, cmd: dict, resp_queue: Any) -> None:
                 checkpoint_path,
             )
     trust_remote_code = cmd.get("trust_remote_code", False)
+    merge_adapters = cmd.get("merge_adapters")
 
     # Auto-enable trust_remote_code for NemotronH/Nano models.
     if not trust_remote_code:
@@ -287,6 +288,8 @@ def _handle_load(backend, cmd: dict, resp_queue: Any) -> None:
     from utils.security import evaluate_file_security, load_scan_target, security_load_subdirs
 
     requested_security_targets = [checkpoint_path]
+    if merge_adapters:
+        requested_security_targets.extend(merge_adapters.get("adapter_paths", []))
     try:
         from utils.models.model_config import get_base_model_from_lora_identifier
 
@@ -376,6 +379,7 @@ def _handle_load(backend, cmd: dict, resp_queue: Any) -> None:
             load_in_4bit = load_in_4bit,
             trust_remote_code = trust_remote_code,
             hf_token = hf_token,
+            merge_adapters = merge_adapters,
         )
 
         _send_response(

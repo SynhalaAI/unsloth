@@ -116,6 +116,13 @@ export async function loadCheckpoint(params: {
   approved_remote_code_fingerprint?: string | null;
   /** HF token so the worker scans/loads gated checkpoints and base models with the same auth as preflight. */
   hf_token?: string | null;
+  merge_adapters?: {
+    adapter_paths: string[];
+    weights?: number[];
+    method?: "linear" | "ties";
+    normalize_weights?: boolean;
+    density?: number;
+  } | null;
 }): Promise<ExportOperationResponse> {
   const response = await authFetch("/api/export/load-checkpoint", {
     method: "POST",

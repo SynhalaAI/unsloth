@@ -443,6 +443,7 @@ class ExportOrchestrator:
         hf_token: HfTokenArg = None,
         allow_ambient: bool = True,
         subject: Optional[str] = None,
+        merge_adapters: Optional[dict] = None,
     ) -> Tuple[bool, str]:
         """Load a checkpoint for export.
 
@@ -457,6 +458,7 @@ class ExportOrchestrator:
             "subject": subject,
             "hf_token": hf_token,
             "allow_ambient": allow_ambient,
+            "merge_adapters": merge_adapters,
         }
 
         with self._lock:
