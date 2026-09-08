@@ -50,6 +50,7 @@ export interface CheckpointInfo {
   display_name: string;
   path: string;
   loss?: number | null;
+  is_adapter?: boolean;
 }
 
 export interface ModelCheckpoints {
