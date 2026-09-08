@@ -61,7 +61,14 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useSearch } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
 import { fetchAdapterCheckpoints, type ModelCheckpoints } from "./api/export-api";
 import { ExportRunPanel } from "./components/export-run-panel";
@@ -117,6 +124,13 @@ type AdapterMergeSelection = {
   checkpoint: string;
 };
 
+type AdapterMergeConfig = {
+  adapters: AdapterMergeSelection[];
+  method: "linear" | "ties";
+  density: string;
+};
+
+
 type AdapterSourcePickerProps = {
   source: "local" | "hf";
   value: string;
@@ -142,11 +156,12 @@ function AdapterSourcePicker({
   const inputRef = useRef(value);
   const [inputValue, setInputValue] = useState(value);
   const debouncedQuery = useDebouncedValue(inputValue);
+  const adapterSearchQuery = source === "hf" ? debouncedQuery : "";
   const { results: adapterHfResults, isLoading: isLoadingAdapterHf } =
-    useHubModelSearch(debouncedQuery, {
+    useHubModelSearch(adapterSearchQuery, {
       accessToken: hfApiToken(hfToken),
       excludeGguf: true,
-      ownerScope: debouncedQuery.trim() ? "all" : "unsloth",
+      ownerScope: adapterSearchQuery.trim() ? "all" : "unsloth",
     });
   const adapterHfResultIds = adapterHfResults.map((result) => result.id);
   if (source === "hf" && value && !adapterHfResultIds.includes(value)) {
@@ -380,6 +395,7 @@ export function ExportPage() {
   const [adapterCheckpointOptions, setAdapterCheckpointOptions] = useState<
     Record<string, string[]>
   >({});
+  const configFileInputRef = useRef<HTMLInputElement>(null);
 
   const hardware = useHardwareInfo();
   // GGUF LoRA conversion is rejected on the macOS / MLX path, so gate it out on a Mac host.
@@ -951,6 +967,55 @@ export function ExportPage() {
         },
       ]);
     }
+  };
+
+  const handleExportAdapterConfig = () => {
+    const config: AdapterMergeConfig = {
+      adapters: adapterMergeSelections,
+      method: mergeMethod,
+      density: mergeDensity,
+    };
+    const blob = new Blob([JSON.stringify(config, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "unsloth-multi-adapter-merge.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportAdapterConfig = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const config = JSON.parse(String(reader.result)) as Partial<AdapterMergeConfig>;
+        if (!Array.isArray(config.adapters) || config.adapters.length === 0) return;
+        const adapters = config.adapters.filter(
+          (adapter): adapter is AdapterMergeSelection =>
+            typeof adapter?.path === "string" &&
+            (adapter.source === "local" || adapter.source === "hf") &&
+            typeof adapter.weight === "string" &&
+            typeof adapter.checkpoint === "string",
+        );
+        if (adapters.length === 0) return;
+        setAdapterMergeSelections(adapters);
+        setMultiAdapterMerge(true);
+        if (config.method === "linear" || config.method === "ties") {
+          setMergeMethod(config.method);
+        }
+        if (typeof config.density === "string") {
+          setMergeDensity(config.density);
+        }
+      } catch {
+        // Ignore invalid config files; the current merge setup is preserved.
+      }
+    };
+    reader.readAsText(file);
   };
 
   const handleStart = useCallback(async () => {
@@ -1836,6 +1901,29 @@ export function ExportPage() {
                       <div className="flex items-center gap-2">
                         {multiAdapterMerge && (
                           <>
+                            <input
+                              ref={configFileInputRef}
+                              type="file"
+                              accept="application/json,.json"
+                              className="hidden"
+                              onChange={handleImportAdapterConfig}
+                            />
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => configFileInputRef.current?.click()}
+                            >
+                              Import
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={handleExportAdapterConfig}
+                            >
+                              Save config
+                            </Button>
                             <Select
                               value={mergeMethod}
                               onValueChange={(value: "linear" | "ties") =>
