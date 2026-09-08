@@ -61,6 +61,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useSearch } from "@tanstack/react-router";
+import { dump as dumpYaml, load as loadYaml } from "js-yaml";
 import {
   useCallback,
   useEffect,
@@ -975,13 +976,13 @@ export function ExportPage() {
       method: mergeMethod,
       density: mergeDensity,
     };
-    const blob = new Blob([JSON.stringify(config, null, 2)], {
-      type: "application/json",
+    const blob = new Blob([dumpYaml(config)], {
+      type: "application/yaml",
     });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "unsloth-multi-adapter-merge.json";
+    link.download = "unsloth-multi-adapter-merge.yaml";
     link.click();
     URL.revokeObjectURL(url);
   };
@@ -993,7 +994,7 @@ export function ExportPage() {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const config = JSON.parse(String(reader.result)) as Partial<AdapterMergeConfig>;
+        const config = loadYaml(String(reader.result)) as Partial<AdapterMergeConfig>;
         if (!Array.isArray(config.adapters) || config.adapters.length === 0) return;
         const adapters = config.adapters.filter(
           (adapter): adapter is AdapterMergeSelection =>
@@ -1904,7 +1905,7 @@ export function ExportPage() {
                             <input
                               ref={configFileInputRef}
                               type="file"
-                              accept="application/json,.json"
+                              accept="application/yaml,text/yaml,.yaml,.yml"
                               className="hidden"
                               onChange={handleImportAdapterConfig}
                             />
