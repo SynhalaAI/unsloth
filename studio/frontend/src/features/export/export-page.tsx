@@ -124,6 +124,7 @@ type AdapterSourcePickerProps = {
   hfToken: string;
   localResultIds: string[];
   localMetaById: Map<string, LocalModelInfo>;
+  selectedPaths: string[];
   onChange: (value: string) => void;
 };
 
@@ -134,6 +135,7 @@ function AdapterSourcePicker({
   hfToken,
   localResultIds,
   localMetaById,
+  selectedPaths,
   onChange,
 }: AdapterSourcePickerProps) {
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -150,11 +152,13 @@ function AdapterSourcePicker({
   if (source === "hf" && value && !adapterHfResultIds.includes(value)) {
     adapterHfResultIds.push(value);
   }
-  const items = source === "hf" ? adapterHfResultIds : localResultIds;
+  const available = (ids: string[]) =>
+    ids.filter((id) => id === value || !selectedPaths.includes(id));
+  const items = available(source === "hf" ? adapterHfResultIds : localResultIds);
   const filteredItems =
     source === "hf"
-      ? adapterHfResultIds
-      : localResultIds.filter((id) => {
+      ? items
+      : items.filter((id) => {
           const query = inputValue.trim().toLowerCase();
           if (!query) return true;
           const meta = localMetaById.get(id);
@@ -1869,6 +1873,9 @@ export function ExportPage() {
                               hfToken={hfToken}
                               localResultIds={localResultIds}
                               localMetaById={localMetaById}
+                              selectedPaths={adapterMergeSelections
+                                .filter((_, itemIndex) => itemIndex !== index)
+                                .map((item) => item.path)}
                               onChange={(path) =>
                                 setAdapterMergeSelections((current) =>
                                   current.map((item, itemIndex) =>
@@ -1951,10 +1958,18 @@ export function ExportPage() {
                             variant="outline"
                             size="sm"
                             onClick={() => {
-                              setAdapterMergeSelections((current) => [
-                                ...current,
-                                { path: "", weight: "1", source: "local", checkpoint: "" },
-                              ]);
+                              setAdapterMergeSelections((current) => {
+                                const previous = current[current.length - 1];
+                                return [
+                                  ...current,
+                                  {
+                                    path: "",
+                                    weight: "1",
+                                    source: previous?.source ?? "local",
+                                    checkpoint: "",
+                                  },
+                                ];
+                              });
                             }}
                           >
                             Add adapter
