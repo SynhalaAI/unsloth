@@ -1824,7 +1824,7 @@ export function ExportPage() {
                 (sourceMode === "model" || effectiveIsAdapter) &&
                 !exportUnsupported && (
                   <div className="space-y-3 rounded-lg border p-3">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="space-y-0.5">
                         <div className="text-sm font-medium">
                           Multi-adapter merge
@@ -1833,10 +1833,42 @@ export function ExportPage() {
                           Blend two or more LoRA checkpoints into one model.
                         </div>
                       </div>
-                      <Switch
-                        checked={multiAdapterMerge}
-                        onCheckedChange={handleMultiAdapterToggle}
-                      />
+                      <div className="flex items-center gap-2">
+                        {multiAdapterMerge && (
+                          <>
+                            <Select
+                              value={mergeMethod}
+                              onValueChange={(value: "linear" | "ties") =>
+                                setMergeMethod(value)
+                              }
+                            >
+                              <SelectTrigger className="w-36">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="linear">Linear</SelectItem>
+                                <SelectItem value="ties">TIES</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {mergeMethod === "ties" && (
+                              <Input
+                                type="number"
+                                min="0.01"
+                                max="1"
+                                step="0.05"
+                                aria-label="TIES density"
+                                value={mergeDensity}
+                                onChange={(event) => setMergeDensity(event.target.value)}
+                                className="w-24"
+                              />
+                            )}
+                          </>
+                        )}
+                        <Switch
+                          checked={multiAdapterMerge}
+                          onCheckedChange={handleMultiAdapterToggle}
+                        />
+                      </div>
                     </div>
 
                     {multiAdapterMerge && (
@@ -1974,32 +2006,6 @@ export function ExportPage() {
                           >
                             Add adapter
                           </Button>
-                          <Select
-                            value={mergeMethod}
-                            onValueChange={(value: "linear" | "ties") =>
-                              setMergeMethod(value)
-                            }
-                          >
-                            <SelectTrigger className="w-36">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="linear">Linear</SelectItem>
-                              <SelectItem value="ties">TIES</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          {mergeMethod === "ties" && (
-                            <Input
-                              type="number"
-                              min="0.01"
-                              max="1"
-                              step="0.05"
-                              aria-label="TIES density"
-                              value={mergeDensity}
-                              onChange={(event) => setMergeDensity(event.target.value)}
-                              className="w-28"
-                            />
-                          )}
                         </div>
                         {adapterMergeSelections.length < 2 && (
                           <p className="text-xs text-destructive">
