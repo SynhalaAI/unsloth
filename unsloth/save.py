@@ -7682,6 +7682,45 @@ def not_implemented_save(*args, **kwargs):
     raise NotImplementedError("Unsloth: Sorry GGUF is currently not supported for vision models!")
 
 
+def _unsloth_merge_multi_adapters(
+    self,
+    adapters,
+    weights = None,
+    method = "linear",
+    normalize_weights = True,
+    density = 0.5,
+):
+    """Merge multiple LoRA adapters into this model in-place.
+
+    Parameters
+    ----------
+    adapters : list[str]
+        Paths to PEFT adapter directories on disk.
+    weights : list[float] | None
+        Per-adapter merge weights.  Defaults to equal weighting.
+    method : ``"linear"`` | ``"ties"``
+        Merge strategy.
+    normalize_weights : bool
+        If ``True``, weights are normalised to sum to 1.
+    density : float
+        TIES density parameter (fraction of top-k params to keep).
+
+    Returns
+    -------
+    model : The model with merged ΔW applied.
+    """
+    from .multi_adapter_merge import merge_adapters_into_model
+
+    return merge_adapters_into_model(
+        self,
+        adapter_paths = adapters,
+        weights = weights,
+        method = method,
+        normalize_weights = normalize_weights,
+        density = density,
+    )
+
+
 def patch_saving_functions(model, vision = False):
     import inspect
     import types
@@ -7828,6 +7867,9 @@ def patch_saving_functions(model, vision = False):
             model.save_pretrained_ggml = types.MethodType(
                 unsloth_convert_lora_to_ggml_and_save_locally, model
             )
+            model.merge_multi_adapters = types.MethodType(
+                _unsloth_merge_multi_adapters, model
+            )
     else:
         model.push_to_hub_merged = types.MethodType(unsloth_generic_push_to_hub_merged, model)
         model.save_pretrained_merged = types.MethodType(
@@ -7836,4 +7878,7 @@ def patch_saving_functions(model, vision = False):
         model.push_to_hub_gguf = types.MethodType(unsloth_push_to_hub_gguf, model)
         model.save_pretrained_gguf = types.MethodType(unsloth_save_pretrained_gguf, model)
         model.save_pretrained_torchao = types.MethodType(unsloth_save_pretrained_torchao, model)
+        model.merge_multi_adapters = types.MethodType(
+            _unsloth_merge_multi_adapters, model
+        )
     return model

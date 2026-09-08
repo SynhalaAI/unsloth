@@ -1173,6 +1173,68 @@ class FastLanguageModel(FastLlamaModel):
         model = _mark_full_finetuning(model, False)
         return _mark_requested_float32(model, user_float32), tokenizer
 
+    @staticmethod
+    def merge_adapters(
+        model_name,
+        adapters,
+        weights = None,
+        method = "linear",
+        normalize_weights = True,
+        density = 0.5,
+        max_seq_length = 2048,
+        dtype = None,
+        load_in_4bit = False,
+        token = None,
+        trust_remote_code = False,
+        **from_pretrained_kwargs,
+    ):
+        """Load *model_name* then merge multiple LoRA adapters into it.
+
+        This is a convenience wrapper around ``from_pretrained`` +
+        ``merge_multi_adapters``.  Returns ``(model, tokenizer)`` so the
+        caller can immediately ``save_pretrained_merged``.
+
+        Parameters
+        ----------
+        model_name : str
+            Base model name or path.
+        adapters : list[str]
+            Paths to PEFT adapter directories.
+        weights : list[float] | None
+            Per-adapter merge weights (default: equal).
+        method : ``"linear"`` | ``"ties"``
+            Merge strategy.
+        normalize_weights : bool
+            Normalise weights to sum to 1.
+        density : float
+            TIES density parameter (top-k fraction).  Ignored for ``"linear"``.
+        max_seq_length, dtype, load_in_4bit, token, trust_remote_code :
+            Forwarded to ``from_pretrained``.
+        **from_pretrained_kwargs :
+            Additional kwargs for ``from_pretrained``.
+        """
+        from ..multi_adapter_merge import merge_adapters_into_model
+
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name = model_name,
+            max_seq_length = max_seq_length,
+            dtype = dtype,
+            load_in_4bit = load_in_4bit,
+            load_in_16bit = not load_in_4bit,
+            token = token,
+            trust_remote_code = trust_remote_code,
+            **from_pretrained_kwargs,
+        )
+        model = merge_adapters_into_model(
+            model,
+            adapter_paths = adapters,
+            weights = weights,
+            method = method,
+            normalize_weights = normalize_weights,
+            density = density,
+        )
+        return model, tokenizer
+
 
 from ..kernels import (
     patch_loss_functions,
