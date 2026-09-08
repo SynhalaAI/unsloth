@@ -175,6 +175,7 @@ export function ExportRunPanel(props: ExportRunPanelProps) {
       isExporting: s.isExporting,
       logLines: s.logLines,
       connected: s.connected,
+      backendActive: s.backendActive,
       reconnecting: s.reconnecting,
       stage: s.stage,
       quantIndex: s.quantIndex,
@@ -694,9 +695,11 @@ export function ExportRunPanel(props: ExportRunPanelProps) {
                       ? "reconnecting..."
                       : run.connected
                         ? "streaming"
-                        : isExporting
-                          ? "connecting..."
-                          : "idle"}
+                        : run.backendActive
+                          ? "server active"
+                          : isExporting
+                            ? "connecting..."
+                            : "idle"}
                   </span>
                 </div>
               </div>

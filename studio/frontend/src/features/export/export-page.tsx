@@ -987,8 +987,11 @@ export function ExportPage() {
     const link = document.createElement("a");
     link.href = url;
     link.download = "unsloth-multi-adapter-merge.yaml";
+    link.style.display = "none";
+    document.body.appendChild(link);
     link.click();
-    URL.revokeObjectURL(url);
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   const handleImportAdapterConfig = (event: ChangeEvent<HTMLInputElement>) => {
