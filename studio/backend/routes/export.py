@@ -41,6 +41,7 @@ from models import (
     ExportBaseModelRequest,
     ExportGGUFRequest,
     ExportLoRAAdapterRequest,
+    ExportMultiAdapterMergeRequest,
 )
 
 router = APIRouter()
@@ -481,7 +482,7 @@ async def export_gguf(
         )
 
 
-@router.post("/export/lora", response_model = ExportOperationResponse)
+@router.post(\"/export/lora\", response_model = ExportOperationResponse)
 async def export_lora_adapter(
     request: ExportLoRAAdapterRequest,
     current_subject: str = Depends(get_current_subject),
@@ -529,6 +530,60 @@ async def export_lora_adapter(
         raise HTTPException(
             status_code = 500,
             detail = "Failed to export LoRA adapter",
+        )
+
+
+@router.post("/export/multi-adapter-merge", response_model = ExportOperationResponse)
+async def export_multi_adapter_merge(
+    request: ExportMultiAdapterMergeRequest,
+    current_subject: str = Depends(get_current_subject),
+    allow_ambient: bool = Depends(allow_ambient_hf_token),
+):
+    """Merge multiple LoRA adapters and export the result.
+
+    Wraps ExportBackend.export_multi_adapter_merge.
+    """
+    try:
+        await _ensure_export_supported()
+        backend = get_export_backend()
+        success, message, output_path = await asyncio.to_thread(
+            backend.export_multi_adapter_merge,
+            adapter_paths = request.adapter_paths,
+            weights = request.weights,
+            merge_method = request.merge_method,
+            density = request.density,
+            save_directory = request.save_directory,
+            format_type = request.format_type,
+            compressed_method = request.compressed_method,
+            push_to_hub = request.push_to_hub,
+            repo_id = request.repo_id,
+            hf_token = _resolve_export_hf_token(
+                request.hf_token,
+                push_to_hub = request.push_to_hub,
+                allow_ambient = allow_ambient,
+            ),
+            private = request.private,
+        )
+
+        if not success:
+            raise HTTPException(status_code = 400, detail = message)
+
+        return ExportOperationResponse(
+            success = True,
+            message = message,
+            details = await asyncio.to_thread(_export_details, output_path, refresh_index = True),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        from utils.transformers_version import SidecarSwapInProgress
+
+        if isinstance(e, SidecarSwapInProgress):
+            raise HTTPException(status_code = 409, detail = str(e))
+        logger.error(f"Error merging multi-adapter: {e}", exc_info = True)
+        raise HTTPException(
+            status_code = 500,
+            detail = "Failed to merge multi-adapter",
         )
 
 

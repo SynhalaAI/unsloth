@@ -278,3 +278,40 @@ class ExportLoRAAdapterRequest(ExportCommonOptions):
         description = "GGUF LoRA output float type (only used when gguf=True). "
         "Q8_0 falls back to F16 per tensor for dims not divisible by the block size (32).",
     )
+
+
+class ExportMultiAdapterMergeRequest(ExportCommonOptions):
+    """Request for merging multiple LoRA adapters into a single model."""
+
+    adapter_paths: List[str] = Field(
+        ...,
+        min_length = 2,
+        description = "List of at least 2 adapter paths to merge",
+    )
+    weights: List[float] = Field(
+        ...,
+        description = "Weights for each adapter (must match adapter_paths length). Will be normalized to sum to 1.",
+    )
+    merge_method: Literal["linear", "ties"] = Field(
+        "linear",
+        description = "Merge strategy: 'linear' for weighted sum, 'ties' for TIES-Merging",
+    )
+    density: float = Field(
+        0.5,
+        ge = 0.0,
+        le = 1.0,
+        description = "For TIES method: fraction of params to keep (top-k by magnitude)",
+    )
+    format_type: Literal[
+        "16-bit (FP16)",
+        "4-bit (FP4)",
+        "FP8 (compressed-tensors)",
+        "NVFP4 (compressed-tensors)",
+    ] = Field(
+        "16-bit (FP16)",
+        description = "Export precision / format for the merged model",
+    )
+    compressed_method: Optional[str] = Field(
+        None,
+        description = "Optional quantized-export alias overriding format_type",
+    )
