@@ -3,7 +3,7 @@
 
 import type { TrainingMethod } from "@/types/training";
 
-export type ExportMethod = "merged" | "lora" | "gguf" | "multi-adapter-merge";
+export type ExportMethod = "merged" | "lora" | "gguf";
 
 export const EXPORT_METHODS: {
   value: ExportMethod;
@@ -32,14 +32,6 @@ export const EXPORT_METHODS: {
     description: "Quantized formats for local AI runners.",
     tooltip:
       "Converts to GGUF for llama.cpp, Ollama, and other local runners. Pick a quantization level below.",
-  },
-  {
-    value: "multi-adapter-merge",
-    title: "Multi-Adapter Merge",
-    description: "Merge multiple LoRA adapters into one model.",
-    tooltip:
-      "Combines multiple trained adapters using linear or TIES merging. Creates a single merged model from multiple checkpoints.",
-    badge: "New",
   },
 ];
 

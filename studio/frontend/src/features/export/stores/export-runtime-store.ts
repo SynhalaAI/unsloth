@@ -8,7 +8,6 @@ import {
   exportGGUF,
   exportLoRA,
   exportMerged,
-  exportMultiAdapterMerge,
   getExportStatus,
   isRecoverableTransportError,
   loadCheckpoint,
@@ -122,13 +121,6 @@ export interface ExportRunSummary {
   ggufShardSize?: string | null;
   /** Merged: the selected format values (for the summary "Formats" row and to reseed the picker). */
   mergedFormats: string[];
-  /** Multi-adapter merge: adapter paths, weights, and merge method (linear/ties). */
-  multiAdapterMerge?: {
-    adapterPaths: string[];
-    weights: number[];
-    mergeMethod: "linear" | "ties";
-    density?: number;
-  };
   destination: ExportDestination;
 }
 
@@ -162,14 +154,6 @@ export interface RunExportParams {
   /** LoRA: also emit a GGUF LoRA adapter (llama.cpp `--lora`), and its output float type. */
   loraGguf?: boolean;
   loraGgufOuttype?: string;
-  /** Multi-adapter merge: list of adapter paths to merge (for multi-adapter merge mode). */
-  adapterPaths?: string[];
-  /** Multi-adapter merge: weights for each adapter (must match adapterPaths length). */
-  weights?: number[];
-  /** Multi-adapter merge: merge strategy (linear or ties). */
-  mergeMethod?: "linear" | "ties";
-  /** Multi-adapter merge: density for TIES method (fraction of params to keep). */
-  density?: number;
   saveDirectory: string;
   destination: ExportDestination;
   repoId?: string;
@@ -540,26 +524,6 @@ export const useExportRuntimeStore = create<ExportRuntimeStore>()((set, get) => 
             label: params.loraGguf ? "GGUF LoRA adapter" : "LoRA adapter",
             path: outputPath,
           });
-        }
-      } else if (params.exportMethod === "multi-adapter-merge") {
-        // Multi-adapter merge: merge multiple adapters into a single model
-        const { outputPath } = await runRecoverableOp(() =>
-          exportMultiAdapterMerge({
-            adapter_paths: params.adapterPaths ?? [],
-            weights: params.weights ?? [],
-            merge_method: params.mergeMethod ?? "linear",
-            density: params.density,
-            save_directory: params.saveDirectory,
-            format_type: params.mergedSelections?.[0]?.formatType ?? "16-bit (FP16)",
-            compressed_method: params.mergedSelections?.[0]?.compressedMethod ?? null,
-            push_to_hub: pushToHub,
-            repo_id: params.repoId,
-            hf_token: params.token ?? params.loadToken ?? null,
-            private: params.privateRepo,
-          }),
-        );
-        if (outputPath) {
-          outputs.push({ label: "Merged Model", path: outputPath });
         }
       }
       if (!isCurrent()) return;
