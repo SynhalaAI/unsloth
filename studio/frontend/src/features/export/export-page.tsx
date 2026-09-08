@@ -406,6 +406,7 @@ export function ExportPage() {
   >({});
   const configFileInputRef = useRef<HTMLInputElement>(null);
   const startRequestInFlightRef = useRef(false);
+  const [startRequestInFlight, setStartRequestInFlight] = useState(false);
 
   const hardware = useHardwareInfo();
   // GGUF LoRA conversion is rejected on the macOS / MLX path, so gate it out on a Mac host.
@@ -462,7 +463,10 @@ export function ExportPage() {
   const resetExportRun = useExportRuntimeStore((s) => s.reset);
   const isExporting = useExportRuntimeStore((s) => s.isExporting);
   useEffect(() => {
-    if (!isExporting) startRequestInFlightRef.current = false;
+    if (!isExporting) {
+      startRequestInFlightRef.current = false;
+      setStartRequestInFlight(false);
+    }
   }, [isExporting]);
   const panelActive = useExportRuntimeStore(isExportPanelActive);
 
@@ -1047,24 +1051,29 @@ export function ExportPage() {
   const handleStart = useCallback(async () => {
     if (startRequestInFlightRef.current || isExporting) return;
     startRequestInFlightRef.current = true;
+    setStartRequestInFlight(true);
     const source =
       sourceMode === "checkpoint" ? checkpoint : selectedSourceModel;
     if (!source || !exportMethod) {
       startRequestInFlightRef.current = false;
+      setStartRequestInFlight(false);
       return;
     }
     // No supported accelerator (or PyTorch/MLX missing): the backend would reject anyway; don't submit.
     if (exportUnsupported) {
       startRequestInFlightRef.current = false;
+      setStartRequestInFlight(false);
       return;
     }
     // GGUF with no quant, or merged with no format, would run an empty export; require at least one.
     if (exportMethod === "gguf" && !ggufAsLora && quantLevels.length === 0) {
       startRequestInFlightRef.current = false;
+      setStartRequestInFlight(false);
       return;
     }
     if (exportMethod === "merged" && selectedFormats.length === 0) {
       startRequestInFlightRef.current = false;
+      setStartRequestInFlight(false);
       return;
     }
     if (
@@ -1081,15 +1090,18 @@ export function ExportPage() {
             Number(mergeDensity) > 1)))
     ) {
       startRequestInFlightRef.current = false;
+      setStartRequestInFlight(false);
       return;
     }
     if (!ggufShardSizeValid) {
       startRequestInFlightRef.current = false;
+      setStartRequestInFlight(false);
       return;
     }
     // A Hub merged push writes each format to the repo root; several would collide (mirrors canExport).
     if (hubMultiFormat) {
       startRequestInFlightRef.current = false;
+      setStartRequestInFlight(false);
       return;
     }
 
@@ -1099,6 +1111,7 @@ export function ExportPage() {
         : null;
     if (sourceMode === "checkpoint" && !selectedCp) {
       startRequestInFlightRef.current = false;
+      setStartRequestInFlight(false);
       return;
     }
     const checkpointPath = selectedCp?.path ?? null;
@@ -1168,6 +1181,7 @@ export function ExportPage() {
       });
       if (!remoteCodeOk) {
         startRequestInFlightRef.current = false;
+        setStartRequestInFlight(false);
         return;
       }
     }
@@ -2347,6 +2361,7 @@ export function ExportPage() {
                   ggufShardSize={ggufShardSize}
                   onGgufShardSizeChange={setGgufShardSize}
                   onStart={handleStart}
+                  startRequestInFlight={startRequestInFlight}
                   onClose={handleClosePanel}
                 />
               )}

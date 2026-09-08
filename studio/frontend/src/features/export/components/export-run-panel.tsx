@@ -135,6 +135,8 @@ export interface ExportRunPanelProps {
   onGgufShardSizeChange: (v: string) => void;
   /** Kick off the export (the page assembles params and calls the store). */
   onStart: () => void;
+  /** True while token/security preparation is still running before export starts. */
+  startRequestInFlight?: boolean;
   /** Collapse the panel; only offered before a run or after a terminal one. */
   onClose: () => void;
 }
@@ -166,6 +168,7 @@ export function ExportRunPanel(props: ExportRunPanelProps) {
     ggufShardSize,
     onGgufShardSizeChange,
     onStart,
+    startRequestInFlight = false,
     onClose,
   } = props;
 
@@ -735,8 +738,11 @@ export function ExportRunPanel(props: ExportRunPanelProps) {
             <Button variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button onClick={onStart} disabled={!shardSizeValid}>
-              Start Export
+            <Button
+              onClick={onStart}
+              disabled={!shardSizeValid || startRequestInFlight}
+            >
+              {startRequestInFlight ? "Starting..." : "Start Export"}
             </Button>
           </>
         )}
