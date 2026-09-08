@@ -232,6 +232,11 @@ export function ExportPage() {
   const [loraGgufOuttype, setLoraGgufOuttype] = useState<string>("q8_0");
   // GGUF method: export the full model as GGUF quants, or (for an adapter checkpoint) a GGUF LoRA.
   const [ggufTarget, setGgufTarget] = useState<"model" | "lora">("model");
+  // Multi-adapter merge: selected adapters and their weights
+  const [selectedAdapterPaths, setSelectedAdapterPaths] = useState<string[]>([]);
+  const [adapterWeights, setAdapterWeights] = useState<number[]>([1.0]);
+  const [mergeMethod, setMergeMethod] = useState<"linear" | "ties">("linear");
+  const [density, setDensity] = useState(0.5);
 
   const hardware = useHardwareInfo();
   // GGUF LoRA conversion is rejected on the macOS / MLX path, so gate it out on a Mac host.
@@ -666,7 +671,8 @@ export function ExportPage() {
     !hubMultiFormat &&
     ggufShardSizeValid &&
     (exportMethod !== "gguf" || ggufAsLora || quantLevels.length > 0) &&
-    (exportMethod !== "merged" || selectedFormats.length > 0)
+    (exportMethod !== "merged" || selectedFormats.length > 0) &&
+    (exportMethod !== "multi-adapter-merge" || (selectedAdapterPaths && selectedAdapterPaths.length >= 2))
   );
 
   const applyHfSourceModel = useCallback((value: string) => {

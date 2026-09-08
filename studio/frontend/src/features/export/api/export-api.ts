@@ -198,6 +198,27 @@ export async function exportLoRA(params: {
   return parseJson<ExportOperationResponse>(response);
 }
 
+export async function exportMultiAdapterMerge(params: {
+  adapter_paths: string[];
+  weights: number[];
+  merge_method: "linear" | "ties";
+  density?: number;
+  save_directory: string;
+  format_type?: string;
+  compressed_method?: string | null;
+  push_to_hub?: boolean;
+  repo_id?: string | null;
+  hf_token?: string | null;
+  private?: boolean;
+}): Promise<ExportOperationResponse> {
+  const response = await authFetch("/api/export/export/multi-adapter-merge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  return parseJson<ExportOperationResponse>(response);
+}
+
 export async function cleanupExport(): Promise<ExportOperationResponse> {
   const response = await authFetch("/api/export/cleanup", { method: "POST" });
   return parseJson<ExportOperationResponse>(response);
