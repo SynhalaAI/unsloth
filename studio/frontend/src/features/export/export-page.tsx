@@ -1659,7 +1659,7 @@ export function ExportPage() {
                         {adapterMergeSelections.map((selection, index) => (
                           <div
                             key={`${selection.path}-${index}`}
-                            className="flex flex-col gap-2 sm:flex-row sm:items-center"
+                            className="grid grid-cols-1 gap-2 sm:grid-cols-[7rem_minmax(0,1fr)_6rem_auto] sm:items-center"
                           >
                             <Select
                               value={selection.source}
@@ -1673,7 +1673,7 @@ export function ExportPage() {
                                 )
                               }
                             >
-                              <SelectTrigger className="w-full sm:w-28">
+                              <SelectTrigger className="w-full">
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
@@ -1698,7 +1698,7 @@ export function ExportPage() {
                                   ),
                                 )
                               }
-                              className="min-w-0 flex-1"
+                              className="w-full"
                             />
                             <Input
                               type="number"
@@ -1716,7 +1716,7 @@ export function ExportPage() {
                                   ),
                                 )
                               }
-                              className="w-full sm:w-24"
+                              className="w-full"
                             />
                             <Button
                               type="button"
