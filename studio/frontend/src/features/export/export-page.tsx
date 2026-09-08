@@ -117,6 +117,117 @@ type AdapterMergeSelection = {
   checkpoint: string;
 };
 
+type AdapterSourcePickerProps = {
+  source: "local" | "hf";
+  value: string;
+  index: number;
+  hfResultIds: string[];
+  localResultIds: string[];
+  localMetaById: Map<string, LocalModelInfo>;
+  onChange: (value: string) => void;
+};
+
+function AdapterSourcePicker({
+  source,
+  value,
+  index,
+  hfResultIds,
+  localResultIds,
+  localMetaById,
+  onChange,
+}: AdapterSourcePickerProps) {
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef(value);
+  const [inputValue, setInputValue] = useState(value);
+  const items = source === "hf" ? hfResultIds : localResultIds;
+  const filteredItems =
+    source === "hf"
+      ? hfResultIds
+      : localResultIds.filter((id) => {
+          const query = inputValue.trim().toLowerCase();
+          if (!query) return true;
+          const meta = localMetaById.get(id);
+          return (
+            id.toLowerCase().includes(query) ||
+            meta?.display_name.toLowerCase().includes(query) ||
+            meta?.path.toLowerCase().includes(query)
+          );
+        });
+
+  useEffect(() => {
+    inputRef.current = value;
+    setInputValue(value);
+  }, [value]);
+
+  const applyValue = (next: string) => {
+    inputRef.current = next;
+    setInputValue(next);
+    onChange(next);
+  };
+
+  return (
+    <div ref={anchorRef} className="min-w-0">
+      <Combobox
+        items={items}
+        filteredItems={filteredItems}
+        filter={null}
+        value={inputValue || null}
+        onValueChange={(next) => applyValue(next ?? "")}
+        onInputValueChange={(next) => {
+          inputRef.current = next;
+          setInputValue(next);
+          onChange(next);
+        }}
+        itemToStringValue={(id) => id}
+        autoHighlight={true}
+      >
+        <ComboboxInput
+          placeholder={source === "hf" ? "Search models..." : "./models/my-model"}
+          aria-label={`${source === "hf" ? "Hugging Face" : "Local"} adapter ${index + 1}`}
+          className="w-full"
+          onBlur={() => applyValue(inputRef.current)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            applyValue(inputRef.current);
+          }}
+        >
+          <InputGroupAddon>
+            <HugeiconsIcon
+              icon={source === "hf" ? Search01Icon : FolderSearchIcon}
+              className="size-4"
+            />
+          </InputGroupAddon>
+        </ComboboxInput>
+        <ComboboxContent anchor={anchorRef}>
+          {items.length === 0 ? (
+            <ComboboxEmpty>
+              {source === "hf" ? "No models found" : "No local models found"}
+            </ComboboxEmpty>
+          ) : null}
+          <ComboboxList>
+            {(id: string) => {
+              const meta = localMetaById.get(id);
+              return (
+                <ComboboxItem key={id} value={id} className="gap-2">
+                  <span className="block min-w-0 flex-1 truncate">
+                    {source === "local" ? (meta?.display_name ?? id) : id}
+                  </span>
+                  {source === "local" && meta && (
+                    <span className="ml-auto shrink-0 text-ui-10 text-muted-foreground">
+                      {meta.path}
+                    </span>
+                  )}
+                </ComboboxItem>
+              );
+            }}
+          </ComboboxList>
+        </ComboboxContent>
+      </Combobox>
+    </div>
+  );
+}
+
 function safePathSegment(
   value: string | null | undefined,
   fallback = "model",
@@ -610,7 +721,7 @@ export function ExportPage() {
   }, [localModelInput]);
 
   useEffect(() => {
-    const repos = [
+    const repos: string[] = [
       ...new Set(
         adapterMergeSelections
           .filter((item) => item.path.trim())
@@ -1736,34 +1847,23 @@ export function ExportPage() {
                                 <SelectItem value="hf">Hugging Face</SelectItem>
                               </SelectContent>
                             </Select>
-                            <Input
-                              list={`adapter-source-${selection.source}-${index}`}
-                              placeholder={
-                                selection.source === "hf"
-                                  ? "org/adapter-repo"
-                                  : "./path/to/adapter"
-                              }
-                              aria-label={`Adapter ${index + 1} path`}
+                            <AdapterSourcePicker
+                              source={selection.source}
                               value={selection.path}
-                              onChange={(event) =>
+                              index={index}
+                              hfResultIds={hfResultIds}
+                              localResultIds={localResultIds}
+                              localMetaById={localMetaById}
+                              onChange={(path) =>
                                 setAdapterMergeSelections((current) =>
                                   current.map((item, itemIndex) =>
                                     itemIndex === index
-                                      ? { ...item, path: event.target.value }
+                                      ? { ...item, path, checkpoint: "" }
                                       : item,
                                   ),
                                 )
                               }
-                              className="w-full"
                             />
-                            <datalist id={`adapter-source-${selection.source}-${index}`}>
-                              {(selection.source === "hf"
-                                ? hfResultIds
-                                : localResultIds
-                              ).map((value) => (
-                                <option key={value} value={value} />
-                              ))}
-                            </datalist>
                             {selection.path.trim() ? (
                               <Select
                                 value={selection.checkpoint}
