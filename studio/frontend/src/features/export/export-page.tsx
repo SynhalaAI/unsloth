@@ -121,7 +121,7 @@ type AdapterSourcePickerProps = {
   source: "local" | "hf";
   value: string;
   index: number;
-  hfResultIds: string[];
+  hfToken: string;
   localResultIds: string[];
   localMetaById: Map<string, LocalModelInfo>;
   onChange: (value: string) => void;
@@ -131,7 +131,7 @@ function AdapterSourcePicker({
   source,
   value,
   index,
-  hfResultIds,
+  hfToken,
   localResultIds,
   localMetaById,
   onChange,
@@ -139,10 +139,21 @@ function AdapterSourcePicker({
   const anchorRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef(value);
   const [inputValue, setInputValue] = useState(value);
-  const items = source === "hf" ? hfResultIds : localResultIds;
+  const debouncedQuery = useDebouncedValue(inputValue);
+  const { results: adapterHfResults, isLoading: isLoadingAdapterHf } =
+    useHubModelSearch(debouncedQuery, {
+      accessToken: hfApiToken(hfToken),
+      excludeGguf: true,
+      ownerScope: debouncedQuery.trim() ? "all" : "unsloth",
+    });
+  const adapterHfResultIds = adapterHfResults.map((result) => result.id);
+  if (source === "hf" && value && !adapterHfResultIds.includes(value)) {
+    adapterHfResultIds.push(value);
+  }
+  const items = source === "hf" ? adapterHfResultIds : localResultIds;
   const filteredItems =
     source === "hf"
-      ? hfResultIds
+      ? adapterHfResultIds
       : localResultIds.filter((id) => {
           const query = inputValue.trim().toLowerCase();
           if (!query) return true;
@@ -200,7 +211,11 @@ function AdapterSourcePicker({
           </InputGroupAddon>
         </ComboboxInput>
         <ComboboxContent anchor={anchorRef}>
-          {items.length === 0 ? (
+          {isLoadingAdapterHf && source === "hf" ? (
+            <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
+              <Spinner className="size-4" /> Searching...
+            </div>
+          ) : items.length === 0 ? (
             <ComboboxEmpty>
               {source === "hf" ? "No models found" : "No local models found"}
             </ComboboxEmpty>
@@ -721,13 +736,13 @@ export function ExportPage() {
   }, [localModelInput]);
 
   useEffect(() => {
-    const repos: string[] = [
-      ...new Set(
+    const repos = Array.from(
+      new Set(
         adapterMergeSelections
-          .filter((item) => item.path.trim())
+          .filter((item): item is AdapterMergeSelection => Boolean(item.path.trim()))
           .map((item) => item.path.trim()),
       ),
-    ];
+    );
     for (const path of repos) {
       const source = adapterMergeSelections.find((item) => item.path.trim() === path)?.source;
       const cacheKey = `${source}:${path}`;
@@ -1851,7 +1866,7 @@ export function ExportPage() {
                               source={selection.source}
                               value={selection.path}
                               index={index}
-                              hfResultIds={hfResultIds}
+                              hfToken={hfToken}
                               localResultIds={localResultIds}
                               localMetaById={localMetaById}
                               onChange={(path) =>
