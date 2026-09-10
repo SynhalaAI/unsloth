@@ -173,6 +173,70 @@ def _load_adapter_state_dict(adapter_path: str) -> Dict[str, torch.Tensor]:
 # Delta reconstruction  ΔW = (α / r) × (B × A)
 # ---------------------------------------------------------------------------
 
+def _normalize_module_key(base_key: str) -> str:
+    """Normalise a PEFT lora module key to the base model parameter name.
+
+    PEFT stores keys as ``base_model.model.{module_path}``; strip the prefix
+    and append ``.weight`` so the result matches ``named_parameters()``.
+    """
+    module_key = base_key
+    for prefix in ("base_model.model.", "base_model."):
+        if module_key.startswith(prefix):
+            module_key = module_key[len(prefix):]
+            break
+    # Append .weight to match the base model state dict.
+    if not module_key.endswith(".weight"):
+        module_key += ".weight"
+    return module_key
+
+
+def _delta_for_module(A: torch.Tensor, B: torch.Tensor, scaling: float) -> torch.Tensor:
+    """Reconstruct one module's full-rank delta: ΔW = scaling × (B @ A).
+
+    Computed on CPU in float32 to support heterogeneous ranks and preserve
+    precision. Returns a tensor of shape (out_features, in_features).
+    """
+    return scaling * B.to(torch.float32).mm(A.to(torch.float32))
+
+
+def _adapter_scaling(adapter_config: dict) -> float:
+    """The α / r scaling factor recorded in a PEFT adapter config."""
+    r = adapter_config.get("r", adapter_config.get("rank", 16))
+    alpha = adapter_config.get("lora_alpha", r)
+    return alpha / r
+
+
+def _group_lora_factors(
+    state_dict: Dict[str, torch.Tensor],
+) -> Dict[str, Tuple[torch.Tensor, torch.Tensor]]:
+    """Group a LoRA state dict's A/B factors by base model parameter name.
+
+    The returned mapping holds REFERENCES to the state dict's tensors, so the
+    caller can drop the dict wrapper without copying the (small) low-rank
+    weights. Orphan A matrices without a B are skipped, matching
+    ``_reconstruct_deltas``.
+    """
+    # Group A and B matrices by their module key.
+    # PEFT keys look like: base_model.model.{path}.lora_A.weight
+    a_matrices: Dict[str, torch.Tensor] = {}
+    b_matrices: Dict[str, torch.Tensor] = {}
+
+    for key, tensor in state_dict.items():
+        if "lora_A" in key:
+            # Derive the base key: strip .lora_A.{adapter_name}.weight or .lora_A.weight
+            a_matrices[key.split(".lora_A")[0]] = tensor
+        elif "lora_B" in key:
+            b_matrices[key.split(".lora_B")[0]] = tensor
+
+    grouped: Dict[str, Tuple[torch.Tensor, torch.Tensor]] = {}
+    for base_key, A in a_matrices.items():
+        B = b_matrices.get(base_key)
+        if B is None:
+            continue  # orphan A without B — skip
+        grouped[_normalize_module_key(base_key)] = (A, B)
+    return grouped
+
+
 def _reconstruct_deltas(
     state_dict: Dict[str, torch.Tensor],
     adapter_config: dict,
@@ -184,44 +248,11 @@ def _reconstruct_deltas(
     Computation is done layer-by-layer on CPU in float32 to support
     heterogeneous ranks and preserve precision.
     """
-    r = adapter_config.get("r", adapter_config.get("rank", 16))
-    alpha = adapter_config.get("lora_alpha", r)
-    scaling = alpha / r
-
-    # Group A and B matrices by their module key.
-    # PEFT keys look like: base_model.model.{path}.lora_A.weight
-    a_matrices: Dict[str, torch.Tensor] = {}
-    b_matrices: Dict[str, torch.Tensor] = {}
-
-    for key, tensor in state_dict.items():
-        if "lora_A" in key:
-            # Derive the base key: strip .lora_A.{adapter_name}.weight or .lora_A.weight
-            base_key = key.split(".lora_A")[0]
-            a_matrices[base_key] = tensor
-        elif "lora_B" in key:
-            base_key = key.split(".lora_B")[0]
-            b_matrices[base_key] = tensor
-
+    scaling = _adapter_scaling(adapter_config)
     deltas: Dict[str, torch.Tensor] = {}
-    for base_key in a_matrices:
-        A = a_matrices[base_key]  # shape (r, in_features)
-        B = b_matrices.get(base_key)
-        if B is None:
-            continue  # orphan A without B — skip
+    for module_key, (A, B) in _group_lora_factors(state_dict).items():
         # ΔW = scaling × (B @ A)  →  shape (out_features, in_features)
-        delta = scaling * B.to(torch.float32).mm(A.to(torch.float32))
-        # Normalise the key to the base model namespace.
-        # PEFT stores keys as base_model.model.{module_path}; strip prefix.
-        module_key = base_key
-        for prefix in ("base_model.model.", "base_model."):
-            if module_key.startswith(prefix):
-                module_key = module_key[len(prefix):]
-                break
-        # Append .weight to match the base model state dict.
-        if not module_key.endswith(".weight"):
-            module_key += ".weight"
-        deltas[module_key] = delta
-        del delta  # free intermediate immediately
+        deltas[module_key] = _delta_for_module(A, B, scaling)
     return deltas
 
 
@@ -254,20 +285,70 @@ def _linear_merge(
     return merged
 
 
-def _ties_merge(
-    all_deltas: List[Dict[str, torch.Tensor]],
-    weights: List[float],
+def _ties_merge_key(
+    per_adapter_deltas: List[torch.Tensor],
+    per_adapter_weights: List[float],
     density: float = 0.5,
-) -> Dict[str, torch.Tensor]:
-    """Merge adapter deltas via TIES-Merging.
+) -> torch.Tensor:
+    """TIES-merge ONE module's deltas (the per-key math of ``_ties_merge``).
 
-    Steps per parameter tensor:
+    Steps:
       1. **Trim**: zero out the bottom (1 − density) of each adapter's delta
          by magnitude (top-k thresholding).
       2. **Elect sign**: per element, majority-vote across adapters to pick the
          dominant sign.
       3. **Disjoint merge**: for each element, average only the adapters whose
          (trimmed) delta agrees with the elected sign.
+    """
+    if len(per_adapter_deltas) == 1:
+        # Single adapter: skip TIES overhead; just scale.
+        return per_adapter_deltas[0] * per_adapter_weights[0]
+
+    shape = per_adapter_deltas[0].shape
+
+    # Step 1: Trim — top-k by magnitude per adapter.
+    trimmed = []
+    for delta in per_adapter_deltas:
+        flat = delta.view(-1)
+        k = max(1, int(density * flat.numel()))
+        threshold = flat.abs().topk(k).values[-1]
+        mask = flat.abs() >= threshold
+        trimmed.append((flat * mask.float()).view(delta.shape))
+
+    # Step 2: Elect sign — majority vote (weighted).
+    # +1 for positive, −1 for negative, 0 for zero.
+    sign_votes = torch.zeros(shape, dtype=torch.float32)
+    for t, w in zip(trimmed, per_adapter_weights):
+        sign_votes += w * t.sign()
+    elected_sign = sign_votes.sign()
+    # Where elected sign is 0 (perfect tie), default to positive.
+    elected_sign[elected_sign == 0] = 1.0
+
+    # Step 3: Disjoint merge — average only aligned contributions.
+    acc = torch.zeros(shape, dtype=torch.float32)
+    count = torch.zeros(shape, dtype=torch.float32)
+    for t, w in zip(trimmed, per_adapter_weights):
+        aligned = (t.sign() == elected_sign) & (t != 0)
+        acc += (t * w) * aligned.float()
+        count += aligned.float()
+
+    count = count.clamp(min=1.0)
+    merged = acc / count
+    # Cleanup
+    del trimmed, sign_votes, elected_sign, acc, count
+    return merged
+
+
+def _ties_merge(
+    all_deltas: List[Dict[str, torch.Tensor]],
+    weights: List[float],
+    density: float = 0.5,
+) -> Dict[str, torch.Tensor]:
+    """Merge adapter deltas via TIES-Merging, key by key.
+
+    The per-module math lives in ``_ties_merge_key`` so the streaming path in
+    ``merge_adapters_into_model`` can reuse it without materialising every
+    adapter's full-rank deltas at once.
     """
     merged: Dict[str, torch.Tensor] = {}
     all_keys: set = set()
@@ -278,54 +359,16 @@ def _ties_merge(
         # Collect deltas for this key, treating absent adapters as zero.
         per_adapter_deltas = []
         per_adapter_weights = []
-        shape = None
         for delta_dict, w in zip(all_deltas, weights):
             if key in delta_dict:
                 per_adapter_deltas.append(delta_dict[key])
                 per_adapter_weights.append(w)
-                shape = delta_dict[key].shape
             # absent adapter → skip (treated as zero in the disjoint average)
 
         if not per_adapter_deltas:
             continue
 
-        if len(per_adapter_deltas) == 1:
-            # Single adapter: skip TIES overhead; just scale.
-            merged[key] = per_adapter_deltas[0] * per_adapter_weights[0]
-            continue
-
-        n = len(per_adapter_deltas)
-
-        # Step 1: Trim — top-k by magnitude per adapter.
-        trimmed = []
-        for delta in per_adapter_deltas:
-            flat = delta.view(-1)
-            k = max(1, int(density * flat.numel()))
-            threshold = flat.abs().topk(k).values[-1]
-            mask = flat.abs() >= threshold
-            trimmed.append((flat * mask.float()).view(delta.shape))
-
-        # Step 2: Elect sign — majority vote (weighted).
-        # +1 for positive, −1 for negative, 0 for zero.
-        sign_votes = torch.zeros(shape, dtype=torch.float32)
-        for t, w in zip(trimmed, per_adapter_weights):
-            sign_votes += w * t.sign()
-        elected_sign = sign_votes.sign()
-        # Where elected sign is 0 (perfect tie), default to positive.
-        elected_sign[elected_sign == 0] = 1.0
-
-        # Step 3: Disjoint merge — average only aligned contributions.
-        acc = torch.zeros(shape, dtype=torch.float32)
-        count = torch.zeros(shape, dtype=torch.float32)
-        for t, w in zip(trimmed, per_adapter_weights):
-            aligned = (t.sign() == elected_sign) & (t != 0)
-            acc += (t * w) * aligned.float()
-            count += aligned.float()
-
-        count = count.clamp(min=1.0)
-        merged[key] = acc / count
-        # Cleanup
-        del trimmed, sign_votes, elected_sign, acc, count
+        merged[key] = _ties_merge_key(per_adapter_deltas, per_adapter_weights, density)
 
     return merged
 
@@ -492,31 +535,57 @@ def merge_adapters_into_model(
             del deltas
             gc.collect()
     else:
-        # TIES needs all adapter tensors for sign election and disjoint merging.
-        all_deltas: List[Dict[str, torch.Tensor]] = []
+        # TIES needs every adapter's deltas for a module only WHILE that module
+        # is merged, so stream: keep the small low-rank A/B factors resident
+        # and reconstruct, merge, and apply one module's deltas per iteration.
+        # Peak extra memory is O(one weight matrix × number of adapters)
+        # instead of O(every weight × adapters).
+        adapter_factors: List[Dict[str, Tuple[torch.Tensor, torch.Tensor]]] = []
+        scalings: List[float] = []
         for path, cfg in zip(config.adapter_paths, adapter_configs):
             print(f"  Loading adapter: {path}")
             state_dict = _load_adapter_state_dict(path)
-            all_deltas.append(_reconstruct_deltas(state_dict, cfg))
-            del state_dict
+            adapter_factors.append(_group_lora_factors(state_dict))
+            del state_dict  # the factors keep references to the tensors
+            scalings.append(_adapter_scaling(cfg))
             gc.collect()
-        merged_deltas = _ties_merge(all_deltas, config.weights, config.density)
-        del all_deltas
+
         model_params = dict(base_model.named_parameters())
+        # Sorted for a deterministic merge order.
+        module_keys = sorted({key for factors in adapter_factors for key in factors})
         applied = 0
         skipped = 0
-        for key, delta in merged_deltas.items():
-            param = model_params.get(key)
+        for module_key in module_keys:
+            per_adapter_deltas = []
+            per_adapter_weights = []
+            for factors, scaling, weight in zip(
+                adapter_factors, scalings, config.weights
+            ):
+                pair = factors.get(module_key)
+                if pair is None:
+                    continue  # this adapter didn't touch this module
+                A, B = pair
+                per_adapter_deltas.append(_delta_for_module(A, B, scaling))
+                per_adapter_weights.append(weight)
+            if not per_adapter_deltas:
+                continue
+            delta = _ties_merge_key(
+                per_adapter_deltas, per_adapter_weights, config.density
+            )
+            del per_adapter_deltas
+            param = model_params.get(module_key)
             if param is None:
                 skipped += 1
                 continue
+            # Update in place; do not materialize a second full model state dict.
             param.data.add_(delta.to(device=param.device, dtype=param.dtype))
             applied += 1
+            del delta
         report(
-            f"Merge TIES: merged_modules={len(merged_deltas)}, "
+            f"Merge TIES: merged_modules={len(module_keys)}, "
             f"density={config.density:.4f}"
         )
-        del merged_deltas
+        del adapter_factors
         gc.collect()
 
     report(

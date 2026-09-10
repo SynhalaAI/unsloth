@@ -33,6 +33,7 @@ from unsloth.multi_adapter_merge import (
     _load_adapter_state_dict,
     _reconstruct_deltas,
     _ties_merge,
+    _ties_merge_key,
     _validate_adapters,
     merge_adapters_into_model,
 )
@@ -342,6 +343,30 @@ class TestTIESMerge:
             assert torch.allclose(merged[key], expected, atol=1e-6)
 
 
+class TestTIESMergeKey:
+    """The per-key helper must reproduce the dict-level TIES math exactly."""
+
+    def _two_deltas(self, tmp_path, seed1=1, seed2=2):
+        p1 = _make_adapter_dir(str(tmp_path), "a1", out_features=16, in_features=16, seed=seed1)
+        p2 = _make_adapter_dir(str(tmp_path), "a2", out_features=16, in_features=16, seed=seed2)
+        d1 = _reconstruct_deltas(_load_adapter_state_dict(p1), _load_adapter_config(p1))
+        d2 = _reconstruct_deltas(_load_adapter_state_dict(p2), _load_adapter_config(p2))
+        return d1, d2
+
+    def test_helper_matches_dict_level_merge(self, tmp_path):
+        d1, d2 = self._two_deltas(tmp_path)
+        batch = _ties_merge([d1, d2], [0.5, 0.5], density=0.5)
+        for key in batch:
+            per_key = _ties_merge_key([d1[key], d2[key]], [0.5, 0.5], density=0.5)
+            assert torch.allclose(batch[key], per_key, atol=1e-6)
+
+    def test_helper_single_adapter_scales(self, tmp_path):
+        d1, _ = self._two_deltas(tmp_path)
+        key = next(iter(d1))
+        per_key = _ties_merge_key([d1[key]], [0.7], density=0.5)
+        assert torch.allclose(per_key, d1[key] * 0.7, atol=1e-6)
+
+
 # ---------------------------------------------------------------------------
 # Validation tests
 # ---------------------------------------------------------------------------
@@ -442,3 +467,64 @@ class TestEndToEnd:
         for name, param in result.named_parameters():
             if "q_proj" in name or "v_proj" in name:
                 assert torch.isfinite(param).all()
+
+    def test_streaming_ties_equals_batch_ties(self, tmp_path):
+        """The streaming TIES path must land exactly where the batch
+        (dict-level) TIES math lands: zero a model, apply both, compare."""
+        in_f = out_f = 16
+        p1 = _make_adapter_dir(
+            str(tmp_path), "a1", out_features=out_f, in_features=in_f, seed=5
+        )
+        p2 = _make_adapter_dir(
+            str(tmp_path), "a2", out_features=out_f, in_features=in_f, seed=6
+        )
+
+        d1 = _reconstruct_deltas(_load_adapter_state_dict(p1), _load_adapter_config(p1))
+        d2 = _reconstruct_deltas(_load_adapter_state_dict(p2), _load_adapter_config(p2))
+        expected = _ties_merge([d1, d2], [0.6, 0.4], density=0.5)
+
+        model = self._make_simple_model(in_f, out_f)
+        result = merge_adapters_into_model(
+            model,
+            adapter_paths=[p1, p2],
+            weights=[0.6, 0.4],
+            method="ties",
+            density=0.5,
+        )
+
+        model_params = dict(result.named_parameters())
+        for key, expected_delta in expected.items():
+            # After merging into zeroed weights, the param IS the merged delta.
+            assert torch.allclose(
+                model_params[key], expected_delta, atol=1e-5
+            ), f"streaming TIES diverged on {key}"
+
+    def test_streaming_ties_handles_absent_module(self, tmp_path):
+        """An adapter whose targets the model lacks must not crash the stream:
+        its deltas count as skipped, others still apply."""
+        in_f = out_f = 16
+        p1 = _make_adapter_dir(
+            str(tmp_path), "a1",
+            target_modules=("q_proj", "v_proj"), out_features=out_f, in_features=in_f, seed=7,
+        )
+        p2 = _make_adapter_dir(
+            str(tmp_path), "a2",
+            target_modules=("gate_proj",), out_features=out_f, in_features=in_f, seed=8,
+        )
+
+        model = self._make_simple_model(in_f, out_f)
+        result = merge_adapters_into_model(
+            model,
+            adapter_paths=[p1, p2],
+            weights=[0.5, 0.5],
+            method="ties",
+            density=0.5,
+        )
+
+        params = dict(result.named_parameters())
+        for name, param in params.items():
+            if "q_proj" in name or "v_proj" in name:
+                # p1's modules must be trained in (non-zero on zeroed weights).
+                assert not torch.allclose(param, torch.zeros_like(param))
+            if "gate_proj" in name:
+                assert torch.allclose(param, torch.zeros_like(param))
