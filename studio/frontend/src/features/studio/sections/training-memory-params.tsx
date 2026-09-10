@@ -107,6 +107,31 @@ function TrainOnCompletionsOption({
       >
         {t("studio.params.assistantCompletionsOnly")}
       </label>
+      <Tooltip>
+        <TooltipTrigger asChild={true}>
+          <button
+            type="button"
+            className="text-foreground/70 hover:text-foreground"
+          >
+            <HugeiconsIcon icon={InformationCircleIcon} className="size-3" />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent>
+          {disabled ? (
+            <>
+              <div>
+                Only train on assistant responses, masking out prompt and user
+                turns from loss calculation.
+              </div>
+              <div className="mt-1 text-xs opacity-80">
+                {t("studio.dataset.streaming.completionsUnavailable")}
+              </div>
+            </>
+          ) : (
+            "Only train on assistant responses, masking out prompt and user turns from loss calculation."
+          )}
+        </TooltipContent>
+      </Tooltip>
     </div>
   );
 }
