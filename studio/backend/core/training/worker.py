@@ -4436,6 +4436,7 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
             optim = config.get("optim", "adamw_8bit"),
             lr_scheduler_type = config.get("lr_scheduler_type", "linear"),
             is_cpt = is_cpt,
+            is_ocr_training = config.get("is_ocr_training", False),
             resume_from_checkpoint = resume_from_checkpoint,
         )
 
@@ -4630,6 +4631,8 @@ def _create_trainer_progress_callback(event_queue: Any) -> Callable[[TrainingPro
             progress.num_tokens,
             progress.epoch,
             progress.eval_loss,
+            progress.cer,
+            progress.wer,
         )
         is_repeat = metrics == last_metrics[0]
         if (
@@ -4652,6 +4655,8 @@ def _create_trainer_progress_callback(event_queue: Any) -> Callable[[TrainingPro
                     "grad_norm": progress.grad_norm,
                     "num_tokens": progress.num_tokens,
                     "eval_loss": progress.eval_loss,
+                    "cer": progress.cer,
+                    "wer": progress.wer,
                     "status_message": progress.status_message,
                     "ts": time.time(),
                 }

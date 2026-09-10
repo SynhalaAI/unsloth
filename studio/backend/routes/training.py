@@ -1979,6 +1979,10 @@ def _build_training_status(
             "grad_norm_steps": list(getattr(backend, "grad_norm_step_history", [])),
             "eval_loss": list(backend.eval_loss_history),
             "eval_steps": list(backend.eval_step_history),
+            "cer": list(getattr(backend, "cer_history", [])),
+            "cer_steps": list(getattr(backend, "cer_step_history", [])),
+            "wer": list(getattr(backend, "wer_history", [])),
+            "wer_steps": list(getattr(backend, "wer_step_history", [])),
         }
 
     return TrainingStatus(
@@ -2050,6 +2054,10 @@ async def get_training_metrics(
         step_history = list(backend.step_history)
         grad_norm_history = list(getattr(backend, "grad_norm_history", []))
         grad_norm_step_history = list(getattr(backend, "grad_norm_step_history", []))
+        cer_history = list(getattr(backend, "cer_history", []))
+        cer_step_history = list(getattr(backend, "cer_step_history", []))
+        wer_history = list(getattr(backend, "wer_history", []))
+        wer_step_history = list(getattr(backend, "wer_step_history", []))
 
         if (
             getattr(backend, "_new_job_spawn_id", None) is not None
@@ -2068,6 +2076,10 @@ async def get_training_metrics(
             step_history = step_history,
             grad_norm_history = grad_norm_history,
             grad_norm_step_history = grad_norm_step_history,
+            cer_history = cer_history,
+            cer_step_history = cer_step_history,
+            wer_history = wer_history,
+            wer_step_history = wer_step_history,
             current_loss = current_loss,
             current_lr = current_lr,
             current_step = current_step,
@@ -2153,6 +2165,8 @@ async def stream_training_progress(
             eval_loss = eval_loss_override
             if eval_loss is None and progress:
                 eval_loss = getattr(progress, "eval_loss", None)
+            cer = getattr(progress, "cer", None) if progress else None
+            wer = getattr(progress, "wer", None) if progress else None
 
             return TrainingProgress(
                 job_id = job_id,
@@ -2167,6 +2181,8 @@ async def stream_training_progress(
                 grad_norm = grad_norm,
                 num_tokens = num_tokens,
                 eval_loss = eval_loss,
+                cer = cer,
+                wer = wer,
             )
 
         def format_sse(

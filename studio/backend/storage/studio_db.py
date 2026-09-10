@@ -354,6 +354,8 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             learning_rate REAL,
             grad_norm REAL,
             eval_loss REAL,
+            cer REAL,
+            wer REAL,
             epoch REAL,
             num_tokens INTEGER,
             elapsed_seconds REAL,
@@ -361,6 +363,12 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    # Nullable CER/WER for OCR runs; older databases gain the columns in place.
+    metrics_cols = {row[1] for row in conn.execute("PRAGMA table_info(training_metrics)").fetchall()}
+    if "cer" not in metrics_cols:
+        conn.execute("ALTER TABLE training_metrics ADD COLUMN cer REAL")
+    if "wer" not in metrics_cols:
+        conn.execute("ALTER TABLE training_metrics ADD COLUMN wer REAL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_run_id ON training_metrics(run_id)")
     conn.execute(
         """
@@ -1456,13 +1464,15 @@ def insert_metrics_batch(run_id: str, metrics: list[dict]) -> None:
         conn.executemany(
             """
             INSERT INTO training_metrics
-                (run_id, step, loss, learning_rate, grad_norm, eval_loss, epoch, num_tokens, elapsed_seconds)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (run_id, step, loss, learning_rate, grad_norm, eval_loss, cer, wer, epoch, num_tokens, elapsed_seconds)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(run_id, step) DO UPDATE SET
                 loss = COALESCE(excluded.loss, loss),
                 learning_rate = COALESCE(excluded.learning_rate, learning_rate),
                 grad_norm = COALESCE(excluded.grad_norm, grad_norm),
                 eval_loss = COALESCE(excluded.eval_loss, eval_loss),
+                cer = COALESCE(excluded.cer, cer),
+                wer = COALESCE(excluded.wer, wer),
                 epoch = COALESCE(excluded.epoch, epoch),
                 num_tokens = COALESCE(excluded.num_tokens, num_tokens),
                 elapsed_seconds = COALESCE(excluded.elapsed_seconds, elapsed_seconds)
@@ -1475,6 +1485,8 @@ def insert_metrics_batch(run_id: str, metrics: list[dict]) -> None:
                     m.get("learning_rate"),
                     m.get("grad_norm"),
                     m.get("eval_loss"),
+                    m.get("cer"),
+                    m.get("wer"),
                     m.get("epoch"),
                     m.get("num_tokens"),
                     m.get("elapsed_seconds"),
@@ -1676,7 +1688,7 @@ def get_run_metrics(id: str) -> dict:
     try:
         rows = conn.execute(
             """
-            SELECT step, loss, learning_rate, grad_norm, eval_loss, epoch,
+            SELECT step, loss, learning_rate, grad_norm, eval_loss, cer, wer, epoch,
                    num_tokens, elapsed_seconds
             FROM training_metrics
             WHERE run_id = ?
@@ -1694,6 +1706,10 @@ def get_run_metrics(id: str) -> dict:
         grad_norm_step_history: list[int] = []
         eval_loss_history: list[float] = []
         eval_step_history: list[int] = []
+        cer_history: list[float] = []
+        cer_step_history: list[int] = []
+        wer_history: list[float] = []
+        wer_step_history: list[int] = []
         final_epoch: float | None = None
         final_num_tokens: int | None = None
 
@@ -1712,6 +1728,12 @@ def get_run_metrics(id: str) -> dict:
             if step > 0 and row["eval_loss"] is not None:
                 eval_loss_history.append(row["eval_loss"])
                 eval_step_history.append(step)
+            if step > 0 and row["cer"] is not None:
+                cer_history.append(row["cer"])
+                cer_step_history.append(step)
+            if step > 0 and row["wer"] is not None:
+                wer_history.append(row["wer"])
+                wer_step_history.append(step)
             if row["epoch"] is not None:
                 final_epoch = row["epoch"]
             if row["num_tokens"] is not None:
@@ -1727,6 +1749,10 @@ def get_run_metrics(id: str) -> dict:
             "grad_norm_step_history": grad_norm_step_history,
             "eval_loss_history": eval_loss_history,
             "eval_step_history": eval_step_history,
+            "cer_history": cer_history,
+            "cer_step_history": cer_step_history,
+            "wer_history": wer_history,
+            "wer_step_history": wer_step_history,
             "final_epoch": final_epoch,
             "final_num_tokens": final_num_tokens,
         }

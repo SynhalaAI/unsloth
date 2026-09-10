@@ -770,6 +770,12 @@ class TrainingProgress(BaseModel):
     eval_loss: Optional[float] = Field(
         None, description = "Eval loss from the most recent evaluation step"
     )
+    cer: Optional[float] = Field(
+        None, description = "OCR character error rate from the most recent evaluation step"
+    )
+    wer: Optional[float] = Field(
+        None, description = "OCR word error rate from the most recent evaluation step"
+    )
     rewards_chosen: Optional[float] = Field(
         None, description = "Mean reward/log-probability for chosen responses"
     )
@@ -849,6 +855,10 @@ class TrainingRunMetrics(BaseModel):
     grad_norm_step_history: List[int] = Field(default_factory = list)
     eval_loss_history: List[float] = Field(default_factory = list)
     eval_step_history: List[int] = Field(default_factory = list)
+    cer_history: List[float] = Field(default_factory = list)
+    cer_step_history: List[int] = Field(default_factory = list)
+    wer_history: List[float] = Field(default_factory = list)
+    wer_step_history: List[int] = Field(default_factory = list)
     final_epoch: Optional[float] = None
     final_num_tokens: Optional[int] = None
 

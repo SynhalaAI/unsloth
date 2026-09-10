@@ -18,6 +18,7 @@ export interface RunConfigOverride {
   loraAlpha?: number;
   loraDropout?: number;
   loraVariant?: string;
+  isOcrTraining?: boolean;
 }
 
 /** Map a saved run's config (GET /api/train/runs/{id} `detail.config`) into the
@@ -52,5 +53,6 @@ export function mapRunConfigToOverride(
         : config.use_dora
           ? "dora"
           : "lora",
+    isOcrTraining: Boolean(config.is_ocr_training ?? config.isOcrTraining),
   };
 }

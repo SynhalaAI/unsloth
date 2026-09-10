@@ -405,7 +405,7 @@ export function ChartsContent({
           evalData={reducedEvalPreferenceData}
         />
       )}
-      {isOcrTraining && (
+      {(isOcrTraining || ocrData.length > 0) && (
         <OcrMetricsChartCard
           data={ocrData}
           domain={ocrDomain}

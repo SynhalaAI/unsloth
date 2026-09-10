@@ -642,6 +642,8 @@ class UnslothTrainer:
                     grad_norm = grad_norm,
                     num_tokens = num_tokens,
                     eval_loss = logs.get("eval_loss", None),
+                    cer = logs.get("cer", logs.get("eval_cer")),
+                    wer = logs.get("wer", logs.get("eval_wer")),
                     rewards_chosen = logs.get("rewards/chosen", logs.get("rewards_chosen")),
                     rewards_rejected = logs.get("rewards/rejected", logs.get("rewards_rejected")),
                     rewards_accuracies = logs.get("rewards/accuracies", logs.get("rewards_accuracies")),
@@ -4347,6 +4349,13 @@ class UnslothTrainer:
                 }
                 if eval_dataset is not None:
                     trainer_kwargs["eval_dataset"] = eval_dataset
+                # OCR document transcription: score the eval split with CER/WER. Best-effort and only on
+                # eval (never on the train step), so a jiwer/prediction failure can't affect training.
+                if training_args.get("is_ocr_training", False) and eval_dataset is not None:
+                    from core.training.ocr_metrics import make_ocr_metrics_fn
+
+                    trainer_kwargs["compute_metrics"] = make_ocr_metrics_fn(self.tokenizer)
+                    logger.info("OCR training: CER/WER metrics enabled on the eval split\n")
                 self.trainer = SFTTrainer(**trainer_kwargs)
             else:
                 # Unwrap a Processor for text-only (Gemma-3 returns ProcessorMixin even for text), else SFTTrainer

@@ -626,6 +626,9 @@ class TrainingProgress:
     grad_norm: Optional[float] = None
     num_tokens: Optional[int] = None
     eval_loss: Optional[float] = None
+    # OCR transcription metrics from the most recent evaluation step (None for non-OCR runs).
+    cer: Optional[float] = None
+    wer: Optional[float] = None
     rewards_chosen: Optional[float] = None
     rewards_rejected: Optional[float] = None
     rewards_accuracies: Optional[float] = None
@@ -1130,6 +1133,11 @@ class TrainingBackend:
         self.grad_norm_step_history: list = []
         self.eval_loss_history: list = []
         self.eval_step_history: list = []
+        # OCR transcription metrics (CER/WER), keyed by the eval step (None for non-OCR runs).
+        self.cer_history: list = []
+        self.wer_history: list = []
+        self.cer_step_history: list = []
+        self.wer_step_history: list = []
         self.eval_enabled: bool = False
         self.current_theme: str = "light"
 
@@ -2986,6 +2994,37 @@ class TrainingBackend:
                     else:
                         eval_loss = None
 
+                # OCR transcription metrics, appended like eval_loss: only on a real step, finite, and
+                # deduplicated by step. Runs without OCR metric events keep empty histories (absent keys
+                # in metric_history), so the charts stay hidden until actual CER/WER data exists.
+                cer = event.get("cer")
+                if cer is not None:
+                    try:
+                        cer = float(cer)
+                    except (TypeError, ValueError):
+                        logger.debug("Could not convert cer to float: %s", cer)
+                        cer = None
+                    if step > 0 and cer is not None and math.isfinite(cer):
+                        self.cer_history.append(cer)
+                        self.cer_step_history.append(step)
+                    else:
+                        cer = None
+                    self._progress.cer = cer
+
+                wer = event.get("wer")
+                if wer is not None:
+                    try:
+                        wer = float(wer)
+                    except (TypeError, ValueError):
+                        logger.debug("Could not convert wer to float: %s", wer)
+                        wer = None
+                    if step > 0 and wer is not None and math.isfinite(wer):
+                        self.wer_history.append(wer)
+                        self.wer_step_history.append(step)
+                    else:
+                        wer = None
+                    self._progress.wer = wer
+
                 self._metric_buffer.append(
                     {
                         "step": step,
@@ -2993,6 +3032,8 @@ class TrainingBackend:
                         "learning_rate": lr,
                         "grad_norm": gn,
                         "eval_loss": eval_loss,
+                        "cer": cer,
+                        "wer": wer,
                         "epoch": event.get("epoch"),
                         "num_tokens": event.get("num_tokens"),
                         "elapsed_seconds": event.get("elapsed_seconds"),

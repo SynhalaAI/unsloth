@@ -621,6 +621,8 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
         const currentLearningRate = toFiniteNumber(payload.learning_rate);
         const currentGradNorm = toFiniteNumber(payload.grad_norm);
         const evalLoss = toFiniteNumber(payload.eval_loss);
+        const cer = toFiniteNumber(payload.cer);
+        const wer = toFiniteNumber(payload.wer);
         const rewardAccuracy = toFiniteNumber(payload.rewards_accuracies);
         const rewardMargin = toFiniteNumber(payload.rewards_margins);
         const evalRewardAccuracy = toFiniteNumber(payload.eval_rewards_accuracies);
@@ -680,6 +682,14 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
             step > 0 && evalLoss !== null
               ? upsertPoint(state.evalLossHistory, step, evalLoss)
               : state.evalLossHistory,
+          cerHistory:
+            step > 0 && cer !== null
+              ? upsertPoint(state.cerHistory, step, cer)
+              : state.cerHistory,
+          werHistory:
+            step > 0 && wer !== null
+              ? upsertPoint(state.werHistory, step, wer)
+              : state.werHistory,
           rewardAccuracyHistory:
             step > 0 && rewardAccuracy !== null
               ? upsertPoint(state.rewardAccuracyHistory, step, rewardAccuracy)

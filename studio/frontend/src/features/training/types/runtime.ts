@@ -78,6 +78,8 @@ export interface TrainingProgressPayload {
   grad_norm: number | null;
   num_tokens: number | null;
   eval_loss: number | null;
+  cer: number | null;
+  wer: number | null;
   rewards_chosen: number | null;
   rewards_rejected: number | null;
   rewards_accuracies: number | null;

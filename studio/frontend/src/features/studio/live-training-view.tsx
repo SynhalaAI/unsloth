@@ -206,7 +206,7 @@ export function LiveTrainingView(): ReactElement {
           currentStep={viewData.currentStep}
           totalSteps={viewData.totalSteps}
           isTraining={viewData.isTrainingRunning}
-          isOcrTraining={config.isOcrTraining}
+          isOcrTraining={runConfigOverride?.isOcrTraining ?? config.isOcrTraining}
           evalEnabled={viewData.evalEnabled}
           lossHistory={viewData.lossHistory}
           lrHistory={viewData.lrHistory}

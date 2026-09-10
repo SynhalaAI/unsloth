@@ -26,6 +26,18 @@ class TrainingMetricsResponse(BaseModel):
     grad_norm_step_history: List[int] = Field(
         default_factory = list, description = "Step numbers for gradient norm values"
     )
+    cer_history: List[float] = Field(
+        default_factory = list, description = "OCR character error rate per eval step"
+    )
+    cer_step_history: List[int] = Field(
+        default_factory = list, description = "Step numbers for CER values"
+    )
+    wer_history: List[float] = Field(
+        default_factory = list, description = "OCR word error rate per eval step"
+    )
+    wer_step_history: List[int] = Field(
+        default_factory = list, description = "Step numbers for WER values"
+    )
     current_loss: Optional[float] = Field(None, description = "Most recent loss value")
     current_lr: Optional[float] = Field(None, description = "Most recent learning rate")
     current_step: Optional[int] = Field(None, description = "Most recent step number")
