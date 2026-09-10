@@ -4277,13 +4277,11 @@ class UnslothTrainer:
                 }
                 if eval_dataset is not None:
                     trainer_kwargs["eval_dataset"] = eval_dataset
-                # OCR document transcription: score the eval split with CER/WER. Best-effort and only on
-                # eval (never on the train step), so a jiwer/prediction failure can't affect training.
-                if training_args.get("is_ocr_training", False) and eval_dataset is not None:
-                    from core.training.ocr_metrics import make_ocr_metrics_fn
-
-                    trainer_kwargs["compute_metrics"] = make_ocr_metrics_fn(self.tokenizer)
-                    logger.info("OCR training: CER/WER metrics enabled on the eval split\n")
+                # OCR CER/WER via compute_metrics is intentionally not attached here: with
+                # predict_with_generate=False the HF eval loop gathers full logits
+                # (eval_samples x seq_len x vocab) before compute_metrics runs, which OOMs
+                # VLM runs and kills the worker at the first eval step. Eval loss still
+                # flows through the normal eval_dataset/eval_steps path.
                 self.trainer = SFTTrainer(**trainer_kwargs)
             else:
                 # For text-only, unwrap a Processor (Gemma-3 returns ProcessorMixin even for text) to the raw
