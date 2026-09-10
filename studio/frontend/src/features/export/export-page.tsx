@@ -397,12 +397,15 @@ export function ExportPage() {
   const [loraGgufOuttype, setLoraGgufOuttype] = useState<string>("q8_0");
   // GGUF method: export the full model as GGUF quants, or (for an adapter checkpoint) a GGUF LoRA.
   const [ggufTarget, setGgufTarget] = useState<"model" | "lora">("model");
-  const [multiAdapterMerge, setMultiAdapterMerge] = useState(false);
   const [mergeMethod, setMergeMethod] = useState<"linear" | "ties">("linear");
   const [mergeDensity, setMergeDensity] = useState("0.5");
   const [adapterMergeSelections, setAdapterMergeSelections] = useState<
     AdapterMergeSelection[]
   >([]);
+  // Adding an adapter row with a path IS the opt-in — no separate toggle.
+  const multiAdapterMerge = adapterMergeSelections.some(
+    (item) => item.path.trim() !== "",
+  );
   const [adapterCheckpointOptions, setAdapterCheckpointOptions] = useState<
     Record<string, string[]>
   >({});
@@ -580,11 +583,6 @@ export function ExportPage() {
     () => selectedModelData?.checkpoints ?? [],
     [selectedModelData],
   );
-  const selectedCheckpointData = useMemo(
-    () => checkpointsForModel.find((cp) => cp.display_name === checkpoint) ?? null,
-    [checkpointsForModel, checkpoint],
-  );
-
   const baseModelName = selectedModelData?.base_model ?? "—";
   const isAdapter = !!selectedModelData?.peft_type;
   const isQuantized = !!selectedModelData?.is_quantized;
@@ -707,7 +705,6 @@ export function ExportPage() {
 
   useEffect(() => {
     setCheckpoint(null);
-    setMultiAdapterMerge(false);
     setAdapterMergeSelections([]);
   }, [selectedModelIdx]);
 
@@ -754,7 +751,6 @@ export function ExportPage() {
     setSelectedSourceModel(null);
     setLocalModelInput("");
     setModelInput("");
-    setMultiAdapterMerge(false);
     setAdapterMergeSelections([]);
     hfModelInputRef.current = "";
     localModelInputRef.current = "";
@@ -810,7 +806,6 @@ export function ExportPage() {
   const handleMethodChange = (method: ExportMethod) => {
     setExportMethod(method);
     if (method !== "merged") {
-      setMultiAdapterMerge(false);
       setAdapterMergeSelections([]);
     }
     if (method !== "gguf") {
@@ -897,7 +892,7 @@ export function ExportPage() {
     (exportMethod !== "merged" || selectedFormats.length > 0)
     &&
     (!multiAdapterMerge || exportMethod !== "merged" ||
-      (adapterMergeSelections.length >= 2 &&
+      (adapterMergeSelections.length >= 1 &&
         new Set(adapterMergeSelections.map((item) => item.path)).size ===
           adapterMergeSelections.length &&
         adapterMergeSelections.every(
@@ -974,20 +969,6 @@ export function ExportPage() {
 
   // ---- Export handlers ----
   // Assemble the run params and hand off to the global runtime store, which drives the run.
-  const handleMultiAdapterToggle = (checked: boolean) => {
-    setMultiAdapterMerge(checked);
-    if (checked && adapterMergeSelections.length === 0 && selectedCheckpointData) {
-      setAdapterMergeSelections([
-        {
-          path: selectedCheckpointData.path,
-          weight: "1",
-          source: "local",
-          checkpoint: "",
-        },
-      ]);
-    }
-  };
-
   const handleExportAdapterConfig = () => {
     const config: AdapterMergeConfig = {
       adapters: adapterMergeSelections,
@@ -1030,7 +1011,6 @@ export function ExportPage() {
         );
         if (adapters.length === 0) return;
         setAdapterMergeSelections(adapters);
-        setMultiAdapterMerge(true);
         if (config.method === "linear" || config.method === "ties") {
           setMergeMethod(config.method);
         }
@@ -1080,7 +1060,7 @@ export function ExportPage() {
     }
     if (
       multiAdapterMerge &&
-      (adapterMergeSelections.length < 2 ||
+      (adapterMergeSelections.length < 1 ||
         new Set(adapterMergeSelections.map((item) => item.path)).size !==
           adapterMergeSelections.length ||
         adapterMergeSelections.some(
@@ -1967,72 +1947,63 @@ export function ExportPage() {
                           Multi-adapter merge
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          Blend two or more LoRA checkpoints into one model.
+                          Blend LoRA checkpoints into one model.
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {multiAdapterMerge && (
-                          <>
-                            <input
-                              ref={configFileInputRef}
-                              type="file"
-                              accept="application/yaml,text/yaml,.yaml,.yml"
-                              className="hidden"
-                              onChange={handleImportAdapterConfig}
-                            />
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => configFileInputRef.current?.click()}
-                            >
-                              Import
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={handleExportAdapterConfig}
-                            >
-                              Save config
-                            </Button>
-                            <Select
-                              value={mergeMethod}
-                              onValueChange={(value: "linear" | "ties") =>
-                                setMergeMethod(value)
-                              }
-                            >
-                              <SelectTrigger className="w-36">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="linear">Linear</SelectItem>
-                                <SelectItem value="ties">TIES</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            {mergeMethod === "ties" && (
-                              <Input
-                                type="number"
-                                min="0.01"
-                                max="1"
-                                step="0.05"
-                                aria-label="TIES density"
-                                value={mergeDensity}
-                                onChange={(event) => setMergeDensity(event.target.value)}
-                                className="w-24"
-                              />
-                            )}
-                          </>
-                        )}
-                        <Switch
-                          checked={multiAdapterMerge}
-                          onCheckedChange={handleMultiAdapterToggle}
+                        <input
+                          ref={configFileInputRef}
+                          type="file"
+                          accept="application/yaml,text/yaml,.yaml,.yml"
+                          className="hidden"
+                          onChange={handleImportAdapterConfig}
                         />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => configFileInputRef.current?.click()}
+                        >
+                          Import
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleExportAdapterConfig}
+                        >
+                          Save config
+                        </Button>
+                        <Select
+                          value={mergeMethod}
+                          onValueChange={(value: "linear" | "ties") =>
+                            setMergeMethod(value)
+                          }
+                        >
+                          <SelectTrigger className="w-36">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="linear">Linear</SelectItem>
+                            <SelectItem value="ties">TIES</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {mergeMethod === "ties" && (
+                          <Input
+                            type="number"
+                            min="0.01"
+                            max="1"
+                            step="0.05"
+                            aria-label="TIES density"
+                            value={mergeDensity}
+                            onChange={(event) => setMergeDensity(event.target.value)}
+                            className="w-24"
+                          />
+                        )}
                       </div>
                     </div>
 
-                    {multiAdapterMerge && (
-                      <div className="space-y-3">
+                    <div className="space-y-3">
                         {adapterMergeSelections.map((selection, index) => (
                           <div
                             key={`adapter-row-${index}`}
@@ -2168,13 +2139,13 @@ export function ExportPage() {
                             Add adapter
                           </Button>
                         </div>
-                        {adapterMergeSelections.length < 2 && (
-                          <p className="text-xs text-destructive">
-                            Select at least two different adapters.
+                        {adapterMergeSelections.length < 1 && (
+                          <p className="text-xs text-muted-foreground">
+                            Add an adapter to merge; leave this panel empty to
+                            merge the selected checkpoint on its own.
                           </p>
                         )}
                       </div>
-                    )}
                   </div>
                 )}
 
