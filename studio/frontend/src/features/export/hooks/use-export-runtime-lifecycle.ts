@@ -161,11 +161,10 @@ export function useExportRuntimeLifecycle(): void {
         if (streamController === controller) {
           streamController = null;
         }
-        // Do NOT clear `connected` here: over a Cloudflare tunnel the SSE drops
-        // and reconnects repeatedly (buffered / premature complete), which used
-        // to flap the indicator back to "connecting...". The log poll owns the
-        // connected flag for the duration of the run; stopStream clears it when
-        // the run actually ends.
+        // Do NOT clear `connected` here: over a Cloudflare tunnel the SSE drops and reconnects
+        // repeatedly (buffered / premature complete), which used to flap the indicator back to
+        // "connecting...". The log poll owns the connected flag for the duration of the run;
+        // stopStream clears it when the run actually ends.
 
         if (
           !disposed &&

@@ -126,16 +126,7 @@ def _detect_conversation_column(rows: list[dict], column_names: list[str]) -> di
 
 
 def detect_dataset_format(dataset):
-    """Detect dataset format by inspecting structure.
-
-    Returns:
-        dict: {
-            "format": "alpaca" | "sharegpt" | "chatml" | "unknown",
-            "chat_column": str | None,
-            "needs_standardization": bool,
-            "sample_keys": list of keys found in messages (for debugging)
-        }
-    """
+    """Detect dataset format by inspecting structure: {"format": alpaca/sharegpt/chatml/unknown, "chat_column": str or None, "needs_standardization": bool, "sample_keys": keys found in messages}."""
     sample_rows = _sample_dataset_rows(dataset)
     if not sample_rows:
         return {
@@ -183,14 +174,7 @@ def detect_dataset_format(dataset):
 
 
 def detect_custom_format_heuristic(dataset):
-    """Detection with priority scoring.
-
-    Strategy for ambiguous keywords like 'task':
-    1. Detect assistant first (unambiguous)
-    2. Detect user using high-priority keywords first
-    3. Check REMAINING columns for system keywords (including 'task')
-    4. Only if no system match, use 'task' as fallback user
-    """
+    """Detection with priority scoring. For ambiguous keywords like 'task': detect the assistant first (unambiguous), then the user by high-priority keywords, then check the REMAINING columns for system keywords (including 'task'), and only fall back to 'task' as the user column when nothing matched system."""
     sample = next(iter(dataset))
     all_columns = list(sample.keys())
 
@@ -238,7 +222,6 @@ def detect_custom_format_heuristic(dataset):
         "task",
     ]
 
-    # Metadata columns to ignore.
     metadata_exact_match = {
         "id",
         "idx",
@@ -369,7 +352,6 @@ def detect_custom_format_heuristic(dataset):
     assistant_potential = [col for col in content_columns if has_keyword(col, assistant_words)]
     user_potential = [col for col in content_columns if has_keyword(col, user_words)]
 
-    # STEP 1: best ASSISTANT column
     assistant_candidates = []
     for col in assistant_potential:
         score = score_column(col, assistant_words, "assistant", len(assistant_potential))
@@ -383,7 +365,6 @@ def detect_custom_format_heuristic(dataset):
     else:
         assistant_col = None
 
-    # STEP 2: best USER column (penalizing ambiguous keywords)
     user_candidates = []
     for col in user_potential:
         if col == assistant_col:
@@ -399,7 +380,6 @@ def detect_custom_format_heuristic(dataset):
     else:
         user_col = None
 
-    # STEP 3: check remaining columns for SYSTEM matches
     remaining_columns = [col for col in content_columns if col not in mapping]
 
     system_col = None
@@ -409,14 +389,13 @@ def detect_custom_format_heuristic(dataset):
             system_col = col
             break
 
-    # STEP 4: handle any additional remaining columns
     if system_col:
         remaining_columns = [col for col in remaining_columns if col != system_col]
 
     if len(remaining_columns) >= 1:
         remaining_col = remaining_columns[0]
 
-        # No strong keyword match: decide by what's missing.
+        # No strong keyword match: decide by what is missing.
         if not has_keyword(remaining_col, user_words + assistant_words):
             mapping[remaining_col] = "system"
         elif user_col is None:
@@ -424,7 +403,6 @@ def detect_custom_format_heuristic(dataset):
         else:
             mapping[remaining_col] = "system"
 
-    # Ensure at least user + assistant.
     has_user = any(role == "user" for role in mapping.values())
     has_assistant = any(role == "assistant" for role in mapping.values())
 
@@ -442,12 +420,7 @@ def detect_custom_format_heuristic(dataset):
 
 
 def detect_multimodal_dataset(dataset):
-    """Detect multimodal data (images and/or audio) in a dataset.
-
-    Two passes per modality: column-name keyword heuristic, then value-type
-    inspection. Returns a dict with is_image/is_audio flags, detected columns,
-    modality types, and detected audio/text/speaker columns.
-    """
+    """Detect multimodal data (images and/or audio) in a dataset. Two passes per modality, a column-name keyword heuristic then value-type inspection, returning is_image/is_audio flags, detected columns, modality types and detected audio/text/speaker columns."""
     sample = next(iter(dataset))
     column_names = list(sample.keys())
 
@@ -477,8 +450,7 @@ def detect_multimodal_dataset(dataset):
     audio_columns = []
     modality_types = set()
 
-    # ── Image detection ─────────────────────────────────────
-    # Pass 1: column-name heuristic (word-boundary match)
+    # Image detection pass 1: column-name heuristic (word-boundary match).
     for col_name in column_names:
         for keyword in image_keywords:
             if _keyword_in_column(keyword, col_name):
@@ -486,7 +458,7 @@ def detect_multimodal_dataset(dataset):
                 modality_types.add(keyword)
                 break
 
-    # Pass 2: inspect actual values
+    # Pass 2: inspect actual values.
     already_detected = set(multimodal_columns)
     for col_name in column_names:
         if col_name in already_detected:
@@ -496,8 +468,7 @@ def detect_multimodal_dataset(dataset):
             multimodal_columns.append(col_name)
             modality_types.add("image")
 
-    # ── Audio detection ─────────────────────────────────────
-    # Pass 1: column-name heuristic (word-boundary match)
+    # Audio detection pass 1: column-name heuristic (word-boundary match).
     for col_name in column_names:
         for keyword in audio_keywords:
             if _keyword_in_column(keyword, col_name):
@@ -505,7 +476,7 @@ def detect_multimodal_dataset(dataset):
                 modality_types.add("audio")
                 break
 
-    # Pass 2: inspect actual values (catches non-obvious column names)
+    # Pass 2: inspect actual values, catching non-obvious column names.
     already_audio = set(audio_columns)
     for col_name in column_names:
         if col_name in already_audio:
@@ -515,13 +486,11 @@ def detect_multimodal_dataset(dataset):
             audio_columns.append(col_name)
             modality_types.add("audio")
 
-    # Drop audio columns from the image list (a {"bytes","path"} audio column
-    # can match _is_image_value).
+    # Drop audio columns from the image list: a {"bytes","path"} audio column can match _is_image_value.
     if audio_columns:
         audio_set = set(audio_columns)
         multimodal_columns = [c for c in multimodal_columns if c not in audio_set]
 
-    # Text column for audio datasets.
     detected_text_col = None
     if audio_columns:
         text_keywords = ["text", "sentence", "transcript", "transcription", "label"]
@@ -579,8 +548,7 @@ def _is_image_value(value) -> bool:
     except ImportError:
         pass
 
-    # HF Image feature: decoded as PIL, or {"bytes", "path"} when undecoded.
-    # Exclude audio dicts (decoded audio has "array" + "sampling_rate").
+    # HF Image feature: decoded as PIL, or {"bytes", "path"} when undecoded. Exclude audio dicts, whose decoded form has "array" + "sampling_rate".
     if isinstance(value, dict):
         if "array" in value and "sampling_rate" in value:
             return False
@@ -596,7 +564,6 @@ def _is_image_value(value) -> bool:
     if isinstance(value, (bytes, bytearray)):
         return _has_image_header(value)
 
-    # String that looks like an image file path or URL.
     _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff", ".svg")
     if isinstance(value, str) and len(value) < 1000:
         lower = value.strip().lower()
@@ -660,11 +627,7 @@ def _has_image_header(data: bytes) -> bool:
 
 
 def detect_vlm_dataset_structure(dataset):
-    """Detect which VLM dataset shape this is:
-    - Standard VLM messages (image objects in content)
-    - Llava format (image indices + separate images column)
-    - Simple format needing conversion (image + text columns)
-    """
+    """Detect which VLM dataset shape this is: standard VLM messages (image objects in content), Llava format (image indices plus a separate images column), or a simple image + text pair needing conversion."""
     try:
         sample = next(iter(dataset))
     except StopIteration:
@@ -688,7 +651,6 @@ def detect_vlm_dataset_structure(dataset):
 
                 if isinstance(content, list) and len(content) > 0:
                     if isinstance(content[0], dict) and "type" in content[0]:
-                        # Llava format?
                         has_index = any(
                             "index" in item for item in content if isinstance(item, dict)
                         )
@@ -703,7 +665,6 @@ def detect_vlm_dataset_structure(dataset):
                                 "text_column": None,
                             }
 
-                        # Standard VLM format
                         has_image = any(
                             "image" in item for item in content if isinstance(item, dict)
                         )
@@ -716,8 +677,7 @@ def detect_vlm_dataset_structure(dataset):
                                 "text_column": None,
                             }
 
-    # ShareGPT/ChatML conversations with <image> placeholder + companion
-    # image column (e.g. Lin-Chen/ShareGPT4V, LLaVA-style datasets)
+    # ShareGPT/ChatML conversations with an <image> placeholder plus a companion image column, e.g. Lin-Chen/ShareGPT4V and LLaVA-style datasets.
     for chat_col in ("conversations", "messages"):
         if chat_col not in column_names:
             continue
@@ -738,7 +698,6 @@ def detect_vlm_dataset_structure(dataset):
         )
         if not has_image_placeholder:
             continue
-        # Find companion image column.
         image_col = None
         for col in column_names:
             if col == chat_col:
@@ -755,7 +714,6 @@ def detect_vlm_dataset_structure(dataset):
                 "messages_column": chat_col,
             }
 
-    # Find image and text columns, filtering out metadata patterns
     metadata_patterns = {
         "suffixes": [
             "_id",
@@ -815,11 +773,9 @@ def detect_vlm_dataset_structure(dataset):
 
     def _score_image_candidate(col, sample_value):
         """Score a candidate image column by how resolvable its value is."""
-        # PIL Image (already loaded) -> highest.
         if hasattr(sample_value, "size") and hasattr(sample_value, "mode"):
             return 100
 
-        # HF Image feature dict.
         if isinstance(sample_value, dict) and ("bytes" in sample_value or "path" in sample_value):
             return 75
 
@@ -836,15 +792,12 @@ def detect_vlm_dataset_structure(dataset):
         """Probe whether an image candidate is reachable (True unless definitely broken)."""
         import os
 
-        # PIL / dict - already loaded.
         if not isinstance(sample_value, str):
             return True
 
-        # Local file - check it exists.
         if not sample_value.startswith(("http://", "https://")):
             return os.path.exists(sample_value)
 
-        # URL - quick HEAD with short timeout.
         try:
             import urllib.request
 
@@ -858,7 +811,6 @@ def detect_vlm_dataset_structure(dataset):
         """Find image column by keyword match + value-based fallback, probing for one that works."""
         candidates = []
 
-        # Pass 1: keyword-matched columns.
         for col in column_names:
             if any(_keyword_in_column(keyword, col) for keyword in image_keywords):
                 sample_value = sample[col]
@@ -866,8 +818,7 @@ def detect_vlm_dataset_structure(dataset):
                 if score > 0:
                     candidates.append((col, score))
 
-        # Pass 2: value-based fallback for image URLs/paths even when the name
-        # doesn't match keywords.
+        # Pass 2: value-based fallback for image URLs/paths even when the name does not match keywords.
         already = {c[0] for c in candidates}
         for col in column_names:
             if col in already:
@@ -883,17 +834,15 @@ def detect_vlm_dataset_structure(dataset):
 
         candidates.sort(key = lambda x: x[1], reverse = True)
 
-        # Single candidate or top is PIL/dict - no probing needed.
         if len(candidates) == 1 or candidates[0][1] >= 75:
             return candidates[0][0]
 
-        # Multiple string candidates - probe for one that works.
         for col, score in candidates:
             sample_value = sample[col]
             if _probe_image_candidate(col, sample_value):
                 return col
 
-        # None probed OK - return highest-scored; conversion may still resolve it.
+        # None probed OK: return the highest-scored, since conversion may still resolve it.
         return candidates[0][0]
 
     def find_text_column():
@@ -916,7 +865,7 @@ def detect_vlm_dataset_structure(dataset):
                     and len(sample_value) > 0
                     and isinstance(sample_value[0], str)
                 ):
-                    # List of strings (e.g. captions) - lower priority than plain str.
+                    # List of strings, e.g. captions, ranks below a plain str.
                     priority = min(len(sample_value[0]), 1000) // 2
                     candidates.append((col, priority))
 
