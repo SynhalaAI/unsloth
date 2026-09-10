@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/chart";
 import type { ChartConfig } from "@/components/ui/chart";
 import { useT } from "@/i18n";
+import { ChartAverageIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import type { ReactElement } from "react";
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import {
@@ -20,16 +22,21 @@ import {
   formatAxisMetric,
   formatMetric,
   formatStepTick,
+  placeholderOcrData,
 } from "./utils";
 
 export function OcrMetricsChartCard({
   data,
   domain,
   ticks,
+  isTraining,
+  evalEnabled,
 }: {
   data: { step: number; cer: number; wer: number }[];
   domain: [number, number];
   ticks?: number[];
+  isTraining: boolean;
+  evalEnabled: boolean;
 }): ReactElement {
   const t = useT();
   const ocrConfig = {
@@ -40,76 +47,145 @@ export function OcrMetricsChartCard({
   return (
     <Card data-tour="studio-ocr-metrics" size="sm">
       <CardHeader>
-        <CardTitle className="text-sm">{t("studio.charts.ocrMetrics")}</CardTitle>
+        <CardTitle className={`text-sm${data.length > 0 ? "" : " text-muted-foreground"}`}>
+          {t("studio.charts.ocrMetrics")}
+        </CardTitle>
       </CardHeader>
       <CardContent>
-        <ChartContainer config={ocrConfig} className={CHART_CONTAINER_CLASS}>
-          <LineChart data={data} accessibilityLayer={true} margin={DEFAULT_CHART_MARGIN}>
-            <CartesianGrid vertical={false} strokeDasharray="3 3" />
-            <XAxis
-              dataKey="step"
-              type="number"
-              domain={["dataMin", "dataMax"]}
-              ticks={ticks}
-              allowDataOverflow={true}
-              allowDecimals={false}
-              minTickGap={28}
-              tickLine={false}
-              axisLine={false}
-              tickMargin={8}
-              fontSize={10}
-              tickFormatter={(value) => formatStepTick(Number(value))}
-              interval="preserveStartEnd"
-            />
-            <YAxis
-              domain={domain}
-              allowDataOverflow={true}
-              tickLine={false}
-              axisLine={false}
-              tickMargin={8}
-              tickCount={5}
-              fontSize={10}
-              width={DEFAULT_Y_AXIS_WIDTH}
-              tickFormatter={(value) => formatAxisMetric(Number(value))}
-            />
-            <ChartTooltip
-              content={
-                <ChartTooltipContent
-                  labelFormatter={(_value, payload) =>
-                    t("studio.charts.step", {
-                      step: payload?.[0]?.payload?.step ?? "",
-                    })
-                  }
-                  formatter={(_value, name, item) => {
-                    const value = Number(item?.payload?.[String(name)] ?? _value);
-                    return [formatMetric(value), name === "cer" ? t("studio.charts.cer") : t("studio.charts.wer")];
-                  }}
+        {data.length > 0 ? (
+          <ChartContainer config={ocrConfig} className={CHART_CONTAINER_CLASS}>
+            <LineChart data={data} accessibilityLayer={true} margin={DEFAULT_CHART_MARGIN}>
+              <CartesianGrid vertical={false} strokeDasharray="3 3" />
+              <XAxis
+                dataKey="step"
+                type="number"
+                domain={["dataMin", "dataMax"]}
+                ticks={ticks}
+                allowDataOverflow={true}
+                allowDecimals={false}
+                minTickGap={28}
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                fontSize={10}
+                tickFormatter={(value) => formatStepTick(Number(value))}
+                interval="preserveStartEnd"
+              />
+              <YAxis
+                domain={domain}
+                allowDataOverflow={true}
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                tickCount={5}
+                fontSize={10}
+                width={DEFAULT_Y_AXIS_WIDTH}
+                tickFormatter={(value) => formatAxisMetric(Number(value))}
+              />
+              <ChartTooltip
+                content={
+                  <ChartTooltipContent
+                    labelFormatter={(_value, payload) =>
+                      t("studio.charts.step", {
+                        step: payload?.[0]?.payload?.step ?? "",
+                      })
+                    }
+                    formatter={(_value, name, item) => {
+                      const value = Number(item?.payload?.[String(name)] ?? _value);
+                      return [formatMetric(value), name === "cer" ? t("studio.charts.cer") : t("studio.charts.wer")];
+                    }}
+                  />
+                }
+              />
+              <Line
+                type="monotone"
+                dataKey="cer"
+                stroke="var(--color-cer)"
+                strokeWidth={2}
+                dot={{ r: 3, strokeWidth: 0, fill: "#8b5cf6" }}
+                activeDot={{ r: 4, strokeWidth: 0 }}
+                connectNulls={true}
+                isAnimationActive={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="wer"
+                stroke="var(--color-wer)"
+                strokeWidth={2}
+                dot={{ r: 3, strokeWidth: 0, fill: "#06b6d4" }}
+                activeDot={{ r: 4, strokeWidth: 0 }}
+                connectNulls={true}
+                isAnimationActive={false}
+              />
+              <ChartLegend content={<ChartLegendContent />} />
+            </LineChart>
+          </ChartContainer>
+        ) : (
+          <div className="relative">
+            <ChartContainer
+              config={ocrConfig}
+              className={`${CHART_CONTAINER_CLASS} blur`}
+            >
+              <LineChart
+                data={placeholderOcrData}
+                accessibilityLayer={true}
+                margin={DEFAULT_CHART_MARGIN}
+              >
+                <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="step"
+                  type="number"
+                  domain={["dataMin", "dataMax"]}
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  fontSize={10}
+                  interval="preserveStartEnd"
                 />
-              }
-            />
-            <Line
-              type="monotone"
-              dataKey="cer"
-              stroke="var(--color-cer)"
-              strokeWidth={2}
-              dot={{ r: 3, strokeWidth: 0, fill: "#8b5cf6" }}
-              activeDot={{ r: 4, strokeWidth: 0 }}
-              connectNulls={true}
-              isAnimationActive={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="wer"
-              stroke="var(--color-wer)"
-              strokeWidth={2}
-              dot={{ r: 3, strokeWidth: 0, fill: "#06b6d4" }}
-              activeDot={{ r: 4, strokeWidth: 0 }}
-              connectNulls={true}
-              isAnimationActive={false}
-            />
-            <ChartLegend content={<ChartLegendContent />} />
-          </LineChart>
-        </ChartContainer>
+                <YAxis
+                  tickLine={false}
+                  axisLine={false}
+                  tickMargin={8}
+                  tickCount={5}
+                  fontSize={10}
+                  width={DEFAULT_Y_AXIS_WIDTH}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="cer"
+                  stroke="var(--color-cer)"
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="wer"
+                  stroke="var(--color-wer)"
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              </LineChart>
+            </ChartContainer>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
+              <HugeiconsIcon
+                icon={ChartAverageIcon}
+                className="size-5 text-muted-foreground/50"
+              />
+              <p className="text-sm font-medium text-muted-foreground">
+                {isTraining && evalEnabled
+                  ? t("studio.charts.waitingForFirstEvaluationStep")
+                  : t("studio.charts.evaluationNotConfigured")}
+              </p>
+              <p className="text-xs text-muted-foreground/60">
+                {isTraining && evalEnabled
+                  ? t("studio.charts.evalChartWillAppear")
+                  : t("studio.charts.setEvalDatasetAndSteps")}
+              </p>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

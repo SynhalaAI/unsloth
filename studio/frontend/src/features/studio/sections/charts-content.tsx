@@ -410,6 +410,8 @@ export function ChartsContent({
           data={ocrData}
           domain={ocrDomain}
           ticks={ocrStepTicks}
+          isTraining={isTraining}
+          evalEnabled={evalEnabled}
         />
       )}
     </div>

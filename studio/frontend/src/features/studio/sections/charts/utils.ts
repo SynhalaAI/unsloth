@@ -29,6 +29,14 @@ export const placeholderEvalData = [
   { step: 200, loss: 1.5 },
 ];
 
+export const placeholderOcrData = [
+  { step: 0, cer: 0.65, wer: 0.85 },
+  { step: 50, cer: 0.52, wer: 0.7 },
+  { step: 100, cer: 0.42, wer: 0.58 },
+  { step: 150, cer: 0.35, wer: 0.48 },
+  { step: 200, cer: 0.3, wer: 0.42 },
+];
+
 export function toLog1p(value: number): number {
   const safe = Number.isFinite(value) ? Math.max(value, 0) : 0;
   return Math.log10(safe + 1);
