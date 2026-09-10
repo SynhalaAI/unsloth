@@ -782,18 +782,34 @@ export function ExportPage() {
       const source = adapterMergeSelections.find((item) => item.path.trim() === path)?.source;
       const cacheKey = `${source}:${path}`;
       if (adapterCheckpointOptions[cacheKey]) continue;
+      // A Local picker value is a model ID; the checkpoint scan needs its real
+      // directory, so resolve it (a manually typed entry is already a path).
+      const localDir = source === "hf" ? path : (localMetaById.get(path)?.path ?? path);
       void fetchAdapterCheckpoints(
-        source === "hf" ? { repoId: path } : { localPath: path },
+        source === "hf" ? { repoId: path } : { localPath: localDir },
         hfToken,
       )
-        .then((checkpoints) =>
+        .then((checkpoints) => {
+          const options =
+            checkpoints.length > 0
+              ? checkpoints.map((checkpoint) => checkpoint || ROOT_CHECKPOINT_VALUE)
+              : // An empty scan (no adapter_config.json anywhere) must still leave
+                // the dropdown selectable: fall back to the repository root.
+                [ROOT_CHECKPOINT_VALUE];
           setAdapterCheckpointOptions((current) => ({
             ...current,
-            [cacheKey]: checkpoints.map((checkpoint) =>
-              checkpoint || ROOT_CHECKPOINT_VALUE,
+            [cacheKey]: options,
+          }));
+          // Surface "Repository root" instead of a blank placeholder once the
+          // list lands ("" already means root in the merge payload).
+          setAdapterMergeSelections((current) =>
+            current.map((item) =>
+              item.path.trim() === path && !item.checkpoint
+                ? { ...item, checkpoint: ROOT_CHECKPOINT_VALUE }
+                : item,
             ),
-          })),
-        )
+          );
+        })
         .catch(() =>
           setAdapterCheckpointOptions((current) => ({
             ...current,
@@ -801,7 +817,7 @@ export function ExportPage() {
           })),
         );
     }
-  }, [adapterMergeSelections, adapterCheckpointOptions, hfToken]);
+  }, [adapterMergeSelections, adapterCheckpointOptions, hfToken, localMetaById]);
 
   const handleMethodChange = (method: ExportMethod) => {
     setExportMethod(method);
@@ -1098,6 +1114,8 @@ export function ExportPage() {
     }
     const checkpointPath = selectedCp?.path ?? null;
     const mergeDensityValue = Number(mergeDensity);
+    // A Local picker value is a model ID; the merge needs the real directory.
+    const localAdapterDir = (value: string) => localMetaById.get(value)?.path ?? value;
     const mergeConfig = multiAdapterMerge && exportMethod === "merged"
       ? {
           adapter_paths: adapterMergeSelections.map((item) =>
@@ -1110,8 +1128,8 @@ export function ExportPage() {
                       : item.checkpoint,
                 }
                 : item.checkpoint && item.checkpoint !== ROOT_CHECKPOINT_VALUE
-                  ? `${item.path.replace(/[\\/]+$/, "")}/${item.checkpoint}`
-                  : item.path,
+                  ? `${localAdapterDir(item.path).replace(/[\\/]+$/, "")}/${item.checkpoint}`
+                  : localAdapterDir(item.path),
           ),
           weights: adapterMergeSelections.map((item) => Number(item.weight)),
           method: mergeMethod,
@@ -1227,6 +1245,7 @@ export function ExportPage() {
     loraGgufOuttype,
     multiAdapterMerge,
     adapterMergeSelections,
+    localMetaById,
     mergeMethod,
     mergeDensity,
     exportUnsupported,
