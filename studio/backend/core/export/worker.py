@@ -364,6 +364,11 @@ def _handle_load(backend, cmd: dict, resp_queue: Any) -> None:
             return
 
     try:
+        if merge_adapters:
+            # Open the log forwarding gate early for multi-adapter merging so
+            # merge progress and diagnostics stream live to the export panel.
+            _log_forward_gate.set()
+
         _send_response(
             resp_queue,
             {

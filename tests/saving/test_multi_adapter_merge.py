@@ -546,6 +546,8 @@ class TestEndToEnd:
         joined_reports = " ".join(reported_messages)
         assert "finance_lora (checkpoint-500)" in joined_reports
         assert "math_lora (checkpoint-1000)" in joined_reports
+        assert "Loading adapter: finance_lora (checkpoint-500)" in joined_reports
+        assert "Loading adapter: math_lora (checkpoint-1000)" in joined_reports
 
     def test_ties_merge_applied(self, tmp_path):
         in_f = out_f = 16

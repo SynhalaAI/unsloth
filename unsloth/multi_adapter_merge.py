@@ -709,7 +709,7 @@ def merge_adapters_into_model(
         from peft import PeftModel
         if isinstance(model, PeftModel):
             base_model = model.merge_and_unload()
-            print("  Unloaded existing PEFT adapter layers.")
+            report("  Unloaded existing PEFT adapter layers.")
     except ImportError:
         pass
 
@@ -722,7 +722,7 @@ def merge_adapters_into_model(
         for path, name, cfg, weight in zip(
             config.adapter_paths, display_names, adapter_configs, config.weights
         ):
-            print(f"  Loading adapter: {name} ({path})")
+            report(f"  Loading adapter: {name} ({path})")
             state_dict = _load_adapter_state_dict(path)
             deltas = _reconstruct_deltas(state_dict, cfg)
             del state_dict
@@ -760,7 +760,7 @@ def merge_adapters_into_model(
         adapter_factors: List[Dict[str, Tuple[torch.Tensor, torch.Tensor]]] = []
         scalings: List[float] = []
         for path, name, cfg in zip(config.adapter_paths, display_names, adapter_configs):
-            print(f"  Loading adapter: {name} ({path})")
+            report(f"  Loading adapter: {name} ({path})")
             state_dict = _load_adapter_state_dict(path)
             adapter_factors.append(_group_lora_factors(state_dict))
             del state_dict  # the factors keep references to the tensors
