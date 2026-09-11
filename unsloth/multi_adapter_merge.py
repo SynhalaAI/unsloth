@@ -715,14 +715,18 @@ def merge_adapters_into_model(
 
     # Linear merging is streamed so only one adapter's deltas and one layer's
     # device copy exist at a time. This avoids an O(N adapters) memory spike.
+    total_adapters = len(config.adapter_paths)
     if config.method == "linear":
         model_params = dict(base_model.named_parameters())
         applied = 0
         skipped = 0
-        for path, name, cfg, weight in zip(
-            config.adapter_paths, display_names, adapter_configs, config.weights
+        for idx, (path, name, cfg, weight) in enumerate(
+            zip(config.adapter_paths, display_names, adapter_configs, config.weights),
+            start=1,
         ):
             report(f"  Loading adapter: {name} ({path})")
+            pct = int((idx - 1) / total_adapters * 100)
+            report(f"Merge progress: adapter {idx} of {total_adapters} ({pct}%)")
             state_dict = _load_adapter_state_dict(path)
             deltas = _reconstruct_deltas(state_dict, cfg)
             del state_dict
@@ -751,6 +755,8 @@ def merge_adapters_into_model(
                 f"Merge coverage {name}: applied={adapter_applied}, "
                 f"skipped={adapter_skipped}"
             )
+            pct_done = int(idx / total_adapters * 100)
+            report(f"Merge progress: adapter {idx} of {total_adapters} ({pct_done}%)")
             del deltas
             gc.collect()
     else:
@@ -759,8 +765,13 @@ def merge_adapters_into_model(
         # and reconstruct, merge, and apply one module's deltas per iteration.
         adapter_factors: List[Dict[str, Tuple[torch.Tensor, torch.Tensor]]] = []
         scalings: List[float] = []
-        for path, name, cfg in zip(config.adapter_paths, display_names, adapter_configs):
+        for idx, (path, name, cfg) in enumerate(
+            zip(config.adapter_paths, display_names, adapter_configs),
+            start=1,
+        ):
             report(f"  Loading adapter: {name} ({path})")
+            pct = int((idx - 1) / (total_adapters * 2) * 100)
+            report(f"Merge progress: loading factors {idx} of {total_adapters} ({pct}%)")
             state_dict = _load_adapter_state_dict(path)
             adapter_factors.append(_group_lora_factors(state_dict))
             del state_dict  # the factors keep references to the tensors
@@ -772,7 +783,10 @@ def merge_adapters_into_model(
         module_keys = sorted({key for factors in adapter_factors for key in factors})
         applied = 0
         skipped = 0
-        for module_key in module_keys:
+        total_modules = len(module_keys)
+        # Report progress periodically (every 10% or at least a few steps) to avoid log spam
+        step_interval = max(1, total_modules // 10)
+        for mod_idx, module_key in enumerate(module_keys, start=1):
             per_adapter_deltas = []
             per_adapter_weights = []
             for factors, scaling, weight in zip(
@@ -817,6 +831,12 @@ def merge_adapters_into_model(
             param.data.add_(delta.to(device=param.device, dtype=param.dtype))
             applied += 1
             del delta
+
+            if mod_idx % step_interval == 0 or mod_idx == total_modules:
+                # Factor loading took 0..50%, module merge takes 50..100%
+                pct = 50 + int((mod_idx / total_modules) * 50)
+                report(f"Merge progress: module {mod_idx} of {total_modules} ({pct}%)")
+
         report(
             f"Merge {config.method.upper()}: merged_modules={len(module_keys)}"
         )

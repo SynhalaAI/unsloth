@@ -599,8 +599,18 @@ export function selectExportProgressPercent(state: ExportRuntimeStore): number {
   switch (state.phase) {
     case "idle":
       return 0;
-    case "loading":
+    case "loading": {
+      // If a multi-adapter merge is reporting progress (e.g. "Merge progress: ... (45%)"),
+      // map it smoothly across the 8%..85% loading band so the bar doesn't freeze at 8%.
+      if (state.stage) {
+        const match = state.stage.match(/Merge progress:.*?\((\d+)%\)/i);
+        if (match) {
+          const mergePct = Math.min(100, Math.max(0, parseInt(match[1], 10)));
+          return Math.round(8 + (mergePct / 100) * 77); // 8% -> 85%
+        }
+      }
       return 8;
+    }
     case "exporting":
       return exportBand();
     case "success":
