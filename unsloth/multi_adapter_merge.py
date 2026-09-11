@@ -77,6 +77,50 @@ def _resolve_adapter_path(adapter_path, hf_token=None) -> str:
     return os.path.join(snapshot_path, subfolder) if subfolder else snapshot_path
 
 
+def _adapter_display_name(raw_spec: Union[str, dict], resolved_path: Optional[str] = None) -> str:
+    """Return a human-friendly display name showing both adapter and checkpoint/subfolder.
+
+    If the adapter is from Hugging Face or specified as a dict:
+        {"repo_id": "org/my-lora", "subfolder": "checkpoint-500"} -> "org/my-lora (checkpoint-500)"
+        {"repo_id": "org/my-lora"} -> "org/my-lora"
+    If the adapter is a filesystem path:
+        ".../my-model-run/checkpoint-500" -> "my-model-run (checkpoint-500)"
+        "checkpoint-500" -> "checkpoint-500"
+        ".../my-model-run" -> "my-model-run"
+    """
+    if isinstance(raw_spec, dict):
+        repo_id = str(raw_spec.get("repo_id") or "").strip()
+        subfolder = str(raw_spec.get("subfolder") or "").strip("/\\")
+        if repo_id and subfolder:
+            return f"{repo_id} ({subfolder})"
+        if repo_id:
+            return repo_id
+        if subfolder:
+            return subfolder
+
+    # raw_spec or resolved_path is a path string
+    path_str = str(raw_spec).strip() if raw_spec else (str(resolved_path).strip() if resolved_path else "")
+    if not path_str:
+        return "adapter"
+
+    p = Path(path_str)
+    # Check if the folder is a checkpoint directory (e.g., 'checkpoint-500' or 'checkpoint_100')
+    if p.name.lower().startswith("checkpoint") and p.parent != p and p.parent.name:
+        adapter_name = p.parent.name
+        checkpoint_name = p.name
+        return f"{adapter_name} ({checkpoint_name})"
+
+    # If resolved_path has checkpoint information that raw_spec didn't have
+    if resolved_path:
+        rp = Path(resolved_path)
+        if rp.name.lower().startswith("checkpoint") and rp.parent != rp and rp.parent.name:
+            adapter_name = rp.parent.name
+            checkpoint_name = rp.name
+            return f"{adapter_name} ({checkpoint_name})"
+
+    return p.name or path_str
+
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -632,6 +676,12 @@ def merge_adapters_into_model(
         seed=seed,
     )
 
+    # Determine human-friendly display names for logging (e.g. "my-adapter (checkpoint-500)")
+    display_names = [
+        _adapter_display_name(raw, resolved)
+        for raw, resolved in zip(adapter_paths, config.adapter_paths)
+    ]
+
     def report(message: str) -> None:
         print(message)
         if report_callback is not None:
@@ -641,8 +691,8 @@ def merge_adapters_into_model(
     report(
         "Merge weights: "
         + ", ".join(
-            f"{Path(path).name}={weight:.4f}"
-            for path, weight in zip(config.adapter_paths, config.weights)
+            f"{name}={weight:.4f}"
+            for name, weight in zip(display_names, config.weights)
         )
     )
 
@@ -669,10 +719,10 @@ def merge_adapters_into_model(
         model_params = dict(base_model.named_parameters())
         applied = 0
         skipped = 0
-        for path, cfg, weight in zip(
-            config.adapter_paths, adapter_configs, config.weights
+        for path, name, cfg, weight in zip(
+            config.adapter_paths, display_names, adapter_configs, config.weights
         ):
-            print(f"  Loading adapter: {path}")
+            print(f"  Loading adapter: {name} ({path})")
             state_dict = _load_adapter_state_dict(path)
             deltas = _reconstruct_deltas(state_dict, cfg)
             del state_dict
@@ -681,7 +731,7 @@ def merge_adapters_into_model(
                 float(delta.float().norm().item() ** 2) for delta in deltas.values()
             ) ** 0.5
             report(
-                f"Merge adapter {Path(path).name}: modules={len(deltas)}, elements={delta_elements}, "
+                f"Merge adapter {name}: modules={len(deltas)}, elements={delta_elements}, "
                 f"delta_norm={delta_norm:.6g}, effective_norm={abs(weight) * delta_norm:.6g}, "
                 f"weight={weight:.4f}"
             )
@@ -698,7 +748,7 @@ def merge_adapters_into_model(
                 applied += 1
                 adapter_applied += 1
             report(
-                f"Merge coverage {Path(path).name}: applied={adapter_applied}, "
+                f"Merge coverage {name}: applied={adapter_applied}, "
                 f"skipped={adapter_skipped}"
             )
             del deltas
@@ -709,8 +759,8 @@ def merge_adapters_into_model(
         # and reconstruct, merge, and apply one module's deltas per iteration.
         adapter_factors: List[Dict[str, Tuple[torch.Tensor, torch.Tensor]]] = []
         scalings: List[float] = []
-        for path, cfg in zip(config.adapter_paths, adapter_configs):
-            print(f"  Loading adapter: {path}")
+        for path, name, cfg in zip(config.adapter_paths, display_names, adapter_configs):
+            print(f"  Loading adapter: {name} ({path})")
             state_dict = _load_adapter_state_dict(path)
             adapter_factors.append(_group_lora_factors(state_dict))
             del state_dict  # the factors keep references to the tensors

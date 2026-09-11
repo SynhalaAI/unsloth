@@ -48,6 +48,7 @@ _dare_ties_merge_key = _mod._dare_ties_merge_key
 _ctm_merge = _mod._ctm_merge
 _ctm_merge_key = _mod._ctm_merge_key
 _validate_adapters = _mod._validate_adapters
+_adapter_display_name = _mod._adapter_display_name
 merge_adapters_into_model = _mod.merge_adapters_into_model
 
 
@@ -233,6 +234,27 @@ class TestAdapterIO:
         os.makedirs(tmp_path / "empty_adapter")
         with pytest.raises(FileNotFoundError, match="No adapter weights"):
             _load_adapter_state_dict(str(tmp_path / "empty_adapter"))
+
+    def test_adapter_display_name_formatting(self):
+        # 1. Local path with checkpoint subfolder
+        assert _adapter_display_name("outputs/my_run/checkpoint-500") == "my_run (checkpoint-500)"
+        assert _adapter_display_name("C:/runs/adapter_lora/checkpoint-1200") == "adapter_lora (checkpoint-1200)"
+        assert _adapter_display_name("runs\\finance_lora\\checkpoint_50") == "finance_lora (checkpoint_50)"
+
+        # 2. Local path without checkpoint subfolder
+        assert _adapter_display_name("outputs/my_run") == "my_run"
+        assert _adapter_display_name("checkpoint-500") == "checkpoint-500"
+
+        # 3. HF dict format with subfolder
+        hf_with_subfolder = {"repo_id": "meta-llama/Llama-Adapter", "subfolder": "checkpoint-300"}
+        assert _adapter_display_name(hf_with_subfolder) == "meta-llama/Llama-Adapter (checkpoint-300)"
+
+        # 4. HF dict format without subfolder
+        hf_without_subfolder = {"repo_id": "meta-llama/Llama-Adapter", "subfolder": ""}
+        assert _adapter_display_name(hf_without_subfolder) == "meta-llama/Llama-Adapter"
+
+        # 5. Resolved path fallback
+        assert _adapter_display_name("", "C:/cache/runs/adapter1/checkpoint-100") == "adapter1 (checkpoint-100)"
 
 
 # ---------------------------------------------------------------------------
@@ -495,6 +517,35 @@ class TestEndToEnd:
         for name, param in result.named_parameters():
             if "q_proj" in name or "v_proj" in name:
                 assert not torch.allclose(param, torch.zeros_like(param))
+
+    def test_merge_report_contains_adapter_and_checkpoint_name(self, tmp_path):
+        in_f = out_f = 16
+        model = self._make_simple_model(in_f, out_f)
+
+        # Create nested directory: run_lora/checkpoint-500
+        run_dir = tmp_path / "finance_lora"
+        cp_dir = run_dir / "checkpoint-500"
+        cp_dir.mkdir(parents=True)
+        p1 = _make_adapter_dir(str(run_dir), "checkpoint-500", out_features=out_f, in_features=in_f, seed=5)
+
+        run2_dir = tmp_path / "math_lora"
+        cp2_dir = run2_dir / "checkpoint-1000"
+        cp2_dir.mkdir(parents=True)
+        p2 = _make_adapter_dir(str(run2_dir), "checkpoint-1000", out_features=out_f, in_features=in_f, seed=6)
+
+        reported_messages = []
+        merge_adapters_into_model(
+            model,
+            adapter_paths=[p1, p2],
+            weights=[0.6, 0.4],
+            method="linear",
+            report_callback=reported_messages.append,
+        )
+
+        # Verify that both the adapter directory and checkpoint directory appear in report messages
+        joined_reports = " ".join(reported_messages)
+        assert "finance_lora (checkpoint-500)" in joined_reports
+        assert "math_lora (checkpoint-1000)" in joined_reports
 
     def test_ties_merge_applied(self, tmp_path):
         in_f = out_f = 16
