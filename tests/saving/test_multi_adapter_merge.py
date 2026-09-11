@@ -25,18 +25,31 @@ import tempfile
 import pytest
 import torch
 
-from unsloth.multi_adapter_merge import (
-    MultiAdapterMergeConfig,
-    _resolve_adapter_path,
-    _linear_merge,
-    _load_adapter_config,
-    _load_adapter_state_dict,
-    _reconstruct_deltas,
-    _ties_merge,
-    _ties_merge_key,
-    _validate_adapters,
-    merge_adapters_into_model,
+import importlib.util
+_spec = importlib.util.spec_from_file_location(
+    "unsloth.multi_adapter_merge",
+    os.path.join(os.path.dirname(__file__), "..", "..", "unsloth", "multi_adapter_merge.py"),
 )
+_mod = importlib.util.module_from_spec(_spec)
+import sys
+sys.modules["unsloth.multi_adapter_merge"] = _mod
+_spec.loader.exec_module(_mod)
+
+MultiAdapterMergeConfig = _mod.MultiAdapterMergeConfig
+_resolve_adapter_path = _mod._resolve_adapter_path
+_linear_merge = _mod._linear_merge
+_load_adapter_config = _mod._load_adapter_config
+_load_adapter_state_dict = _mod._load_adapter_state_dict
+_reconstruct_deltas = _mod._reconstruct_deltas
+_ties_merge = _mod._ties_merge
+_ties_merge_key = _mod._ties_merge_key
+_dare_ties_merge = _mod._dare_ties_merge
+_dare_ties_merge_key = _mod._dare_ties_merge_key
+_ctm_merge = _mod._ctm_merge
+_ctm_merge_key = _mod._ctm_merge_key
+_validate_adapters = _mod._validate_adapters
+merge_adapters_into_model = _mod.merge_adapters_into_model
+
 
 
 # ---------------------------------------------------------------------------
@@ -135,6 +148,44 @@ class TestMultiAdapterMergeConfig:
         with pytest.raises(ValueError, match="density"):
             MultiAdapterMergeConfig(
                 adapter_paths=["a"], weights=[1.0], density=0.0
+            )
+
+    def test_dare_ties_config(self):
+        cfg = MultiAdapterMergeConfig(
+            adapter_paths=["a", "b"], weights=[1.0, 1.0], method="dare_ties", drop_rate=0.7
+        )
+        assert cfg.method == "dare_ties"
+        assert cfg.drop_rate == 0.7
+
+    def test_dare_alias(self):
+        cfg = MultiAdapterMergeConfig(
+            adapter_paths=["a"], weights=[1.0], method="dare"
+        )
+        assert cfg.method == "dare_ties"
+
+    def test_bad_drop_rate_raises(self):
+        with pytest.raises(ValueError, match="drop_rate"):
+            MultiAdapterMergeConfig(
+                adapter_paths=["a"], weights=[1.0], method="dare_ties", drop_rate=1.0
+            )
+
+    def test_ctm_config(self):
+        cfg = MultiAdapterMergeConfig(
+            adapter_paths=["a", "b"], weights=[1.0, 1.0], method="ctm", target_rank=8
+        )
+        assert cfg.method == "ctm"
+        assert cfg.target_rank == 8
+
+    def test_svd_alias(self):
+        cfg = MultiAdapterMergeConfig(
+            adapter_paths=["a"], weights=[1.0], method="svd"
+        )
+        assert cfg.method == "ctm"
+
+    def test_bad_target_rank_raises(self):
+        with pytest.raises(ValueError, match="target_rank"):
+            MultiAdapterMergeConfig(
+                adapter_paths=["a"], weights=[1.0], method="ctm", target_rank=0
             )
 
 
@@ -528,3 +579,73 @@ class TestEndToEnd:
                 assert not torch.allclose(param, torch.zeros_like(param))
             if "gate_proj" in name:
                 assert torch.allclose(param, torch.zeros_like(param))
+
+    def test_dare_ties_merge_applied(self, tmp_path):
+        in_f = out_f = 16
+        model = self._make_simple_model(in_f, out_f)
+
+        p1 = _make_adapter_dir(
+            str(tmp_path), "a1", out_features=out_f, in_features=in_f, seed=9
+        )
+        p2 = _make_adapter_dir(
+            str(tmp_path), "a2", out_features=out_f, in_features=in_f, seed=10
+        )
+
+        result = merge_adapters_into_model(
+            model,
+            adapter_paths=[p1, p2],
+            weights=[0.5, 0.5],
+            method="dare_ties",
+            density=0.5,
+            drop_rate=0.3,
+            seed=42,
+        )
+
+        for name, param in result.named_parameters():
+            if "q_proj" in name or "v_proj" in name:
+                assert torch.isfinite(param).all()
+                assert not torch.allclose(param, torch.zeros_like(param))
+
+    def test_ctm_merge_applied(self, tmp_path):
+        in_f = out_f = 16
+        model = self._make_simple_model(in_f, out_f)
+
+        p1 = _make_adapter_dir(
+            str(tmp_path), "a1", out_features=out_f, in_features=in_f, seed=11
+        )
+        p2 = _make_adapter_dir(
+            str(tmp_path), "a2", out_features=out_f, in_features=in_f, seed=12
+        )
+
+        result = merge_adapters_into_model(
+            model,
+            adapter_paths=[p1, p2],
+            weights=[0.5, 0.5],
+            method="ctm",
+            target_rank=4,
+        )
+
+        for name, param in result.named_parameters():
+            if "q_proj" in name or "v_proj" in name:
+                assert torch.isfinite(param).all()
+                assert not torch.allclose(param, torch.zeros_like(param))
+
+    def test_ctm_rank_truncation(self):
+        # Create a synthetic rank-8 matrix of size 16x16
+        gen = torch.Generator().manual_seed(42)
+        A = torch.randn(16, 8, generator=gen)
+        B = torch.randn(8, 16, generator=gen)
+        delta1 = A @ B
+
+        A2 = torch.randn(16, 8, generator=gen)
+        B2 = torch.randn(8, 16, generator=gen)
+        delta2 = A2 @ B2
+
+        # Truncate to rank 2
+        merged = _ctm_merge_key([delta1, delta2], [0.5, 0.5], target_rank=2)
+        assert merged.shape == (16, 16)
+        # SVD singular values of merged should have effective rank 2
+        s = torch.linalg.svdvals(merged)
+        assert s[0] > 1e-4
+        assert s[1] > 1e-4
+        assert torch.allclose(s[2:], torch.zeros_like(s[2:]), atol=1e-5)

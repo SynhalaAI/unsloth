@@ -81,7 +81,7 @@ def _resolve_adapter_path(adapter_path, hf_token=None) -> str:
 # Configuration
 # ---------------------------------------------------------------------------
 
-SUPPORTED_METHODS = ("linear", "ties")
+SUPPORTED_METHODS = ("linear", "ties", "dare_ties", "ctm")
 
 
 @dataclass
@@ -92,8 +92,14 @@ class MultiAdapterMergeConfig:
     weights: List[float]
     method: str = "linear"
     normalize_weights: bool = True
-    # TIES-specific: fraction of params to keep (top-k by magnitude).
+    # TIES / DARE-TIES specific: fraction of params to keep (top-k by magnitude).
     density: float = 0.5
+    # DARE-specific: fraction of weight deltas to randomly drop before rescaling.
+    drop_rate: float = 0.5
+    # CtM / SVD specific: target low-rank for truncated SVD compression.
+    target_rank: Optional[int] = None
+    # Deterministic seed for reproducible dropout masking in DARE.
+    seed: int = 42
 
     def __post_init__(self):
         if not self.adapter_paths:
@@ -104,6 +110,12 @@ class MultiAdapterMergeConfig:
                 f"must match number of weights ({len(self.weights)})."
             )
         method_lower = self.method.lower().replace("-", "_")
+        # Support aliases
+        if method_lower in ("dare", "dare_ties"):
+            method_lower = "dare_ties"
+        elif method_lower in ("svd", "ctm"):
+            method_lower = "ctm"
+
         if method_lower not in SUPPORTED_METHODS:
             raise ValueError(
                 f"Unsloth: Unknown merge method '{self.method}'. "
@@ -118,6 +130,14 @@ class MultiAdapterMergeConfig:
         if not (0.0 < self.density <= 1.0):
             raise ValueError(
                 f"Unsloth: density must be in (0, 1], got {self.density}."
+            )
+        if not (0.0 <= self.drop_rate < 1.0):
+            raise ValueError(
+                f"Unsloth: drop_rate must be in [0, 1), got {self.drop_rate}."
+            )
+        if self.target_rank is not None and self.target_rank <= 0:
+            raise ValueError(
+                f"Unsloth: target_rank must be positive, got {self.target_rank}."
             )
 
 
@@ -373,6 +393,142 @@ def _ties_merge(
     return merged
 
 
+def _dare_ties_merge_key(
+    per_adapter_deltas: List[torch.Tensor],
+    per_adapter_weights: List[float],
+    density: float = 0.5,
+    drop_rate: float = 0.5,
+    seed: Optional[int] = None,
+) -> torch.Tensor:
+    """DARE-TIES merge ONE module's deltas.
+
+    Steps:
+      1. **DARE (Drop and Rescale)**:
+         Randomly zero out deltas with probability `drop_rate` using a Bernoulli mask,
+         and rescale remaining values by `1 / (1 - drop_rate)` to keep expected magnitude intact.
+      2. **TIES-Merging**:
+         Trim bottom `(1 - density)` of values by magnitude, elect dominant sign,
+         and perform disjoint average of sign-aligned weights.
+    """
+    if len(per_adapter_deltas) == 1:
+        return per_adapter_deltas[0] * per_adapter_weights[0]
+
+    # Step 1: DARE mask & rescale
+    rescaled_deltas = []
+    scale = 1.0 / (1.0 - drop_rate) if drop_rate < 1.0 else 1.0
+    generator = torch.Generator().manual_seed(seed) if seed is not None else None
+
+    for i, delta in enumerate(per_adapter_deltas):
+        if drop_rate > 0.0:
+            # Keep probability is (1.0 - drop_rate)
+            keep_prob = 1.0 - drop_rate
+            mask = torch.bernoulli(
+                torch.full(delta.shape, keep_prob, dtype=torch.float32, device=delta.device),
+                generator=generator,
+            )
+            rescaled = delta * mask * scale
+        else:
+            rescaled = delta
+        rescaled_deltas.append(rescaled)
+
+    # Step 2 & 3: TIES merge on rescaled deltas
+    return _ties_merge_key(rescaled_deltas, per_adapter_weights, density=density)
+
+
+def _ctm_merge_key(
+    per_adapter_deltas: List[torch.Tensor],
+    per_adapter_weights: List[float],
+    target_rank: Optional[int] = None,
+) -> torch.Tensor:
+    """CtM (Compress-then-Merge) via SVD orthogonal subspace projection.
+
+    Steps:
+      1. Accumulate weighted delta sum ΔW = ∑ w_i * ΔW_i in float32.
+      2. If target_rank is specified and smaller than min(dim), perform truncated SVD:
+         ΔW ≈ U_r @ diag(S_r) @ Vh_r
+         This isolates the principal directions of task features, eliminating destructive
+         cross-adapter noise and parameter interference.
+    """
+    if len(per_adapter_deltas) == 1:
+        merged_delta = per_adapter_deltas[0] * per_adapter_weights[0]
+    else:
+        merged_delta = sum(d * w for d, w in zip(per_adapter_deltas, per_adapter_weights))
+
+    if target_rank is not None and merged_delta.ndim == 2:
+        m, n = merged_delta.shape
+        r = min(target_rank, m, n)
+        if r < min(m, n):
+            # Compute thin SVD in float32 for maximum numerical stability
+            U, S, Vh = torch.linalg.svd(merged_delta.to(torch.float32), full_matrices=False)
+            U_r = U[:, :r]
+            S_r = S[:r]
+            Vh_r = Vh[:r, :]
+            # Low-rank reconstruction
+            merged_delta = (U_r * S_r.unsqueeze(0)) @ Vh_r
+
+    return merged_delta
+
+
+def _dare_ties_merge(
+    all_deltas: List[Dict[str, torch.Tensor]],
+    weights: List[float],
+    density: float = 0.5,
+    drop_rate: float = 0.5,
+    seed: Optional[int] = None,
+) -> Dict[str, torch.Tensor]:
+    """Merge adapter deltas via DARE-TIES, key by key."""
+    merged: Dict[str, torch.Tensor] = {}
+    all_keys: set = set()
+    for d in all_deltas:
+        all_keys.update(d.keys())
+
+    for key in all_keys:
+        per_adapter_deltas = []
+        per_adapter_weights = []
+        for delta_dict, w in zip(all_deltas, weights):
+            if key in delta_dict:
+                per_adapter_deltas.append(delta_dict[key])
+                per_adapter_weights.append(w)
+
+        if not per_adapter_deltas:
+            continue
+
+        merged[key] = _dare_ties_merge_key(
+            per_adapter_deltas, per_adapter_weights, density=density, drop_rate=drop_rate, seed=seed
+        )
+
+    return merged
+
+
+def _ctm_merge(
+    all_deltas: List[Dict[str, torch.Tensor]],
+    weights: List[float],
+    target_rank: Optional[int] = None,
+) -> Dict[str, torch.Tensor]:
+    """Merge adapter deltas via CtM (SVD compression), key by key."""
+    merged: Dict[str, torch.Tensor] = {}
+    all_keys: set = set()
+    for d in all_deltas:
+        all_keys.update(d.keys())
+
+    for key in all_keys:
+        per_adapter_deltas = []
+        per_adapter_weights = []
+        for delta_dict, w in zip(all_deltas, weights):
+            if key in delta_dict:
+                per_adapter_deltas.append(delta_dict[key])
+                per_adapter_weights.append(w)
+
+        if not per_adapter_deltas:
+            continue
+
+        merged[key] = _ctm_merge_key(
+            per_adapter_deltas, per_adapter_weights, target_rank=target_rank
+        )
+
+    return merged
+
+
 # ---------------------------------------------------------------------------
 # Compatibility validation
 # ---------------------------------------------------------------------------
@@ -421,6 +577,9 @@ def merge_adapters_into_model(
     method: str = "linear",
     normalize_weights: bool = True,
     density: float = 0.5,
+    drop_rate: float = 0.5,
+    target_rank: Optional[int] = None,
+    seed: int = 42,
     hf_token=None,
     report_callback=None,
 ) -> torch.nn.Module:
@@ -434,13 +593,20 @@ def merge_adapters_into_model(
         Paths to PEFT adapter directories on disk.
     weights : list[float] | None
         Per-adapter merge weights.  Defaults to equal weighting.
-    method : ``"linear"`` | ``"ties"``
+    method : ``"linear"`` | ``"ties"`` | ``"dare_ties"`` | ``"ctm"``
         Merge strategy.
     normalize_weights : bool
         If ``True``, weights are normalised to sum to 1.
     density : float
-        TIES density parameter (fraction of top-k params to keep). Only used
-        when ``method="ties"``.
+        TIES/DARE-TIES density parameter (fraction of top-k params to keep). Only used
+        when ``method in ("ties", "dare_ties")``.
+    drop_rate : float
+        DARE drop rate (fraction of non-essential weight deltas to mask). Only used
+        when ``method="dare_ties"``.
+    target_rank : int | None
+        Target rank for SVD low-rank compression. Only used when ``method="ctm"``.
+    seed : int
+        Deterministic seed for reproducible dropout masking.
 
     Returns
     -------
@@ -461,6 +627,9 @@ def merge_adapters_into_model(
         method=method,
         normalize_weights=normalize_weights,
         density=density,
+        drop_rate=drop_rate,
+        target_rank=target_rank,
+        seed=seed,
     )
 
     def report(message: str) -> None:
@@ -535,11 +704,9 @@ def merge_adapters_into_model(
             del deltas
             gc.collect()
     else:
-        # TIES needs every adapter's deltas for a module only WHILE that module
-        # is merged, so stream: keep the small low-rank A/B factors resident
+        # TIES, DARE-TIES, and CtM need every adapter's deltas for a module only WHILE
+        # that module is merged, so stream: keep the small low-rank A/B factors resident
         # and reconstruct, merge, and apply one module's deltas per iteration.
-        # Peak extra memory is O(one weight matrix × number of adapters)
-        # instead of O(every weight × adapters).
         adapter_factors: List[Dict[str, Tuple[torch.Tensor, torch.Tensor]]] = []
         scalings: List[float] = []
         for path, cfg in zip(config.adapter_paths, adapter_configs):
@@ -569,9 +736,28 @@ def merge_adapters_into_model(
                 per_adapter_weights.append(weight)
             if not per_adapter_deltas:
                 continue
-            delta = _ties_merge_key(
-                per_adapter_deltas, per_adapter_weights, config.density
-            )
+
+            if config.method == "ties":
+                delta = _ties_merge_key(
+                    per_adapter_deltas, per_adapter_weights, config.density
+                )
+            elif config.method == "dare_ties":
+                delta = _dare_ties_merge_key(
+                    per_adapter_deltas,
+                    per_adapter_weights,
+                    density=config.density,
+                    drop_rate=config.drop_rate,
+                    seed=config.seed,
+                )
+            elif config.method == "ctm":
+                delta = _ctm_merge_key(
+                    per_adapter_deltas,
+                    per_adapter_weights,
+                    target_rank=config.target_rank,
+                )
+            else:
+                raise ValueError(f"Unsupported merge method: {config.method}")
+
             del per_adapter_deltas
             param = model_params.get(module_key)
             if param is None:
@@ -582,8 +768,7 @@ def merge_adapters_into_model(
             applied += 1
             del delta
         report(
-            f"Merge TIES: merged_modules={len(module_keys)}, "
-            f"density={config.density:.4f}"
+            f"Merge {config.method.upper()}: merged_modules={len(module_keys)}"
         )
         del adapter_factors
         gc.collect()
