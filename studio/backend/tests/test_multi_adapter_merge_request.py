@@ -32,7 +32,11 @@ class TestMultiAdapterMergeRequest(unittest.TestCase):
         cls.schema = cls.models.MultiAdapterMergeRequest
 
     def test_all_core_merge_methods_are_accepted(self):
-        for method in ("linear", "ties", "dare_ties", "ctm"):
+        # Keep in sync with SUPPORTED_METHODS in unsloth/multi_adapter_merge.py.
+        for method in (
+            "linear", "ties", "dare_ties", "dare_linear",
+            "magnitude_prune", "ctm", "cat",
+        ):
             model = self.schema(
                 adapter_paths = ["a", "b"], weights = [1.0, 1.0], method = method
             )
@@ -53,13 +57,14 @@ class TestMultiAdapterMergeRequest(unittest.TestCase):
         self.assertTrue(model.normalize_weights)
 
     def test_drop_rate_must_stay_in_the_dare_range(self):
-        ok = self.schema(adapter_paths = ["a", "b"], method = "dare_ties", drop_rate = 0.0)
-        self.assertEqual(ok.drop_rate, 0.0)
-        for bad in (-0.1, 1.0, 2.0):
-            with self.assertRaises(Exception):
-                self.schema(
-                    adapter_paths = ["a", "b"], method = "dare_ties", drop_rate = bad
-                )
+        for method in ("dare_ties", "dare_linear"):
+            ok = self.schema(adapter_paths = ["a", "b"], method = method, drop_rate = 0.0)
+            self.assertEqual(ok.drop_rate, 0.0)
+            for bad in (-0.1, 1.0, 2.0):
+                with self.assertRaises(Exception):
+                    self.schema(
+                        adapter_paths = ["a", "b"], method = method, drop_rate = bad
+                    )
 
     def test_target_rank_must_be_positive(self):
         ok = self.schema(adapter_paths = ["a", "b"], method = "ctm", target_rank = 16)

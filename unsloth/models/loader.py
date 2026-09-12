@@ -1136,15 +1136,17 @@ class FastLanguageModel(FastLlamaModel):
             Paths to PEFT adapter directories.
         weights : list[float] | None
             Per-adapter merge weights (default: equal).
-        method : ``"linear"`` | ``"ties"`` | ``"dare_ties"`` | ``"ctm"``
+        method : ``"linear"`` | ``"ties"`` | ``"dare_ties"`` | ``"dare_linear"`` | \
+``"magnitude_prune"`` | ``"ctm"`` | ``"cat"``
             Merge strategy.
         normalize_weights : bool
             Normalise weights to sum to 1.
         density : float
-            TIES/DARE-TIES density parameter (top-k fraction).  Ignored for ``"linear"``.
+            TIES/DARE-TIES/magnitude-prune density parameter (top-k fraction).  Ignored
+            for the other methods.
         drop_rate : float
             DARE drop rate (fraction of weight deltas randomly dropped).
-            Only used for ``"dare_ties"``.
+            Only used for ``"dare_ties"`` and ``"dare_linear"``.
         target_rank : int | None
             SVD low-rank compression target.  Only used for ``"ctm"``.
         max_seq_length, dtype, load_in_4bit, token, trust_remote_code :

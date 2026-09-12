@@ -65,7 +65,7 @@ class MultiAdapterMergeRequest(BaseModel):
 
     adapter_paths: List[Union[str, Dict[str, str]]] = Field(..., min_length = 2)
     weights: Optional[List[float]] = None
-    method: Literal["linear", "ties", "dare_ties", "ctm"] = "linear"
+    method: Literal["linear", "ties", "dare_ties", "dare_linear", "magnitude_prune", "ctm", "cat"] = "linear"
     normalize_weights: bool = True
     density: float = Field(0.5, gt = 0.0, le = 1.0)
     drop_rate: float = Field(0.5, ge = 0.0, lt = 1.0)

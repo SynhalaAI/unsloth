@@ -928,11 +928,13 @@ export function ExportPage() {
         adapterMergeSelections.every(
           (item) => item.path && Number.isFinite(Number(item.weight)),
         ) &&
-        ((mergeMethod !== "ties" && mergeMethod !== "dare_ties") ||
+        ((mergeMethod !== "ties" &&
+          mergeMethod !== "dare_ties" &&
+          mergeMethod !== "magnitude_prune") ||
           (Number.isFinite(Number(mergeDensity)) &&
             Number(mergeDensity) > 0 &&
             Number(mergeDensity) <= 1)) &&
-        (mergeMethod !== "dare_ties" ||
+        ((mergeMethod !== "dare_ties" && mergeMethod !== "dare_linear") ||
           (Number.isFinite(Number(mergeDropRate)) &&
             Number(mergeDropRate) >= 0 &&
             Number(mergeDropRate) < 1)) &&
@@ -1125,11 +1127,13 @@ export function ExportPage() {
         adapterMergeSelections.some(
           (item) => !item.path || !Number.isFinite(Number(item.weight)),
         ) ||
-        ((mergeMethod === "ties" || mergeMethod === "dare_ties") &&
+        ((mergeMethod === "ties" ||
+          mergeMethod === "dare_ties" ||
+          mergeMethod === "magnitude_prune") &&
           (!Number.isFinite(Number(mergeDensity)) ||
             Number(mergeDensity) <= 0 ||
             Number(mergeDensity) > 1)) ||
-        (mergeMethod === "dare_ties" &&
+        ((mergeMethod === "dare_ties" || mergeMethod === "dare_linear") &&
           (!Number.isFinite(Number(mergeDropRate)) ||
             Number(mergeDropRate) < 0 ||
             Number(mergeDropRate) >= 1)) ||
@@ -1188,7 +1192,7 @@ export function ExportPage() {
           normalize_weights: true,
           density: mergeDensityValue,
           drop_rate:
-            mergeMethod === "dare_ties" &&
+            (mergeMethod === "dare_ties" || mergeMethod === "dare_linear") &&
             Number.isFinite(mergeDropRateValue) &&
             mergeDropRateValue >= 0 &&
             mergeDropRateValue < 1
@@ -2076,19 +2080,22 @@ export function ExportPage() {
                             ))}
                           </SelectContent>
                         </Select>
-                        {(mergeMethod === "ties" || mergeMethod === "dare_ties") && (
+                        {(mergeMethod === "ties" ||
+                          mergeMethod === "dare_ties" ||
+                          mergeMethod === "magnitude_prune") && (
                           <Input
                             type="number"
                             min="0.01"
                             max="1"
                             step="0.05"
-                            aria-label="TIES density"
+                            aria-label="Merge density"
                             value={mergeDensity}
                             onChange={(event) => setMergeDensity(event.target.value)}
                             className="w-24"
                           />
                         )}
-                        {mergeMethod === "dare_ties" && (
+                        {(mergeMethod === "dare_ties" ||
+                          mergeMethod === "dare_linear") && (
                           <Input
                             type="number"
                             min="0"

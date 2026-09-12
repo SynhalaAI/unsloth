@@ -336,12 +336,20 @@ export const METHOD_LABELS: Record<TrainingMethod, string> = {
   cpt: "Continued Pretraining",
 };
 
-export type MergeMethodType = "linear" | "ties" | "dare_ties" | "ctm";
+export type MergeMethodType =
+  | "linear"
+  | "ties"
+  | "dare_ties"
+  | "dare_linear"
+  | "magnitude_prune"
+  | "ctm";
 
 export const MERGE_METHODS: { value: MergeMethodType; label: string; description: string }[] = [
   { value: "linear", label: "Linear", description: "Simple weighted average of adapter weights." },
   { value: "ties", label: "TIES", description: "Trim Elect Interpolate Sign - resolves conflicting weight signs." },
   { value: "dare_ties", label: "DARE-TIES", description: "Dropout-aware TIES - randomly drops small deltas before merging." },
+  { value: "dare_linear", label: "DARE-Linear", description: "Dropout-aware weighted sum - DARE dropout without sign election." },
+  { value: "magnitude_prune", label: "Mag-Prune", description: "Keeps the top-density magnitudes per adapter, then takes the weighted sum." },
   { value: "ctm", label: "CtM", description: "Compressed Target Merge - low-rank SVD compression after merging." },
 ];
 
