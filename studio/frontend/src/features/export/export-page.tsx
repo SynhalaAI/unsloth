@@ -82,6 +82,8 @@ import {
   GUIDE_STEPS,
   MERGED_FORMATS,
   type MergedFormatOption,
+  MERGE_METHODS,
+  type MergeMethodType,
   QUANT_OPTIONS,
   buildQuantSizeLabels,
   getEstimatedSize,
@@ -120,16 +122,29 @@ type SourceTab = "local" | "checkpoint" | "hf";
 type SourceMode = "checkpoint" | "model";
 
 type AdapterMergeSelection = {
+  id: string;
   path: string;
   weight: string;
   source: "local" | "hf";
   checkpoint: string;
 };
 
+const makeAdapterSelection = (
+  partial?: Partial<Omit<AdapterMergeSelection, "id">> & { id?: string },
+): AdapterMergeSelection => ({
+  id: partial?.id || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)),
+  path: partial?.path ?? "",
+  weight: partial?.weight ?? "1",
+  source: partial?.source ?? "local",
+  checkpoint: partial?.checkpoint ?? "",
+});
+
 type AdapterMergeConfig = {
   adapters: AdapterMergeSelection[];
-  method: "linear" | "ties";
+  method: MergeMethodType;
   density: string;
+  dropout?: string;
+  rank?: string;
   destination: "local" | "hub";
   hfUsername: string;
   modelName: string;
@@ -396,8 +411,11 @@ export function ExportPage() {
   const [loraGgufOuttype, setLoraGgufOuttype] = useState<string>("q8_0");
   // GGUF method: export the full model as GGUF quants, or (for an adapter checkpoint) a GGUF LoRA.
   const [ggufTarget, setGgufTarget] = useState<"model" | "lora">("model");
-  const [mergeMethod, setMergeMethod] = useState<"linear" | "ties">("linear");
+  const [mergeMethod, setMergeMethod] = useState<MergeMethodType>("linear");
   const [mergeDensity, setMergeDensity] = useState("0.5");
+  // DARE-TIES drop rate and CtM SVD target rank: shown only for their merge methods.
+  const [mergeDropRate, setMergeDropRate] = useState("0.5");
+  const [mergeTargetRank, setMergeTargetRank] = useState("");
   const [adapterMergeSelections, setAdapterMergeSelections] = useState<
     AdapterMergeSelection[]
   >([]);
@@ -910,10 +928,18 @@ export function ExportPage() {
         adapterMergeSelections.every(
           (item) => item.path && Number.isFinite(Number(item.weight)),
         ) &&
-        (mergeMethod !== "ties" ||
+        ((mergeMethod !== "ties" && mergeMethod !== "dare_ties") ||
           (Number.isFinite(Number(mergeDensity)) &&
             Number(mergeDensity) > 0 &&
-            Number(mergeDensity) <= 1))))
+            Number(mergeDensity) <= 1)) &&
+        (mergeMethod !== "dare_ties" ||
+          (Number.isFinite(Number(mergeDropRate)) &&
+            Number(mergeDropRate) >= 0 &&
+            Number(mergeDropRate) < 1)) &&
+        (mergeMethod !== "ctm" ||
+          mergeTargetRank.trim() === "" ||
+          (Number.isInteger(Number(mergeTargetRank)) &&
+            Number(mergeTargetRank) >= 1))))
   );
 
   const applyHfSourceModel = useCallback((value: string) => {
@@ -982,10 +1008,17 @@ export function ExportPage() {
   // ---- Export handlers ----
   // Assemble the run params and hand off to the global runtime store, which drives the run.
   const handleExportAdapterConfig = () => {
-    const config: AdapterMergeConfig = {
-      adapters: adapterMergeSelections,
+    const config = {
+      adapters: adapterMergeSelections.map(({ path, weight, source, checkpoint }) => ({
+        path,
+        weight,
+        source,
+        checkpoint,
+      })),
       method: mergeMethod,
       density: mergeDensity,
+      dropout: mergeDropRate,
+      rank: mergeTargetRank,
       destination,
       hfUsername,
       modelName,
@@ -1014,20 +1047,34 @@ export function ExportPage() {
       try {
         const config = loadYaml(String(reader.result)) as Partial<AdapterMergeConfig>;
         if (!Array.isArray(config.adapters) || config.adapters.length === 0) return;
-        const adapters = config.adapters.filter(
+        const rawAdapters = config.adapters.filter(
           (adapter): adapter is AdapterMergeSelection =>
             typeof adapter?.path === "string" &&
             (adapter.source === "local" || adapter.source === "hf") &&
             typeof adapter.weight === "string" &&
             typeof adapter.checkpoint === "string",
         );
-        if (adapters.length === 0) return;
+        if (rawAdapters.length === 0) return;
+        const adapters = rawAdapters.map((item) =>
+          makeAdapterSelection({
+            path: item.path,
+            weight: item.weight,
+            source: item.source,
+            checkpoint: item.checkpoint,
+          }),
+        );
         setAdapterMergeSelections(adapters);
-        if (config.method === "linear" || config.method === "ties") {
+        if (config.method && MERGE_METHODS.some((item) => item.value === config.method)) {
           setMergeMethod(config.method);
         }
         if (typeof config.density === "string") {
           setMergeDensity(config.density);
+        }
+        if (typeof config.dropout === "string") {
+          setMergeDropRate(config.dropout);
+        }
+        if (typeof config.rank === "string") {
+          setMergeTargetRank(config.rank);
         }
         if (config.destination === "local" || config.destination === "hub") {
           setDestination(config.destination);
@@ -1078,10 +1125,18 @@ export function ExportPage() {
         adapterMergeSelections.some(
           (item) => !item.path || !Number.isFinite(Number(item.weight)),
         ) ||
-        (mergeMethod === "ties" &&
+        ((mergeMethod === "ties" || mergeMethod === "dare_ties") &&
           (!Number.isFinite(Number(mergeDensity)) ||
             Number(mergeDensity) <= 0 ||
-            Number(mergeDensity) > 1)))
+            Number(mergeDensity) > 1)) ||
+        (mergeMethod === "dare_ties" &&
+          (!Number.isFinite(Number(mergeDropRate)) ||
+            Number(mergeDropRate) < 0 ||
+            Number(mergeDropRate) >= 1)) ||
+        (mergeMethod === "ctm" &&
+          mergeTargetRank.trim() !== "" &&
+          (!Number.isInteger(Number(mergeTargetRank)) ||
+            Number(mergeTargetRank) < 1)))
     ) {
       startRequestInFlightRef.current = false;
       setStartRequestInFlight(false);
@@ -1110,6 +1165,7 @@ export function ExportPage() {
     }
     const checkpointPath = selectedCp?.path ?? null;
     const mergeDensityValue = Number(mergeDensity);
+    const mergeDropRateValue = Number(mergeDropRate);
     // A Local picker value is a model ID; the merge needs the real directory.
     const localAdapterDir = (value: string) => localMetaById.get(value)?.path ?? value;
     const mergeConfig = multiAdapterMerge && exportMethod === "merged"
@@ -1131,6 +1187,19 @@ export function ExportPage() {
           method: mergeMethod,
           normalize_weights: true,
           density: mergeDensityValue,
+          drop_rate:
+            mergeMethod === "dare_ties" &&
+            Number.isFinite(mergeDropRateValue) &&
+            mergeDropRateValue >= 0 &&
+            mergeDropRateValue < 1
+              ? mergeDropRateValue
+              : 0.5,
+          target_rank:
+            mergeMethod === "ctm" &&
+            Number.isInteger(Number(mergeTargetRank)) &&
+            Number(mergeTargetRank) >= 1
+              ? Number(mergeTargetRank)
+              : undefined,
         }
       : undefined;
 
@@ -1244,6 +1313,8 @@ export function ExportPage() {
     localMetaById,
     mergeMethod,
     mergeDensity,
+    mergeDropRate,
+    mergeTargetRank,
     exportUnsupported,
     destination,
     saveDirectory,
@@ -1990,7 +2061,7 @@ export function ExportPage() {
                         </Button>
                         <Select
                           value={mergeMethod}
-                          onValueChange={(value: "linear" | "ties") =>
+                          onValueChange={(value: MergeMethodType) =>
                             setMergeMethod(value)
                           }
                         >
@@ -1998,11 +2069,14 @@ export function ExportPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="linear">Linear</SelectItem>
-                            <SelectItem value="ties">TIES</SelectItem>
+                            {MERGE_METHODS.map((method) => (
+                              <SelectItem key={method.value} value={method.value}>
+                                {method.label}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
-                        {mergeMethod === "ties" && (
+                        {(mergeMethod === "ties" || mergeMethod === "dare_ties") && (
                           <Input
                             type="number"
                             min="0.01"
@@ -2014,21 +2088,45 @@ export function ExportPage() {
                             className="w-24"
                           />
                         )}
+                        {mergeMethod === "dare_ties" && (
+                          <Input
+                            type="number"
+                            min="0"
+                            max="0.95"
+                            step="0.05"
+                            aria-label="DARE drop rate"
+                            value={mergeDropRate}
+                            onChange={(event) => setMergeDropRate(event.target.value)}
+                            className="w-24"
+                          />
+                        )}
+                        {mergeMethod === "ctm" && (
+                          <Input
+                            type="number"
+                            min="1"
+                            step="1"
+                            placeholder="auto"
+                            aria-label="CtM target rank"
+                            value={mergeTargetRank}
+                            onChange={(event) => setMergeTargetRank(event.target.value)}
+                            className="w-24"
+                          />
+                        )}
                       </div>
                     </div>
 
                     <div className="space-y-3">
                         {adapterMergeSelections.map((selection, index) => (
                           <div
-                            key={`adapter-row-${index}`}
+                            key={selection.id}
                             className="grid grid-cols-1 gap-2 sm:grid-cols-[7rem_minmax(0,1fr)_minmax(10rem,auto)_6rem_auto] sm:items-center"
                           >
                             <Select
                               value={selection.source}
                               onValueChange={(source: "local" | "hf") =>
                                 setAdapterMergeSelections((current) =>
-                                  current.map((item, itemIndex) =>
-                                    itemIndex === index
+                                  current.map((item) =>
+                                    item.id === selection.id
                                       ? { ...item, source, path: "", checkpoint: "" }
                                       : item,
                                   ),
@@ -2051,13 +2149,13 @@ export function ExportPage() {
                               localResultIds={localResultIds}
                               localMetaById={localMetaById}
                               selectedPaths={adapterMergeSelections
-                                .filter((_, itemIndex) => itemIndex !== index)
+                                .filter((item) => item.id !== selection.id)
                                 .map((item) => item.path)}
                               excludedPath={sourceBaseModelName}
                               onChange={(path) =>
                                 setAdapterMergeSelections((current) =>
-                                  current.map((item, itemIndex) =>
-                                    itemIndex === index
+                                  current.map((item) =>
+                                    item.id === selection.id
                                       ? { ...item, path, checkpoint: "" }
                                       : item,
                                   ),
@@ -2069,8 +2167,8 @@ export function ExportPage() {
                                 value={selection.checkpoint}
                                 onValueChange={(checkpoint) =>
                                   setAdapterMergeSelections((current) =>
-                                    current.map((item, itemIndex) =>
-                                      itemIndex === index ? { ...item, checkpoint } : item,
+                                    current.map((item) =>
+                                      item.id === selection.id ? { ...item, checkpoint } : item,
                                     ),
                                   )
                                 }
@@ -2106,8 +2204,8 @@ export function ExportPage() {
                               value={selection.weight}
                               onChange={(event) =>
                                 setAdapterMergeSelections((current) =>
-                                  current.map((item, itemIndex) =>
-                                    itemIndex === index
+                                  current.map((item) =>
+                                    item.id === selection.id
                                       ? { ...item, weight: event.target.value }
                                       : item,
                                   ),
@@ -2121,7 +2219,7 @@ export function ExportPage() {
                               size="sm"
                               onClick={() =>
                                 setAdapterMergeSelections((current) =>
-                                  current.filter((_, itemIndex) => itemIndex !== index),
+                                  current.filter((item) => item.id !== selection.id),
                                 )
                               }
                             >
@@ -2140,12 +2238,12 @@ export function ExportPage() {
                                 const previous = current[current.length - 1];
                                 return [
                                   ...current,
-                                  {
+                                  makeAdapterSelection({
                                     path: "",
                                     weight: "1",
                                     source: previous?.source ?? "local",
                                     checkpoint: "",
-                                  },
+                                  }),
                                 ];
                               });
                             }}

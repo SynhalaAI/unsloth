@@ -682,6 +682,8 @@ class ExportBackend:
                     method = merge_adapters.get("method", "linear"),
                     normalize_weights = merge_adapters.get("normalize_weights", True),
                     density = merge_adapters.get("density", 0.5),
+                    drop_rate = merge_adapters.get("drop_rate", 0.5),
+                    target_rank = merge_adapters.get("target_rank"),
                     hf_token = token,
                     report_callback = merge_report_callback,
                 )

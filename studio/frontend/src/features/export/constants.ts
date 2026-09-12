@@ -336,6 +336,16 @@ export const METHOD_LABELS: Record<TrainingMethod, string> = {
   cpt: "Continued Pretraining",
 };
 
+export type MergeMethodType = "linear" | "ties" | "dare_ties" | "ctm";
+
+export const MERGE_METHODS: { value: MergeMethodType; label: string; description: string }[] = [
+  { value: "linear", label: "Linear", description: "Simple weighted average of adapter weights." },
+  { value: "ties", label: "TIES", description: "Trim Elect Interpolate Sign - resolves conflicting weight signs." },
+  { value: "dare_ties", label: "DARE-TIES", description: "Dropout-aware TIES - randomly drops small deltas before merging." },
+  { value: "ctm", label: "CtM", description: "Compressed Target Merge - low-rank SVD compression after merging." },
+];
+
+export const GUIDE_STEPS = [
 export const GUIDE_STEPS = [
   "Select a training checkpoint to export from",
   "Choose an export method based on your use case",
