@@ -93,6 +93,29 @@ test("validation covers the new strategies in both canExport and the start gate"
   assert.match(exportPageSource, /mergeMethod === "magnitude_prune"\) &&/);
 });
 
+test("merge parameter inputs carry hover hints", () => {
+  // The number inputs are bare (no visible labels), so each one gets the UI's
+  // standard InfoHint affordance explaining what value belongs in it.
+  assert.match(exportPageSource, /import \{ InfoHint \} from "@\/components\/ui\/info-hint";/);
+  // The method select explains itself from the shared MERGE_METHODS description.
+  assert.match(
+    exportPageSource,
+    /<InfoHint>\s*\{MERGE_METHODS\.find\(\(method\) => method\.value === mergeMethod\)\s*\?\.description/,
+  );
+  for (const hintText of [
+    "Fraction of each adapter's strongest weight changes to",
+    "Fraction of weight changes randomly dropped before",
+    "Optional SVD compression rank (≥1)",
+  ]) {
+    assert.ok(exportPageSource.includes(hintText), `missing hint: ${hintText}`);
+  }
+  // Hints sit beside their inputs (input + InfoHint wrapped together).
+  assert.match(
+    exportPageSource,
+    /<span className="flex items-center gap-1">\s*<Input\s+type="number"\s+min="0\.01"/,
+  );
+});
+
 test("the new merge states feed the runtime request deps to avoid stale sends", () => {
   assert.match(
     exportPageSource,

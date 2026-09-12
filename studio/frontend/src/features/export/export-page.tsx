@@ -71,6 +71,7 @@ import {
   useState,
   type ChangeEvent,
 } from "react";
+import { InfoHint } from "@/components/ui/info-hint";
 import { useShallow } from "zustand/react/shallow";
 import { fetchAdapterCheckpoints, type ModelCheckpoints } from "./api/export-api";
 import { ExportRunPanel } from "./components/export-run-panel";
@@ -2080,44 +2081,70 @@ export function ExportPage() {
                             ))}
                           </SelectContent>
                         </Select>
+                        <InfoHint>
+                          {MERGE_METHODS.find((method) => method.value === mergeMethod)
+                            ?.description ??
+                            "How several LoRA checkpoints are blended into one model."}
+                        </InfoHint>
                         {(mergeMethod === "ties" ||
                           mergeMethod === "dare_ties" ||
                           mergeMethod === "magnitude_prune") && (
-                          <Input
-                            type="number"
-                            min="0.01"
-                            max="1"
-                            step="0.05"
-                            aria-label="Merge density"
-                            value={mergeDensity}
-                            onChange={(event) => setMergeDensity(event.target.value)}
-                            className="w-24"
-                          />
+                          <span className="flex items-center gap-1">
+                            <Input
+                              type="number"
+                              min="0.01"
+                              max="1"
+                              step="0.05"
+                              aria-label="Merge density"
+                              value={mergeDensity}
+                              onChange={(event) => setMergeDensity(event.target.value)}
+                              className="w-24"
+                            />
+                            <InfoHint>
+                              Fraction of each adapter's strongest weight changes to
+                              keep (0.01–1). Lower = cleaner merge, higher = more
+                              detail preserved. Used by TIES, DARE-TIES and Mag-Prune.
+                            </InfoHint>
+                          </span>
                         )}
                         {(mergeMethod === "dare_ties" ||
                           mergeMethod === "dare_linear") && (
-                          <Input
-                            type="number"
-                            min="0"
-                            max="0.95"
-                            step="0.05"
-                            aria-label="DARE drop rate"
-                            value={mergeDropRate}
-                            onChange={(event) => setMergeDropRate(event.target.value)}
-                            className="w-24"
-                          />
+                          <span className="flex items-center gap-1">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="0.95"
+                              step="0.05"
+                              aria-label="DARE drop rate"
+                              value={mergeDropRate}
+                              onChange={(event) => setMergeDropRate(event.target.value)}
+                              className="w-24"
+                            />
+                            <InfoHint>
+                              Fraction of weight changes randomly dropped before
+                              merging (0–0.95). Surviving values are rescaled so the
+                              adapter's effect stays balanced. Used by DARE-TIES and
+                              DARE-Linear.
+                            </InfoHint>
+                          </span>
                         )}
                         {mergeMethod === "ctm" && (
-                          <Input
-                            type="number"
-                            min="1"
-                            step="1"
-                            placeholder="auto"
-                            aria-label="CtM target rank"
-                            value={mergeTargetRank}
-                            onChange={(event) => setMergeTargetRank(event.target.value)}
-                            className="w-24"
-                          />
+                          <span className="flex items-center gap-1">
+                            <Input
+                              type="number"
+                              min="1"
+                              step="1"
+                              placeholder="auto"
+                              aria-label="CtM target rank"
+                              value={mergeTargetRank}
+                              onChange={(event) => setMergeTargetRank(event.target.value)}
+                              className="w-24"
+                            />
+                            <InfoHint>
+                              Optional SVD compression rank (≥1). Leave empty to keep
+                              the full rank after merging. Used by CtM only.
+                            </InfoHint>
+                          </span>
                         )}
                       </div>
                     </div>
