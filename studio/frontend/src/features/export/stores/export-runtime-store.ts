@@ -8,6 +8,7 @@ import {
   exportGGUF,
   exportLoRA,
   exportMerged,
+  fetchExportLogs,
   getExportStatus,
   isRecoverableTransportError,
   loadCheckpoint,
@@ -379,6 +380,23 @@ export const useExportRuntimeStore = create<ExportRuntimeStore>()((set, get) => 
   },
 
   runExport: async (params) => {
+    // Baseline the log cursor BEFORE flipping isExporting: the lifecycle hook
+    // opens the SSE stream and the JSON poll the moment isExporting flips, and
+    // the backend's run_start_seq (its default cursor for a since-less request)
+    // only advances once the load-checkpoint POST lands — so a since-less
+    // connect would replay the previous run's buffered log lines into this
+    // run's panel. The current highest seq cuts those off at the source.
+    let logBaseline: number | null = null;
+    try {
+      logBaseline = (await fetchExportLogs(null)).cursor;
+      // A non-numeric cursor (API drift) must degrade to the previous
+      // behavior, never seed `lastSeq` with something the de-duper chokes on.
+      if (!Number.isFinite(logBaseline)) logBaseline = null;
+    } catch {
+      // Baseline read failed: keep lastSeq=null, which restores the previous
+      // (occasionally stale-buffered) seeding behavior without a new failure
+      // mode.
+    }
     const runId = get().runId + 1;
     const quantTotal =
       params.exportMethod === "gguf"
@@ -398,7 +416,7 @@ export const useExportRuntimeStore = create<ExportRuntimeStore>()((set, get) => 
       quantIndex: 0,
       stage: null,
       logLines: [],
-      lastSeq: null,
+      lastSeq: logBaseline,
       connected: false,
       reconnecting: false,
       startedAt: Date.now(),

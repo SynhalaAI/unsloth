@@ -35,6 +35,7 @@ export const exportLoRA = record("exportLoRA");
 export const cleanupExport = record("cleanupExport");
 export const cancelExport = record("cancelExport");
 export const getExportStatus = record("getExportStatus");
+export const fetchExportLogs = record("fetchExportLogs");
 
 export function isRecoverableTransportError() {
   return false;
