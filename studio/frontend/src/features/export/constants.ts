@@ -346,7 +346,6 @@ export const MERGE_METHODS: { value: MergeMethodType; label: string; description
 ];
 
 export const GUIDE_STEPS = [
-export const GUIDE_STEPS = [
   "Select a training checkpoint to export from",
   "Choose an export method based on your use case",
   "Pick quantization levels if using GGUF",
