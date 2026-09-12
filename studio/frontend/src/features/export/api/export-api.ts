@@ -4,6 +4,7 @@
 import { authFetch } from "@/features/auth";
 import { readFastApiError } from "@/lib/format-fastapi-error";
 import { openStreamResponse } from "@/lib/open-stream-response";
+import { type MergeMethodType } from "../constants";
 
 const readError = (r: Response): Promise<string> => readFastApiError(r);
 
@@ -136,9 +137,13 @@ export async function loadCheckpoint(params: {
   merge_adapters?: {
     adapter_paths: (string | { repo_id: string; subfolder?: string })[];
     weights?: number[];
-    method?: "linear" | "ties";
+    method?: MergeMethodType;
     normalize_weights?: boolean;
     density?: number;
+    /** DARE-TIES dropout rate; backend defaults to 0.5. */
+    drop_rate?: number;
+    /** CtM truncated-SVD rank; backend defaults to None. */
+    target_rank?: number;
   } | null;
 }): Promise<ExportOperationResponse> {
   const response = await authFetch("/api/export/load-checkpoint", {

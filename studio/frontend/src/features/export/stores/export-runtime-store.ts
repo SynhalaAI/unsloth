@@ -16,7 +16,7 @@ import {
   type ExportOperationResponse,
   type ExportStatus,
 } from "../api/export-api";
-import type { ExportMethod } from "../constants";
+import type { ExportMethod, MergeMethodType } from "../constants";
 
 /** Thrown by status recovery when the backend reports the op was cancelled. */
 class ExportCanceledError extends Error {
@@ -140,9 +140,13 @@ export interface RunExportParams {
   multiAdapterMerge?: {
     adapter_paths: (string | { repo_id: string; subfolder?: string })[];
     weights: number[];
-    method: "linear" | "ties";
+    method: MergeMethodType;
     normalize_weights: boolean;
     density: number;
+    /** DARE-TIES dropout rate; backend defaults to 0.5. */
+    drop_rate?: number;
+    /** CtM truncated-SVD rank; backend defaults to None. */
+    target_rank?: number;
   };
   exportMethod: ExportMethod;
   isAdapter: boolean;

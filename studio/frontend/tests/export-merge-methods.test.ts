@@ -4,12 +4,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { MERGE_METHODS } from "../src/features/export/constants.ts";
+import type { loadCheckpoint } from "../src/features/export/api/export-api.ts";
+import { MERGE_METHODS, type MergeMethodType } from "../src/features/export/constants.ts";
+import type { RunExportParams } from "../src/features/export/stores/export-runtime-store.ts";
 
 import { readSrc } from "./helpers/kit.ts";
 
 const constantsSource = readSrc("features/export/constants.ts");
 const exportPageSource = readSrc("features/export/export-page.tsx");
+const storeSource = readSrc("features/export/stores/export-runtime-store.ts");
+const apiSource = readSrc("features/export/api/export-api.ts");
 
 test("the merge picker lists every method the core merger supports", () => {
   // Keep in sync with SUPPORTED_METHODS in unsloth/multi_adapter_merge.py.
@@ -74,4 +78,49 @@ test("the new merge states feed the runtime request deps to avoid stale sends", 
     exportPageSource,
     /mergeMethod,\s*\n\s*mergeDensity,\s*\n\s*mergeDropRate,\s*\n\s*mergeTargetRank,/,
   );
+});
+
+test("the store and api pass-through types carry every merge field", () => {
+  // The page builds the full payload (method incl. dare_ties/ctm, drop_rate,
+  // target_rank); the store param and the load-checkpoint request must accept
+  // all of it, not just the original linear/ties pair.
+  assert.match(storeSource, /multiAdapterMerge\?: \{/);
+  assert.match(storeSource, /method: MergeMethodType;/);
+  assert.match(storeSource, /drop_rate\?: number;/);
+  assert.match(storeSource, /target_rank\?: number;/);
+  assert.match(apiSource, /method\?: MergeMethodType;/);
+  assert.match(apiSource, /drop_rate\?: number;/);
+  assert.match(apiSource, /target_rank\?: number;/);
+  // The narrowed linear/ties-only unions must be gone from both pass-throughs.
+  assert.doesNotMatch(storeSource, /method: "linear" \| "ties"/);
+  assert.doesNotMatch(apiSource, /method\?: "linear" \| "ties"/);
+});
+
+test("the page-built merge payload satisfies the runtime request chain", () => {
+  // Compile-time guard: `npm run typecheck` (tsconfig.test.json includes
+  // tests/) fails this file if either pass-through type is narrowed again.
+  // `import type` is erased under --experimental-strip-types, so the runtime
+  // harness here only exercises the object shapes.
+  type StoreMerge = NonNullable<RunExportParams["multiAdapterMerge"]>;
+  type ApiMerge = NonNullable<Parameters<typeof loadCheckpoint>[0]["merge_adapters"]>;
+
+  const strategies: MergeMethodType[] = MERGE_METHODS.map((method) => method.value);
+  assert.deepEqual(strategies, ["linear", "ties", "dare_ties", "ctm"]);
+  for (const method of strategies) {
+    // Mirrors export-page.tsx's mergeConfig, including the explicit-undefined
+    // target_rank the non-CtM strategies produce.
+    const pagePayload: StoreMerge = {
+      adapter_paths: ["local/path", { repo_id: "org/repo", subfolder: "ckpt" }],
+      weights: [0.6, 0.4],
+      method,
+      normalize_weights: true,
+      density: 0.5,
+      drop_rate: 0.2,
+      target_rank: method === "ctm" ? 16 : undefined,
+    };
+    assert.equal(pagePayload.adapter_paths.length, pagePayload.weights.length);
+    // The store param must flow into the load-checkpoint request unchanged.
+    const apiPayload: ApiMerge = pagePayload;
+    assert.equal(apiPayload.method, method);
+  }
 });
