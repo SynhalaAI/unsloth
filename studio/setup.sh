@@ -3008,6 +3008,26 @@ else
     step "transformers" "5.10.2 sidecar current"
     _sidecar_top_up_tiktoken "$VENV_T5_510_DIR" "5.10"
 fi
+
+# ── 6c. Install mergekit for multi-adapter merging ──
+_setup_install_mergekit() {
+    [ "${UNSLOTH_DISABLE_MERGEKIT:-0}" != "1" ] || return 0
+    if python -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('mergekit') else 1)" >/dev/null 2>&1; then
+        step "mergekit" "already installed"
+        return 0
+    fi
+    if _uv_offline_requested || [ "${_OFFLINE_FAST_PATH:-false}" = true ]; then
+        substep "mergekit is not installed but UV_OFFLINE is set -- left for the next online update"
+        return 0
+    fi
+    step "mergekit" "installing mergekit..."
+    if run_quiet_no_exit "install mergekit" fast_install "mergekit"; then
+        step "mergekit" "installed"
+    else
+        substep "[WARN] could not install mergekit; mergekit-based merging will be unavailable."
+    fi
+}
+_setup_install_mergekit
 fi
 
 # ── GPU detection summary (mirrors setup.ps1 step "gpu" block) ──
