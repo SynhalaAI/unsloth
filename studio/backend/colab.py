@@ -132,7 +132,11 @@ def _seed_hf_token_from_environment() -> None:
         return
     from storage import credential_secrets
 
-    credential_secrets.save_hf_token_if_absent(token)
+    # A Drive-restored studio.db can carry a credential row encrypted by a previous runtime's
+    # key, which get_secret() can never decrypt (fresh auth.db key on every ephemeral VM). The
+    # notebook secret is the source of truth in a hosted session, so replace such a stale row
+    # outright instead of keeping it behind a save_hf_token_if_absent() no-op.
+    credential_secrets.save_hf_token(token)
 
 
 def _colab_credentials_still_valid(username: str, password: str) -> bool:
