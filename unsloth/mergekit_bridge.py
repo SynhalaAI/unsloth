@@ -33,12 +33,16 @@ the merge config, so the parent's sys.path and ``PYTHONPATH`` are deliberately
 
 Method policy
 -------------
-``linear``, ``ties``, ``dare_ties`` and ``dare_linear`` are delegated to
-mergekit's own registered implementations.  ``magnitude_prune``, ``ctm`` and
-``cat`` have no mergekit equivalent (``della`` is *not* equivalent to
-``magnitude_prune``: it rescales outliers after pruning) and exist only in
-``unsloth/multi_adapter_merge.py``, so they keep the legacy engine and this
-module reports ``LEGACY_ONLY_METHODS`` for them.
+``linear``, ``ties``, ``dare_ties``, ``dare_linear``, ``task_arithmetic``,
+``della``/``della_ties`` (alias), ``della_linear`` and ``model_stock`` are
+delegated to mergekit's own registered implementations.  ``della_ties`` is
+not a separate mergekit method: mergekit's ``della`` already pairs DELLA
+magnitude pruning with TIES sign election, so the alias targets ``della``.
+``magnitude_prune``, ``ctm`` and ``cat`` have no mergekit equivalent
+(``della`` is *not* equivalent to ``magnitude_prune``: it rescales outliers
+after pruning) and exist only in ``unsloth/multi_adapter_merge.py``, so they
+keep the legacy engine and this module reports ``LEGACY_ONLY_METHODS`` for
+them.
 """
 
 from __future__ import annotations
@@ -82,11 +86,18 @@ __all__ = [
 # --------------------------------------------------------------------------
 
 #: Unsloth merge method -> mergekit registered method name.
+#: ``della_ties`` is an alias: mergekit registers the TIES-consensus DELLA
+#: variant as ``della``, so both names target it.
 MERGEKIT_METHOD_MAP: Dict[str, str] = {
     "linear": "linear",
     "ties": "ties",
     "dare_ties": "dare_ties",
     "dare_linear": "dare_linear",
+    "task_arithmetic": "task_arithmetic",
+    "della": "della",
+    "della_ties": "della",
+    "della_linear": "della_linear",
+    "model_stock": "model_stock",
 }
 
 #: Methods that only the in-house engine implements.
@@ -110,11 +121,25 @@ class MergeKitMergeError(RuntimeError):
 
 def normalize_method(method: str) -> str:
     """Lower-case *method* and apply the core module's DARE/SVD aliases."""
-    method = (method or "").strip().lower().replace("-", "_")
-    if method in ("dare", "dare_ties"):
-        return "dare_ties"
-    if method in ("svd", "ctm"):
-        return "ctm"
+    method = (method or "").strip().lower().replace("-", "_").replace(" ", "_")
+    aliases = {
+        "dare": "dare_ties",
+        "della_ties": "della",
+        "task-arithmetic": "task_arithmetic",
+        "task_arith": "task_arithmetic",
+        "model-stock": "model_stock",
+        "modelstock": "model_stock",
+        "svd": "ctm",
+        "magnitude": "magnitude_prune",
+        "mag-prune": "magnitude_prune",
+        "concatenate": "cat",
+        "concat": "cat",
+    }
+    canonical = aliases.get(method, method)
+    if canonical in MERGEKIT_METHOD_MAP:
+        return canonical
+    if canonical in LEGACY_ONLY_METHODS:
+        return canonical
     return method
 
 
@@ -304,6 +329,9 @@ def build_merge_config(
     normalize_weights: bool = True,
     density: float = 0.5,
     drop_rate: float = 0.5,
+    epsilon: float = 0.15,
+    task_scale: float = 1.0,
+    filter_wise: bool = False,
     out_dtype: Optional[str] = None,
     verify_base: bool = True,
     strict_base_match: bool = False,
@@ -353,13 +381,22 @@ def build_merge_config(
     for adapter_path, weight in zip(adapters, effective):
         if verify_base:
             _check_adapter_base(adapter_path, base_model, strict_base_match)
-        parameters: Dict[str, Any] = {"weight": weight}
+        parameters: Dict[str, Any] = {}
+        if merged_method != "model_stock":
+            parameters["weight"] = weight
         if merged_method == "ties" and density is not None:
             # mergekit's `ties` is GeneralizedTaskArithmeticMerge with the
             # magnitude sparsifier; density is its top-k fraction.
             parameters["density"] = float(density)
         if merged_method in ("dare_ties", "dare_linear") and drop_rate is not None:
             parameters["drop_rate"] = float(drop_rate)
+        if merged_method in ("della", "della_linear"):
+            # DELLA's stochastic magnitude pruning: `density` selects the band,
+            # `epsilon` widens it into a probability ramp.
+            if density is not None:
+                parameters["density"] = float(density)
+            if epsilon is not None:
+                parameters["epsilon"] = float(epsilon)
         sources.append(
             {
                 "model": base_model,
@@ -373,6 +410,14 @@ def build_merge_config(
         "base_model": base_model,
         "models": sources,
     }
+    if merged_method == "task_arithmetic" and task_scale is not None:
+        # mergekit scales the summed task vector by the shared `lambda` knob.
+        config["parameters"] = {"lambda": float(task_scale)}
+    if merged_method == "model_stock":
+        # The stock estimator takes no per-source weights; expose only the
+        # optional per-filter geometry toggle at the top level.
+        if filter_wise:
+            config["parameters"] = {"filter_wise": True}
     if out_dtype:
         config["dtype"] = out_dtype
     return config
@@ -591,6 +636,9 @@ def merge_adapters_via_mergekit(
     normalize_weights: bool = True,
     density: float = 0.5,
     drop_rate: float = 0.5,
+    epsilon: float = 0.15,
+    task_scale: float = 1.0,
+    filter_wise: bool = False,
     device: str = "cpu",
     out_dtype: Optional[str] = None,
     transformers_cache: Optional[str] = None,
@@ -612,6 +660,9 @@ def merge_adapters_via_mergekit(
         normalize_weights = normalize_weights,
         density = density,
         drop_rate = drop_rate,
+        epsilon = epsilon,
+        task_scale = task_scale,
+        filter_wise = filter_wise,
         out_dtype = out_dtype,
         verify_base = verify_base,
         strict_base_match = strict_base_match,

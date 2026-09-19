@@ -131,7 +131,31 @@ def _adapter_display_name(raw_spec: Union[str, dict], resolved_path: Optional[st
 # Configuration
 # ---------------------------------------------------------------------------
 
-SUPPORTED_METHODS = ("linear", "ties", "dare_ties", "dare_linear", "magnitude_prune", "ctm", "cat")
+SUPPORTED_METHODS = (
+    "linear",
+    "ties",
+    "dare_ties",
+    "dare_linear",
+    "task_arithmetic",
+    "della",
+    "della_ties",
+    "della_linear",
+    "model_stock",
+    "magnitude_prune",
+    "ctm",
+    "cat",
+)
+
+#: Methods only the mergekit child-process engine implements.  They resolve
+#: locally in the config layer but the in-memory engine rejects them with a
+#: pointer to the path-based entry points.
+MERGEKIT_ONLY_METHODS = (
+    "task_arithmetic",
+    "della",
+    "della_ties",
+    "della_linear",
+    "model_stock",
+)
 
 
 @dataclass
@@ -142,11 +166,18 @@ class MultiAdapterMergeConfig:
     weights: List[float]
     method: str = "linear"
     normalize_weights: bool = True
-    # TIES / DARE-TIES / magnitude-prune specific: fraction of params to keep
-    # (top-k by magnitude).
+    # TIES / DARE-TIES / DELLA / magnitude-prune specific: fraction of params
+    # to keep (top-k by magnitude).
     density: float = 0.5
     # DARE-specific: fraction of weight deltas to randomly drop before rescaling.
     drop_rate: float = 0.5
+    # DELLA-specific: probability ramp half-width around `density`.
+    epsilon: float = 0.15
+    # Task-arithmetic-specific: shared scaling of the summed task vector
+    # (mergekit's `lambda` knob; renamed because `lambda` is reserved).
+    task_scale: float = 1.0
+    # Model-Stock-specific: per-filter geometry instead of whole-model.
+    filter_wise: bool = False
     # CtM / SVD specific: target low-rank for truncated SVD compression.
     target_rank: Optional[int] = None
     # Deterministic seed for reproducible dropout masking in DARE.
@@ -166,6 +197,13 @@ class MultiAdapterMergeConfig:
             method_lower = "dare_ties"
         elif method_lower in ("svd", "ctm"):
             method_lower = "ctm"
+        elif method_lower in ("della_ties", "della"):
+            # mergekit registers the TIES-consensus DELLA variant as "della".
+            method_lower = "della"
+        elif method_lower in ("task-arithmetic", "task_arith", "task_arithmetic"):
+            method_lower = "task_arithmetic"
+        elif method_lower in ("model-stock", "modelstock", "model_stock"):
+            method_lower = "model_stock"
 
         if method_lower not in SUPPORTED_METHODS:
             raise ValueError(
@@ -189,6 +227,16 @@ class MultiAdapterMergeConfig:
         if self.target_rank is not None and self.target_rank <= 0:
             raise ValueError(
                 f"Unsloth: target_rank must be positive, got {self.target_rank}."
+            )
+        if not (0.0 <= self.epsilon < 0.5):
+            raise ValueError(
+                f"Unsloth: epsilon must be in [0, 0.5), got {self.epsilon}."
+            )
+        if not isinstance(self.task_scale, (int, float)) or not (
+            self.task_scale == self.task_scale
+        ):
+            raise ValueError(
+                f"Unsloth: task_scale must be a number, got {self.task_scale}."
             )
 
 
