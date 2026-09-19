@@ -142,7 +142,10 @@ def export(
         typer.echo(f"Saved to: {output_path}")
 
 
-MERGE_METHODS = ["linear", "ties", "dare_ties", "ctm"]
+# Keep in sync with SUPPORTED_METHODS in unsloth/multi_adapter_merge.py; the
+# core module imports torch, so this stays a plain literal and
+# tests/studio/test_cli_export_merge_methods.py guards the two against drift.
+MERGE_METHODS = ["linear", "ties", "dare_ties", "dare_linear", "magnitude_prune", "ctm", "cat"]
 
 
 def merge_adapters(
@@ -162,10 +165,10 @@ def merge_adapters(
     ),
     normalize: bool = typer.Option(True, "--normalize/--no-normalize", help = "Normalize weights."),
     density: float = typer.Option(
-        0.5, "--density", help = "TIES/DARE-TIES density (top-k fraction)."
+        0.5, "--density", help = "TIES/DARE-TIES/Mag-Prune density (top-k fraction)."
     ),
     drop_rate: float = typer.Option(
-        0.5, "--drop-rate", help = "DARE drop rate (dare_ties only)."
+        0.5, "--drop-rate", help = "DARE drop rate (dare_ties/dare_linear only)."
     ),
     target_rank: Optional[int] = typer.Option(
         None, "--target-rank", help = "CtM SVD target rank (ctm only)."
@@ -177,6 +180,12 @@ def merge_adapters(
     ),
     max_seq_length: int = typer.Option(2048, "--max-seq-length"),
     load_in_4bit: bool = typer.Option(False, "--load-in-4bit/--no-load-in-4bit"),
+    engine: str = typer.Option(
+        "auto",
+        "--engine",
+        help = "Merge engine: auto, mergekit, legacy. mergekit only implements "
+        "linear/ties/dare_ties/dare_linear; the others fall back to legacy.",
+    ),
     hf_token: Optional[str] = typer.Option(
         None, "--hf-token", envvar = "HF_TOKEN", help = "HuggingFace token."
     ),
@@ -213,6 +222,7 @@ def merge_adapters(
         max_seq_length = max_seq_length,
         load_in_4bit = load_in_4bit,
         token = hf_token,
+        engine = engine,
     )
 
     typer.echo(f"Saving merged model to: {output_dir}")

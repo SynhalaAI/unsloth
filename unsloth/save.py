@@ -7092,6 +7092,7 @@ def _unsloth_merge_multi_adapters(
     method = "linear",
     normalize_weights = True,
     density = 0.5,
+    engine = None,
 ):
     """Merge multiple LoRA adapters into this model in-place.
 
@@ -7107,12 +7108,23 @@ def _unsloth_merge_multi_adapters(
         If ``True``, weights are normalised to sum to 1.
     density : float
         TIES density parameter (fraction of top-k params to keep).
+    engine : ``"auto"`` | ``"legacy"`` | None
+        Merge engine.  An already-loaded model can only be merged in place, so
+        mergekit (which writes a checkpoint instead) is not available here and
+        ``"mergekit"`` is rejected with a pointer to the path-based entry points.
+        When this is left unset the in-house engine is used regardless of
+        ``UNSLOTH_MERGE_ENGINE``, so a global engine setting cannot make this API
+        unusable.
 
     Returns
     -------
     model : The model with merged ΔW applied.
     """
     from .multi_adapter_merge import merge_adapters_into_model
+
+    if engine is None:
+        # Deliberately not the ambient default: this path is always in-memory.
+        engine = "legacy"
 
     return merge_adapters_into_model(
         self,
@@ -7121,6 +7133,7 @@ def _unsloth_merge_multi_adapters(
         method = method,
         normalize_weights = normalize_weights,
         density = density,
+        engine = engine,
     )
 
 

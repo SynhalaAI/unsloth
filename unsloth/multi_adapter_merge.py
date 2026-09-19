@@ -778,6 +778,7 @@ def merge_adapters_into_model(
     seed: int = 42,
     hf_token=None,
     report_callback=None,
+    engine: Optional[str] = None,
 ) -> torch.nn.Module:
     """Merge multiple LoRA adapters into *model* in-place.
 
@@ -804,6 +805,11 @@ def merge_adapters_into_model(
         Target rank for SVD low-rank compression. Only used when ``method="ctm"``.
     seed : int
         Deterministic seed for reproducible dropout masking.
+    engine : str | None
+        Merge engine.  Only ``"legacy"``/``"auto"`` apply to an already-loaded
+        model: mergekit writes a merged checkpoint to disk rather than editing
+        weights in place, so ``"mergekit"`` is rejected here with a pointer to
+        the path-based entry point.
 
     Returns
     -------
@@ -812,6 +818,17 @@ def merge_adapters_into_model(
         existing PEFT adapter layers are unloaded so the model is ready for
         ``save_pretrained_merged``.
     """
+    requested_engine = (
+        (engine or os.environ.get("UNSLOTH_MERGE_ENGINE") or "auto").strip().lower()
+    )
+    if requested_engine == "mergekit":
+        raise ValueError(
+            "Unsloth: engine='mergekit' cannot merge into an already-loaded model - "
+            "mergekit writes a merged checkpoint instead of editing weights in place. "
+            "Use FastLanguageModel.merge_adapters(base_model, adapters, engine='mergekit') "
+            "or 'unsloth export merge-adapters --engine mergekit'."
+        )
+
     if weights is None:
         weights = [1.0] * len(adapter_paths)
 

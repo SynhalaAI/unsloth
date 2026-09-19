@@ -1120,6 +1120,7 @@ class FastLanguageModel(FastLlamaModel):
         load_in_4bit = False,
         token = None,
         trust_remote_code = False,
+        engine = "auto",
         **from_pretrained_kwargs,
     ):
         """Load *model_name* then merge multiple LoRA adapters into it.
@@ -1149,11 +1150,53 @@ class FastLanguageModel(FastLlamaModel):
             Only used for ``"dare_ties"`` and ``"dare_linear"``.
         target_rank : int | None
             SVD low-rank compression target.  Only used for ``"ctm"``.
+        engine : ``"auto"`` | ``"mergekit"`` | ``"legacy"``
+            Merge engine.  ``"auto"`` uses mergekit (when installed and reachable)
+            for the methods it implements, and the in-house engine otherwise.
+            ``"mergekit"`` falls back to the in-house engine for the methods
+            mergekit has no equivalent for (``magnitude_prune``/``ctm``/``cat``).
+            ``"legacy"`` forces the in-house engine.  The environment variable
+            ``UNSLOTH_MERGE_ENGINE`` supplies the default when this is omitted.
         max_seq_length, dtype, load_in_4bit, token, trust_remote_code :
             Forwarded to ``from_pretrained``.
         **from_pretrained_kwargs :
             Additional kwargs for ``from_pretrained``.
         """
+        from ..mergekit_bridge import (
+            resolve_engine,
+            merge_adapters_via_mergekit,
+            make_merge_output_dir,
+            normalize_out_dtype,
+        )
+
+        if resolve_engine(method, engine) == "mergekit":
+            # mergekit writes a merged checkpoint and the from_pretrained call
+            # below loads it back, so the engine's output stays independent of
+            # the in-house in-memory merge path.
+            merged_dir = merge_adapters_via_mergekit(
+                base_model = model_name,
+                adapters = list(adapters),
+                output_dir = make_merge_output_dir(),
+                weights = weights,
+                method = method,
+                normalize_weights = normalize_weights,
+                density = density,
+                drop_rate = drop_rate,
+                out_dtype = normalize_out_dtype(dtype),
+            )
+            model, tokenizer = FastLanguageModel.from_pretrained(
+                model_name = merged_dir,
+                max_seq_length = max_seq_length,
+                dtype = dtype,
+                load_in_4bit = load_in_4bit,
+                load_in_16bit = not load_in_4bit,
+                token = token,
+                trust_remote_code = trust_remote_code,
+                **from_pretrained_kwargs,
+            )
+            model._unsloth_mergekit_output = merged_dir
+            return model, tokenizer
+
         from ..multi_adapter_merge import merge_adapters_into_model
 
         model, tokenizer = FastLanguageModel.from_pretrained(

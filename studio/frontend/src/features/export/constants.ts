@@ -342,15 +342,17 @@ export type MergeMethodType =
   | "dare_ties"
   | "dare_linear"
   | "magnitude_prune"
-  | "ctm";
+  | "ctm"
+  | "cat";
 
 export const MERGE_METHODS: { value: MergeMethodType; label: string; description: string }[] = [
   { value: "linear", label: "Linear", description: "Simple weighted average of adapter weights." },
   { value: "ties", label: "TIES", description: "Trim Elect Interpolate Sign - resolves conflicting weight signs." },
   { value: "dare_ties", label: "DARE-TIES", description: "Dropout-aware TIES - randomly drops small deltas before merging." },
   { value: "dare_linear", label: "DARE-Linear", description: "Dropout-aware weighted sum - DARE dropout without sign election." },
-  { value: "magnitude_prune", label: "Mag-Prune", description: "Keeps the top-density magnitudes per adapter, then takes the weighted sum." },
-  { value: "ctm", label: "CtM", description: "Compressed Target Merge - low-rank SVD compression after merging." },
+  { value: "magnitude_prune", label: "Mag-Prune", description: "Keeps the top-density magnitudes per adapter (a density is required), then takes the weighted sum." },
+  { value: "ctm", label: "CtM", description: "Compressed Target Merge - applies low-rank SVD compression after merging, optionally to a target rank." },
+  { value: "cat", label: "Cat", description: "Concatenates the adapter factors into a rank-extended adapter - no averaging and no interference; matches Linear once folded into the base weights." },
 ];
 
 export const GUIDE_STEPS = [
