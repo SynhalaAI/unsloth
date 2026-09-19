@@ -35,7 +35,8 @@ class TestMultiAdapterMergeRequest(unittest.TestCase):
         # Keep in sync with SUPPORTED_METHODS in unsloth/multi_adapter_merge.py.
         for method in (
             "linear", "ties", "dare_ties", "dare_linear",
-            "magnitude_prune", "ctm", "cat",
+            "task_arithmetic", "della", "della_ties", "della_linear",
+            "model_stock", "magnitude_prune", "ctm", "cat",
         ):
             model = self.schema(
                 adapter_paths = ["a", "b"], weights = [1.0, 1.0], method = method

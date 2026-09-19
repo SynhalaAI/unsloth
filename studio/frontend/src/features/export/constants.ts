@@ -341,6 +341,11 @@ export type MergeMethodType =
   | "ties"
   | "dare_ties"
   | "dare_linear"
+  | "task_arithmetic"
+  | "della"
+  | "della_ties"
+  | "della_linear"
+  | "model_stock"
   | "magnitude_prune"
   | "ctm"
   | "cat";
@@ -350,6 +355,11 @@ export const MERGE_METHODS: { value: MergeMethodType; label: string; description
   { value: "ties", label: "TIES", description: "Trim Elect Interpolate Sign - resolves conflicting weight signs." },
   { value: "dare_ties", label: "DARE-TIES", description: "Dropout-aware TIES - randomly drops small deltas before merging." },
   { value: "dare_linear", label: "DARE-Linear", description: "Dropout-aware weighted sum - DARE dropout without sign election." },
+  { value: "task_arithmetic", label: "Task Arithmetic", description: "Task Arithmetic - adds scaled adapter task vectors directly into the base model." },
+  { value: "della", label: "DELLA", description: "DELLA - combines magnitude pruning with a probability ramp and sign election." },
+  { value: "della_ties", label: "DELLA-TIES", description: "DELLA-TIES - alias for DELLA with TIES sign consensus." },
+  { value: "della_linear", label: "DELLA-Linear", description: "DELLA-Linear - magnitude pruning with a probability ramp without sign election." },
+  { value: "model_stock", label: "Model Stock", description: "Model Stock - uses geometric properties of fine-tuned weights to estimate optimal model weights." },
   { value: "magnitude_prune", label: "Mag-Prune", description: "Keeps the top-density magnitudes per adapter (a density is required), then takes the weighted sum." },
   { value: "ctm", label: "CtM", description: "Compressed Target Merge - applies low-rank SVD compression after merging, optionally to a target rank." },
   { value: "cat", label: "Cat", description: "Concatenates the adapter factors into a rank-extended adapter - no averaging and no interference; matches Linear once folded into the base weights." },

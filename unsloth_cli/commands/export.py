@@ -145,7 +145,20 @@ def export(
 # Keep in sync with SUPPORTED_METHODS in unsloth/multi_adapter_merge.py; the
 # core module imports torch, so this stays a plain literal and
 # tests/studio/test_cli_export_merge_methods.py guards the two against drift.
-MERGE_METHODS = ["linear", "ties", "dare_ties", "dare_linear", "magnitude_prune", "ctm", "cat"]
+MERGE_METHODS = [
+    "linear",
+    "ties",
+    "dare_ties",
+    "dare_linear",
+    "task_arithmetic",
+    "della",
+    "della_ties",
+    "della_linear",
+    "model_stock",
+    "magnitude_prune",
+    "ctm",
+    "cat",
+]
 
 
 def merge_adapters(

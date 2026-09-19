@@ -19,11 +19,37 @@ test("the merge picker lists every method the core merger supports", () => {
   // Keep in sync with SUPPORTED_METHODS in unsloth/multi_adapter_merge.py.
   assert.deepEqual(
     MERGE_METHODS.map((method) => method.value),
-    ["linear", "ties", "dare_ties", "dare_linear", "magnitude_prune", "ctm", "cat"],
+    [
+      "linear",
+      "ties",
+      "dare_ties",
+      "dare_linear",
+      "task_arithmetic",
+      "della",
+      "della_ties",
+      "della_linear",
+      "model_stock",
+      "magnitude_prune",
+      "ctm",
+      "cat",
+    ],
   );
   assert.deepEqual(
     MERGE_METHODS.map((method) => method.label),
-    ["Linear", "TIES", "DARE-TIES", "DARE-Linear", "Mag-Prune", "CtM", "Cat"],
+    [
+      "Linear",
+      "TIES",
+      "DARE-TIES",
+      "DARE-Linear",
+      "Task Arithmetic",
+      "DELLA",
+      "DELLA-TIES",
+      "DELLA-Linear",
+      "Model Stock",
+      "Mag-Prune",
+      "CtM",
+      "Cat",
+    ],
   );
   for (const method of MERGE_METHODS) {
     assert.ok(method.description.trim().length > 0, `${method.value} needs a description`);
@@ -33,7 +59,7 @@ test("the merge picker lists every method the core merger supports", () => {
 test("the constants module keeps the picker type and list in one place", () => {
   assert.match(
     constantsSource,
-    /export type MergeMethodType =\s*\n\s*\| "linear"\s*\n\s*\| "ties"\s*\n\s*\| "dare_ties"\s*\n\s*\| "dare_linear"\s*\n\s*\| "magnitude_prune"\s*\n\s*\| "ctm"\s*\n\s*\| "cat";/,
+    /export type MergeMethodType =\s*\n\s*\| "linear"\s*\n\s*\| "ties"\s*\n\s*\| "dare_ties"\s*\n\s*\| "dare_linear"\s*\n\s*\| "task_arithmetic"\s*\n\s*\| "della"\s*\n\s*\| "della_ties"\s*\n\s*\| "della_linear"\s*\n\s*\| "model_stock"\s*\n\s*\| "magnitude_prune"\s*\n\s*\| "ctm"\s*\n\s*\| "cat";/,
   );
   assert.match(constantsSource, /export const MERGE_METHODS:/);
 });
@@ -148,7 +174,20 @@ test("the page-built merge payload satisfies the runtime request chain", () => {
   type ApiMerge = NonNullable<Parameters<typeof loadCheckpoint>[0]["merge_adapters"]>;
 
   const strategies: MergeMethodType[] = MERGE_METHODS.map((method) => method.value);
-  assert.deepEqual(strategies, ["linear", "ties", "dare_ties", "dare_linear", "magnitude_prune", "ctm", "cat"]);
+  assert.deepEqual(strategies, [
+    "linear",
+    "ties",
+    "dare_ties",
+    "dare_linear",
+    "task_arithmetic",
+    "della",
+    "della_ties",
+    "della_linear",
+    "model_stock",
+    "magnitude_prune",
+    "ctm",
+    "cat",
+  ]);
   for (const method of strategies) {
     // Mirrors export-page.tsx's mergeConfig, including the explicit-undefined
     // target_rank the non-CtM strategies produce.
