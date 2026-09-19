@@ -662,9 +662,11 @@ def check_dataset_format(dataset, is_vlm: bool = False) -> dict:
             "suggested_mapping": None,
             "detected_image_column": None,
             "detected_text_column": detected_text,
-            "detected_instruction_column": (
-                multimodal_info.get("detected_instruction_column") if is_vlm else None
-            ),
+            # Audio datasets use a fixed audio/text mapping, so even an audio-capable
+            # vision model must not mistake an unrelated `instruction` field for a
+            # per-sample visual prompt (restores the 2fa0d00dd behaviour the merge
+            # flattened back into the is_vlm-conditional).
+            "detected_instruction_column": None,
             "chat_column": None,
             "is_image": False,
             "multimodal_columns": multimodal_info.get("audio_columns"),
