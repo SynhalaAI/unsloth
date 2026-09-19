@@ -26,7 +26,10 @@ const MAX_OPTION_LENGTH = 128;
 const CONFIG_FORBIDDEN_PATTERN = /[<>:/\\|?*]/;
 const PATH_SEPARATOR_PATTERN = /[/\\]/;
 const UNSAFE_UNICODE_PATTERN = /[\p{Cc}\p{Cf}\p{Cs}]/u;
-const SPLIT_NAME_PATTERN = String.raw`[\p{L}\p{N}_]+(?:\.[\p{L}\p{N}_]+)*`;
+// Segments may carry hyphens inside ("train-clean-100" is a legal HF split name); the
+// edges stay letter/number/underscore so percent boundaries and "+"-compositions stay
+// unambiguous, and dots keep splitting dotted names.
+const SPLIT_NAME_PATTERN = String.raw`[\p{L}\p{N}_]+(?:[\p{L}\p{N}_-]*[\p{L}\p{N}_])?(?:\.[\p{L}\p{N}_]+(?:[\p{L}\p{N}_-]*[\p{L}\p{N}_])?)*`;
 const BARE_SPLIT_PATTERN = new RegExp(String.raw`^${SPLIT_NAME_PATTERN}$`, "u");
 const SPLIT_BOUNDARY_PATTERN = String.raw`-?\d(?:_?\d)*%?`;
 const SPLIT_PART_PATTERN = new RegExp(

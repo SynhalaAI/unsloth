@@ -29,6 +29,9 @@ test("manual dataset options accept backend-compatible config and split names", 
   assert.equal(validateManualDatasetSplit("validation", true), null);
   assert.equal(validateManualDatasetSplit("tréin", true), null);
   assert.equal(validateManualDatasetSplit("train.clean", true), null);
+  assert.equal(validateManualDatasetSplit("train-clean", true), null);
+  assert.equal(validateManualDatasetSplit("train-clean-100", true), null);
+  assert.equal(validateManualDatasetSplit("train.clean-si", true), null);
   assert.equal(validateManualDatasetSplit("train[:10%]", true), null);
   assert.equal(validateManualDatasetSplit("train[1_000:2_000]", true), null);
   assert.equal(
@@ -49,7 +52,10 @@ test("manual dataset options reject missing, traversing, and unsupported values"
   assert.equal(validateManualDatasetSubset("config:name"), "invalid");
   assert.equal(validateManualDatasetSubset("config\nname"), "invalid");
   assert.equal(validateManualDatasetSplit("train/value", true), "invalid");
-  assert.equal(validateManualDatasetSplit("train-clean", true), "invalid");
+  // Hyphens are legal inside a split name, but not at its edges: a leading "-" reads
+  // like a negative percent boundary and a trailing one dangles.
+  assert.equal(validateManualDatasetSplit("-train", true), "invalid");
+  assert.equal(validateManualDatasetSplit("train-", true), "invalid");
   assert.equal(validateManualDatasetSplit("train evil", true), "invalid");
   assert.equal(validateManualDatasetSplit("train[10%", true), "invalid");
   assert.equal(validateManualDatasetSplit("train[101%:]", true), "invalid");
@@ -175,6 +181,7 @@ test("manual field synchronization does not revive a draft after A to B to A", (
 
 test("streaming manual options require bare split names", () => {
   assert.equal(validateManualDatasetSplit("train", true, false), null);
+  assert.equal(validateManualDatasetSplit("train-clean-100", true, false), null);
   assert.equal(
     validateManualDatasetSplit("train[:10%]", true, false),
     "invalid",

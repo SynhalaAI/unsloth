@@ -107,6 +107,28 @@ def check_dataset_format(dataset, is_vlm: bool = False) -> dict:
     detected = detect_dataset_format(dataset)
 
     if detected["format"] == "unknown":
+        # A dataset check made before a vision model was selected runs the text-only
+        # path, which has no notion of image columns: an image/text dataset would be
+        # stranded as "unknown" even though the VLM detector resolves it. When the
+        # preview clearly carries image columns, let the VLM detector decide first.
+        if multimodal_info["is_image"]:
+            vlm_structure = detect_vlm_dataset_structure(dataset)
+            if vlm_structure["format"] != "unknown":
+                return {
+                    "requires_manual_mapping": False,
+                    "detected_format": vlm_structure["format"],
+                    "columns": columns,
+                    "suggested_mapping": None,
+                    "detected_image_column": vlm_structure.get("image_column"),
+                    "detected_text_column": vlm_structure.get("text_column"),
+                    "detected_instruction_column": multimodal_info.get(
+                        "detected_instruction_column"
+                    ),
+                    "is_image": multimodal_info["is_image"],
+                    "multimodal_columns": multimodal_info.get("multimodal_columns"),
+                    "warning": None,
+                    **audio_fields,
+                }
         heuristic_mapping = detect_custom_format_heuristic(dataset)
         if heuristic_mapping:
             return {
