@@ -47,6 +47,12 @@ _dare_ties_merge = _mod._dare_ties_merge
 _dare_ties_merge_key = _mod._dare_ties_merge_key
 _ctm_merge = _mod._ctm_merge
 _ctm_merge_key = _mod._ctm_merge_key
+_della_merge_key = _mod._della_merge_key
+_della_linear_merge_key = _mod._della_linear_merge_key
+_breadcrumbs_merge_key = _mod._breadcrumbs_merge_key
+_breadcrumbs_ties_merge_key = _mod._breadcrumbs_ties_merge_key
+_sce_merge_key = _mod._sce_merge_key
+_multislerp_merge_key = _mod._multislerp_merge_key
 _validate_adapters = _mod._validate_adapters
 _adapter_display_name = _mod._adapter_display_name
 merge_adapters_into_model = _mod.merge_adapters_into_model
@@ -509,8 +515,133 @@ class TestValidation:
 
 
 # ---------------------------------------------------------------------------
-# End-to-end merge_adapters_into_model test (CPU, synthetic model)
+# New merge methods: SCE / DELLA / breadcrumbs / multislerp
 # ---------------------------------------------------------------------------
+
+class TestNewMergeMethods:
+    """Per-key unit tests for the mergekit-parity methods added in 2026."""
+
+    def _three_deltas(self, seed=0):
+        g = torch.Generator().manual_seed(seed)
+        return [torch.randn(16, 16, generator=g) for _ in range(3)]
+
+    def test_sce_produces_finite_output(self):
+        deltas = self._three_deltas()
+        merged = _sce_merge_key(deltas, [0.5, 0.3, 0.2])
+        assert merged.shape == (16, 16)
+        assert torch.isfinite(merged).all()
+
+    def test_sce_single_adapter_scales(self):
+        d = torch.randn(8, 8)
+        merged = _sce_merge_key([d], [0.7])
+        assert torch.allclose(merged, d * 0.7, atol=1e-6)
+
+    def test_sce_select_topk_zeros(self):
+        deltas = self._three_deltas()
+        merged = _sce_merge_key(deltas, [1/3, 1/3, 1/3], select_topk=0.5)
+        assert (merged == 0).sum() > 0
+        assert torch.isfinite(merged).all()
+
+    def test_della_produces_finite_output(self):
+        deltas = self._three_deltas()
+        merged = _della_merge_key(deltas, [0.5, 0.3, 0.2], seed=42)
+        assert merged.shape == (16, 16)
+        assert torch.isfinite(merged).all()
+
+    def test_della_deterministic_with_seed(self):
+        deltas = self._three_deltas()
+        m1 = _della_merge_key(deltas, [0.5, 0.3, 0.2], seed=123)
+        m2 = _della_merge_key(deltas, [0.5, 0.3, 0.2], seed=123)
+        assert torch.allclose(m1, m2)
+
+    def test_della_density_1_keeps_everything(self):
+        deltas = self._three_deltas()
+        merged = _della_merge_key(deltas, [0.5, 0.3, 0.2], density=1.0)
+        ref = _ties_merge_key(deltas, [0.5, 0.3, 0.2], density=1.0)
+        assert torch.allclose(merged, ref, atol=1e-5)
+
+    def test_della_linear_no_sign_election(self):
+        deltas = self._three_deltas()
+        merged = _della_linear_merge_key(deltas, [0.5, 0.3, 0.2], seed=42)
+        assert torch.isfinite(merged).all()
+
+    def test_della_invalid_epsilon_raises(self):
+        with pytest.raises(ValueError, match="della_epsilon"):
+            MultiAdapterMergeConfig(
+                adapter_paths=["a", "b"], weights=[0.5, 0.5],
+                method="della", density=0.5, della_epsilon=0.0,
+            )
+
+    def test_breadcrumbs_drops_outliers(self):
+        deltas = self._three_deltas()
+        deltas[0][0, 0] = 100.0
+        merged = _breadcrumbs_merge_key(
+            deltas, [1/3, 1/3, 1/3], density=0.5, gamma=0.05
+        )
+        assert torch.isfinite(merged).all()
+
+    def test_breadcrumbs_density_1_keeps_everything(self):
+        deltas = self._three_deltas()
+        merged = _breadcrumbs_merge_key(deltas, [0.5, 0.3, 0.2], density=1.0)
+        expected = sum(d * w for d, w in zip(deltas, [0.5, 0.3, 0.2]))
+        assert torch.allclose(merged, expected, atol=1e-5)
+
+    def test_breadcrumbs_ties_sign_election(self):
+        deltas = self._three_deltas()
+        merged = _breadcrumbs_ties_merge_key(deltas, [0.5, 0.3, 0.2], density=0.5)
+        assert torch.isfinite(merged).all()
+
+    def test_multislerp_produces_finite_output(self):
+        deltas = self._three_deltas()
+        merged = _multislerp_merge_key(deltas, [0.5, 0.3, 0.2])
+        assert merged.shape == (16, 16)
+        assert torch.isfinite(merged).all()
+
+    def test_multislerp_single_adapter_scales(self):
+        d = torch.randn(8, 8)
+        merged = _multislerp_merge_key([d], [0.7])
+        assert torch.allclose(merged, d * 0.7, atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# End-to-end tests for new methods (synthetic model)
+# ---------------------------------------------------------------------------
+
+class TestEndToEndNewMethods:
+    def _make_simple_model(self, in_f=16, out_f=16):
+        import torch.nn as nn
+
+        class ToyModel(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.model = nn.Module()
+                self.model.layers = nn.ModuleList([nn.Module()])
+                layer0 = self.model.layers[0]
+                layer0.self_attn = nn.Module()
+                layer0.self_attn.q_proj = nn.Linear(in_f, out_f, bias=False)
+                layer0.self_attn.v_proj = nn.Linear(in_f, out_f, bias=False)
+
+        model = ToyModel()
+        for p in model.parameters():
+            p.data.zero_()
+        return model
+
+    @pytest.mark.parametrize("method", [
+        "sce", "della", "della_linear", "breadcrumbs", "breadcrumbs_ties", "multislerp",
+    ])
+    def test_method_applies_to_model(self, tmp_path, method):
+        p1 = _make_adapter_dir(str(tmp_path), "n1", out_features=16, in_features=16, seed=20)
+        p2 = _make_adapter_dir(str(tmp_path), "n2", out_features=16, in_features=16, seed=21)
+        model = self._make_simple_model()
+        result = merge_adapters_into_model(
+            model, adapter_paths=[p1, p2], weights=[0.6, 0.4],
+            method=method, density=0.5, seed=42,
+        )
+        for name, param in result.named_parameters():
+            if "q_proj" in name or "v_proj" in name:
+                assert torch.isfinite(param).all()
+                assert not torch.allclose(param, torch.zeros_like(param))
+
 
 class TestEndToEnd:
     def _make_simple_model(self, in_f=16, out_f=16):

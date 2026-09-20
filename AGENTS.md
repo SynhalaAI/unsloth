@@ -44,6 +44,10 @@ PyTorch, but their algorithms **must remain faithful to the published references
 | `magnitude_prune` | [PEFT `merge_utils.py`](https://github.com/huggingface/peft/blob/main/src/peft/utils/merge_utils.py) |
 | `ctm` | Unsloth-specific (truncated-SVD compression); no external reference |
 | `cat` | [PEFT `add_weighted_adapter` `combination_type="cat"`](https://github.com/huggingface/peft/blob/main/src/peft/tuners/lora/model.py) |
+| `sce` | [mergekit `sce.py`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/merge_methods/sce.py) ([SCE paper](https://arxiv.org/abs/2408.07990)) |
+| `della` / `della_linear` | [mergekit `sparsify.py` `della_magprune`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/sparsify.py) ([DELLA paper](https://arxiv.org/abs/2406.11617)) |
+| `breadcrumbs` / `breadcrumbs_ties` | [mergekit `sparsify.py` `magnitude_outliers`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/sparsify.py) ([Breadcrumbs paper](https://arxiv.org/abs/2312.06795)) |
+| `multislerp` | [mergekit `multislerp.py`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/merge_methods/multislerp.py) (delta-space adaptation; no base tensor) |
 
 ### Rules for merging-related changes
 

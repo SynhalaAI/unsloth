@@ -131,7 +131,10 @@ def _adapter_display_name(raw_spec: Union[str, dict], resolved_path: Optional[st
 # Configuration
 # ---------------------------------------------------------------------------
 
-SUPPORTED_METHODS = ("linear", "ties", "dare_ties", "dare_linear", "magnitude_prune", "ctm", "cat")
+SUPPORTED_METHODS = (
+    "linear", "ties", "dare_ties", "dare_linear", "magnitude_prune", "ctm", "cat",
+    "sce", "della", "della_linear", "breadcrumbs", "breadcrumbs_ties", "multislerp",
+)
 
 
 @dataclass
@@ -149,8 +152,18 @@ class MultiAdapterMergeConfig:
     drop_rate: float = 0.5
     # CtM / SVD specific: target low-rank for truncated SVD compression.
     target_rank: Optional[int] = None
-    # Deterministic seed for reproducible dropout masking in DARE.
+    # Deterministic seed for reproducible dropout masking in DARE/DELLA.
     seed: int = 42
+    # DELLA-specific: half-width of the per-rank probability range around
+    # ``density`` (mergekit ``della_magprune`` epsilon).
+    della_epsilon: float = 0.15
+    # Breadcrumbs-specific: fraction of *largest* magnitudes to drop
+    # (outlier removal) before pruning the smallest (mergekit
+    # ``magnitude_outliers`` gamma).
+    gamma: float = 0.01
+    # SCE-specific: fraction of highest-variance elements to keep before the
+    # sign-consensus erase step (1.0 = keep all).
+    select_topk: float = 1.0
 
     def __post_init__(self):
         if not self.adapter_paths:
@@ -166,6 +179,12 @@ class MultiAdapterMergeConfig:
             method_lower = "dare_ties"
         elif method_lower in ("svd", "ctm"):
             method_lower = "ctm"
+        elif method_lower in ("della_ties",):
+            method_lower = "della"
+        elif method_lower in ("breadcrumbs_linear",):
+            method_lower = "breadcrumbs"
+        elif method_lower in ("multi_slerp", "karcher"):
+            method_lower = "multislerp"
 
         if method_lower not in SUPPORTED_METHODS:
             raise ValueError(
@@ -190,6 +209,24 @@ class MultiAdapterMergeConfig:
             raise ValueError(
                 f"Unsloth: target_rank must be positive, got {self.target_rank}."
             )
+        if not (0.0 <= self.gamma < 1.0):
+            raise ValueError(
+                f"Unsloth: gamma must be in [0, 1), got {self.gamma}."
+            )
+        if not (0.0 < self.select_topk <= 1.0):
+            raise ValueError(
+                f"Unsloth: select_topk must be in (0, 1], got {self.select_topk}."
+            )
+        if self.method in ("della", "della_linear"):
+            if not (0.0 < self.della_epsilon):
+                raise ValueError(
+                    f"Unsloth: della_epsilon must be positive, got {self.della_epsilon}."
+                )
+            if self.density - self.della_epsilon <= 0 or self.density + self.della_epsilon >= 1:
+                raise ValueError(
+                    f"Unsloth: density ± della_epsilon must stay within (0, 1); "
+                    f"got density={self.density}, della_epsilon={self.della_epsilon}."
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -714,19 +751,265 @@ def _magnitude_prune_merge(
     for key in all_keys:
         per_adapter_deltas = []
         per_adapter_weights = []
-        for delta_dict, w in zip(all_deltas, weights):
-            if key in delta_dict:
-                per_adapter_deltas.append(delta_dict[key])
-                per_adapter_weights.append(w)
-
-        if not per_adapter_deltas:
-            continue
-
-        merged[key] = _magnitude_prune_merge_key(
-            per_adapter_deltas, per_adapter_weights, density=density
-        )
-
     return merged
+
+
+# ---------------------------------------------------------------------------
+# Sparsifiers shared by DELLA / breadcrumbs (adapted from mergekit.sparsify)
+# ---------------------------------------------------------------------------
+
+def _della_magprune_tensor(
+    tensor: torch.Tensor,
+    density: float,
+    epsilon: float,
+    generator: Optional[torch.Generator] = None,
+) -> torch.Tensor:
+    """DELLA magnitude pruning (mergekit ``della_magprune``).
+
+    Rows are ranked by magnitude; keep-probability interpolates linearly
+    between ``density - epsilon`` (lowest rank) and ``density + epsilon``
+    (highest rank), then a Bernoulli mask is sampled per element.
+    Reference: mergekit/sparsify.py ``della_magprune``.
+    """
+    if density >= 1:
+        return tensor
+    orig_shape = tensor.shape
+    work = tensor.to(torch.float32)
+    if work.dim() < 2:
+        work = work.unsqueeze(0)
+
+    sorted_indices = torch.argsort(work.abs(), dim=1, descending=False)
+    ranks = sorted_indices.argsort(dim=1).to(torch.float32) + 1
+    min_ranks = ranks.min(dim=1, keepdim=True).values
+    max_ranks = ranks.max(dim=1, keepdim=True).values
+    rank_norm = ((ranks - min_ranks) / (max_ranks - min_ranks)).clamp(0, 1)
+    probs = (density - epsilon) + rank_norm * 2 * epsilon
+    mask = torch.bernoulli(probs, generator=generator)
+    return (work * mask).reshape(orig_shape)
+
+
+def _magnitude_outliers_tensor(
+    tensor: torch.Tensor,
+    density: float,
+    gamma: float = 0.01,
+) -> torch.Tensor:
+    """Breadcrumbs pruning (mergekit ``magnitude_outliers``).
+
+    First removes the ``gamma`` fraction of *largest* magnitudes (outliers),
+    then removes the smallest magnitudes to reach the target ``density``.
+    Reference: mergekit/sparsify.py ``magnitude_outliers``; Breadcrumbs paper
+    (Davari & Belilovsky, 2024, arXiv:2312.06795).
+    """
+    if density >= 1:
+        return tensor
+    num_elems = tensor.numel()
+    target_n = int(density * num_elems)
+    n_top = int(gamma * num_elems)
+    # Reduce the outlier removal when necessary to retain the target density.
+    n_bot = max(0, num_elems - target_n - n_top)
+
+    w = tensor.abs().reshape(-1).to(torch.float32)
+    indices = torch.sort(w, descending=False).indices
+    mask = torch.zeros(num_elems, dtype=torch.float32)
+    mask[indices[n_bot : n_bot + target_n]] = 1.0
+    return tensor.to(torch.float32) * mask.reshape_as(tensor)
+
+
+# ---------------------------------------------------------------------------
+# New merge strategies (per-module ``*_merge_key`` functions)
+# ---------------------------------------------------------------------------
+
+def _della_merge_key(
+    per_adapter_deltas: List[torch.Tensor],
+    per_adapter_weights: List[float],
+    density: float = 0.5,
+    della_epsilon: float = 0.15,
+    seed: Optional[int] = None,
+    sign_elect: bool = True,
+) -> torch.Tensor:
+    """DELLA merge ONE module's deltas (mergekit ``della_magprune`` + TIES).
+
+    Rank-based probabilistic pruning (higher-magnitude elements get a higher
+    keep probability), followed by TIES sign election + disjoint average when
+    ``sign_elect`` is True, or a plain weighted sum when False
+    (``della_linear``).
+    Reference: mergekit/sparsify.py ``della_magprune``.
+    """
+    if len(per_adapter_deltas) == 1:
+        return per_adapter_deltas[0] * per_adapter_weights[0]
+
+    generator = torch.Generator().manual_seed(seed) if seed is not None else None
+    pruned = [
+        _della_magprune_tensor(d, density, della_epsilon, generator=generator)
+        for d in per_adapter_deltas
+    ]
+    if sign_elect:
+        return _ties_merge_key(pruned, per_adapter_weights, density=1.0)
+    merged = torch.zeros_like(pruned[0], dtype=torch.float32)
+    for d, w in zip(pruned, per_adapter_weights):
+        merged += d * w
+    return merged
+
+
+def _della_linear_merge_key(
+    per_adapter_deltas: List[torch.Tensor],
+    per_adapter_weights: List[float],
+    density: float = 0.5,
+    della_epsilon: float = 0.15,
+    seed: Optional[int] = None,
+) -> torch.Tensor:
+    """DELLA + linear weighted sum (no sign election)."""
+    return _della_merge_key(
+        per_adapter_deltas, per_adapter_weights,
+        density=density, della_epsilon=della_epsilon, seed=seed,
+        sign_elect=False,
+    )
+
+
+def _breadcrumbs_merge_key(
+    per_adapter_deltas: List[torch.Tensor],
+    per_adapter_weights: List[float],
+    density: float = 0.5,
+    gamma: float = 0.01,
+    sign_elect: bool = False,
+) -> torch.Tensor:
+    """Breadcrumbs merge ONE module's deltas (mergekit ``magnitude_outliers``).
+
+    Drops the ``gamma`` fraction of largest magnitudes (outliers) *and* the
+    smallest magnitudes down to ``density``, then merges. ``sign_elect=False``
+    gives ``breadcrumbs`` (weighted sum); ``True`` gives ``breadcrumbs_ties``.
+    Reference: mergekit/sparsify.py ``magnitude_outliers``; Breadcrumbs paper
+    (arXiv:2312.06795).
+    """
+    if len(per_adapter_deltas) == 1:
+        return per_adapter_deltas[0] * per_adapter_weights[0]
+
+    pruned = [
+        _magnitude_outliers_tensor(d, density=density, gamma=gamma)
+        for d in per_adapter_deltas
+    ]
+    if sign_elect:
+        return _ties_merge_key(pruned, per_adapter_weights, density=1.0)
+    merged = torch.zeros_like(pruned[0], dtype=torch.float32)
+    for d, w in zip(pruned, per_adapter_weights):
+        merged += d * w
+    return merged
+
+
+def _breadcrumbs_ties_merge_key(
+    per_adapter_deltas: List[torch.Tensor],
+    per_adapter_weights: List[float],
+    density: float = 0.5,
+    gamma: float = 0.01,
+) -> torch.Tensor:
+    """Breadcrumbs + TIES sign election."""
+    return _breadcrumbs_merge_key(
+        per_adapter_deltas, per_adapter_weights,
+        density=density, gamma=gamma, sign_elect=True,
+    )
+
+
+def _sce_merge_key(
+    per_adapter_deltas: List[torch.Tensor],
+    per_adapter_weights: List[float],
+    select_topk: float = 1.0,
+) -> torch.Tensor:
+    """SCE (Sign-Consensus Erasure) merge ONE module's deltas.
+
+    1. Optional variance-based mask: keep only the ``select_topk`` fraction of
+       elements with the highest cross-adapter variance.
+    2. Magnitude-based per-adapter weights: ``mean(δᵢ²) / Σ mean(δⱼ²)``.
+    3. Sign-consensus erase (mergekit ``sum`` consensus): drop deltas that
+       disagree with the elected sign.
+    4. Weighted sum normalized by the sum of surviving weights.
+
+    Reference: mergekit/merge_methods/sce.py; SCE paper (arXiv:2408.07990).
+    Note: SCE derives its own per-adapter weights from delta energies, so the
+    user-supplied ``per_adapter_weights`` are intentionally unused (kept for
+    interface symmetry).
+    """
+    if len(per_adapter_deltas) == 1:
+        return per_adapter_deltas[0] * per_adapter_weights[0]
+
+    tvs = torch.stack([d.to(torch.float32) for d in per_adapter_deltas], dim=0)
+
+    # Step 1: variance-based element selection
+    if select_topk < 1.0:
+        var = torch.var(tvs, dim=0, unbiased=False)
+        nonzero = torch.count_nonzero(var)
+        k = int(nonzero.item() * select_topk)
+        if k == 0:
+            return torch.zeros_like(tvs[0])
+        _, indices = torch.topk(var.abs().view(-1), k=k, largest=True)
+        sel_mask = torch.zeros_like(var)
+        sel_mask.view(-1)[indices] = 1.0
+        tvs = tvs * sel_mask.unsqueeze(0)
+
+    # Step 2: magnitude-based per-adapter weights (SCE replaces user weights)
+    energies = tvs.square().reshape(tvs.shape[0], -1).mean(dim=1)
+    energy_sum = energies.sum()
+    if energy_sum.abs() < 1e-6:
+        tv_weights = torch.ones_like(energies) / energies.shape[0]
+    else:
+        tv_weights = energies / energy_sum
+
+    # Step 3: sign-consensus erase (mergekit `sum` consensus)
+    sign = tvs.sign()
+    majority_sign = (tvs.sum(dim=0) >= 0).to(torch.float32) * 2 - 1
+    erase_mask = (sign == majority_sign).to(torch.float32)
+
+    # Step 4: weighted sum normalized by surviving weights
+    while tv_weights.dim() < tvs.dim():
+        tv_weights = tv_weights.unsqueeze(-1)
+    erased_weights = tv_weights * erase_mask
+    merged = (tvs * erased_weights).sum(dim=0)
+    merged = merged / erased_weights.sum(dim=0).clamp(min=1e-6)
+    return merged
+
+
+def _multislerp_merge_key(
+    per_adapter_deltas: List[torch.Tensor],
+    per_adapter_weights: List[float],
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """Multi-SLERP merge ONE module's deltas (barycentric hypersphere interp).
+
+    LoRA-delta adaptation of mergekit ``multislerp``: operates directly on the
+    deltas (no base tensor — the "origin" of the hypersphere is the zero
+    delta). Projects deltas to a unit hypersphere, interpolates in the tangent
+    space at the weighted mean, projects back, and rescales by the weighted
+    average of the original norms.
+
+    Reference: mergekit/merge_methods/multislerp.py
+    """
+    if len(per_adapter_deltas) == 1:
+        return per_adapter_deltas[0] * per_adapter_weights[0]
+
+    tensors = torch.stack([d.to(torch.float32) for d in per_adapter_deltas], dim=0)
+    weights = torch.tensor(per_adapter_weights, dtype=torch.float32)
+    weights = weights / weights.sum()
+
+    flat = tensors.view(tensors.shape[0], -1)
+    norms = torch.norm(flat, dim=-1, keepdim=True)
+    unit = flat / (norms + eps)
+
+    mean = (unit * weights.view(-1, 1)).sum(0)
+    mean_norm = torch.norm(mean)
+    if mean_norm < eps:
+        # Antipodal / balancing weights — fall back to linear interpolation.
+        return (tensors * weights.view(-1, 1, 1)).sum(0)
+    mean = mean / mean_norm
+
+    dots = (unit * mean).sum(-1, keepdim=True)
+    tangent = unit - dots * mean
+    tangent_result = (tangent * weights.view(-1, 1)).sum(0)
+
+    tangent_norm = torch.norm(tangent_result) + eps
+    result = mean * torch.cos(tangent_norm) + tangent_result * (
+        torch.sin(tangent_norm) / tangent_norm
+    )
+    avg_norm = (norms.squeeze(-1) * weights).sum()
+    return (result * avg_norm).view(tensors.shape[1:])
 
 
 # ---------------------------------------------------------------------------
@@ -780,6 +1063,9 @@ def merge_adapters_into_model(
     drop_rate: float = 0.5,
     target_rank: Optional[int] = None,
     seed: int = 42,
+    della_epsilon: float = 0.15,
+    gamma: float = 0.01,
+    select_topk: float = 1.0,
     hf_token=None,
     report_callback=None,
 ) -> torch.nn.Module:
@@ -793,21 +1079,32 @@ def merge_adapters_into_model(
         Paths to PEFT adapter directories on disk.
     weights : list[float] | None
         Per-adapter merge weights.  Defaults to equal weighting.
+        Note: SCE ignores these (it derives weights from delta energies).
     method : ``"linear"`` | ``"ties"`` | ``"dare_ties"`` | ``"dare_linear"`` | \
-``"magnitude_prune"`` | ``"ctm"`` | ``"cat"``
+``"magnitude_prune"`` | ``"ctm"`` | ``"cat"`` | ``"sce"`` | ``"della"`` | \
+``"della_linear"`` | ``"breadcrumbs"`` | ``"breadcrumbs_ties"`` | ``"multislerp"``
         Merge strategy.
     normalize_weights : bool
         If ``True``, weights are normalised to sum to 1.
     density : float
-        TIES/DARE-TIES/magnitude-prune density parameter (fraction of top-k params
-        to keep). Only used when ``method in ("ties", "dare_ties", "magnitude_prune")``.
+        TIES/DARE/DELLA/breadcrumbs/magnitude-prune density parameter (fraction of
+        top-k params to keep).
     drop_rate : float
         DARE drop rate (fraction of non-essential weight deltas to mask). Only used
         when ``method in ("dare_ties", "dare_linear")``.
     target_rank : int | None
         Target rank for SVD low-rank compression. Only used when ``method="ctm"``.
     seed : int
-        Deterministic seed for reproducible dropout masking.
+        Deterministic seed for reproducible DARE/DELLA dropout masking.
+    della_epsilon : float
+        DELLA probability half-width around ``density`` (mergekit epsilon).
+        Only used when ``method in ("della", "della_linear")``.
+    gamma : float
+        Breadcrumbs outlier-removal fraction (mergekit gamma).
+        Only used when ``method in ("breadcrumbs", "breadcrumbs_ties")``.
+    select_topk : float
+        SCE variance-selection fraction (1.0 = keep all).
+        Only used when ``method == "sce"``.
 
     Returns
     -------
@@ -831,6 +1128,9 @@ def merge_adapters_into_model(
         drop_rate=drop_rate,
         target_rank=target_rank,
         seed=seed,
+        della_epsilon=della_epsilon,
+        gamma=gamma,
+        select_topk=select_topk,
     )
 
     # Determine human-friendly display names for logging (e.g. "my-adapter (checkpoint-500)")
@@ -995,6 +1295,49 @@ def merge_adapters_into_model(
                 )
             elif config.method == "cat":
                 delta = _cat_merge_key(per_adapter_factors)
+            elif config.method == "della":
+                delta = _della_merge_key(
+                    per_adapter_deltas,
+                    per_adapter_weights,
+                    density=config.density,
+                    della_epsilon=config.della_epsilon,
+                    seed=config.seed,
+                    sign_elect=True,
+                )
+            elif config.method == "della_linear":
+                delta = _della_linear_merge_key(
+                    per_adapter_deltas,
+                    per_adapter_weights,
+                    density=config.density,
+                    della_epsilon=config.della_epsilon,
+                    seed=config.seed,
+                )
+            elif config.method == "breadcrumbs":
+                delta = _breadcrumbs_merge_key(
+                    per_adapter_deltas,
+                    per_adapter_weights,
+                    density=config.density,
+                    gamma=config.gamma,
+                    sign_elect=False,
+                )
+            elif config.method == "breadcrumbs_ties":
+                delta = _breadcrumbs_ties_merge_key(
+                    per_adapter_deltas,
+                    per_adapter_weights,
+                    density=config.density,
+                    gamma=config.gamma,
+                )
+            elif config.method == "sce":
+                delta = _sce_merge_key(
+                    per_adapter_deltas,
+                    per_adapter_weights,
+                    select_topk=config.select_topk,
+                )
+            elif config.method == "multislerp":
+                delta = _multislerp_merge_key(
+                    per_adapter_deltas,
+                    per_adapter_weights,
+                )
             else:
                 raise ValueError(f"Unsupported merge method: {config.method}")
 
