@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
-"""Mergekit-only merge methods (task_arithmetic/della*/model_stock) must not reach the
-in-memory merger: ``merge_adapters_into_model`` raises ``Unsupported merge method`` for
-them because only the mergekit child-process engine implements those methods. The export
-checkpoint loader now routes those methods through ``merge_adapters_via_mergekit`` and
-loads the merged checkpoint back, and returns a clear error when mergekit is unavailable
-or the adapter's base model cannot be determined."""
+"""Merge methods mergekit implements (linear/ties/dare*/task_arithmetic/della*/model_stock)
+must route to the mergekit child-process engine when mergekit is installed: the export
+checkpoint loader runs ``merge_adapters_via_mergekit`` and loads the merged checkpoint
+back. Without mergekit, the dual-capable methods fall back to the in-memory merger while
+mergekit-only methods (which ``merge_adapters_into_model`` would reject with
+``Unsupported merge method``) get a clear error instead."""
 
 import importlib.machinery
 import sys
@@ -159,11 +159,10 @@ def test_mergekit_only_method_requires_a_base_model(monkeypatch, tmp_path):
     assert calls == []
 
 
-def test_in_house_methods_stay_on_the_in_memory_engine(monkeypatch, tmp_path):
-    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "legacy")
-    mod = _export_mod(monkeypatch)
-    backend, checkpoint = _make_backend(mod, monkeypatch, tmp_path)
+DUAL_CAPABLE = ("linear", "ties", "dare_ties", "dare_linear")
 
+
+def _install_in_memory_recorder(mod, monkeypatch):
     merged = []
 
     def _fake_load(**kwargs):
@@ -177,11 +176,61 @@ def test_in_house_methods_stay_on_the_in_memory_engine(monkeypatch, tmp_path):
     sys.modules["unsloth.multi_adapter_merge"].merge_adapters_into_model = (
         lambda model, **kwargs: (merged.append(kwargs) or model)
     )
+    return merged
+
+
+def test_dual_capable_methods_use_mergekit_when_available(monkeypatch, tmp_path):
+    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "mergekit")
+    mod = _export_mod(monkeypatch)
+    backend, checkpoint = _make_backend(mod, monkeypatch, tmp_path)
+
+    loaded = []
+    monkeypatch.setattr(
+        mod,
+        "FastLanguageModel",
+        types.SimpleNamespace(
+            from_pretrained = lambda **kwargs: (loaded.append(kwargs) or (object(), object()))
+        ),
+    )
+
+    for method in DUAL_CAPABLE:
+        merge = {"adapter_paths": ["a", "b"], "method": method}
+        ok, _msg = backend.load_checkpoint(str(checkpoint), merge_adapters = merge)
+        assert ok, f"{method}: {_msg}"
+
+    assert [call["method"] for call in calls] == list(DUAL_CAPABLE)
+    assert all(kwargs["model_name"] == calls[0]["output_dir"] for kwargs in loaded)
+    assert len(loaded) == len(DUAL_CAPABLE)
+
+
+def test_dual_capable_methods_fall_back_to_in_memory_without_mergekit(monkeypatch, tmp_path):
+    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "legacy")
+    mod = _export_mod(monkeypatch)
+    backend, checkpoint = _make_backend(mod, monkeypatch, tmp_path)
+    merged = _install_in_memory_recorder(mod, monkeypatch)
+
+    for method in DUAL_CAPABLE:
+        ok, msg = backend.load_checkpoint(
+            str(checkpoint), merge_adapters = {"adapter_paths": ["a", "b"], "method": method}
+        )
+        assert ok, f"{method}: {msg}"
+
+    assert calls == []
+    assert [kwargs["method"] for kwargs in merged] == list(DUAL_CAPABLE)
+
+
+def test_legacy_only_methods_stay_on_the_in_memory_engine(monkeypatch, tmp_path):
+    # magnitude_prune/ctm/cat have no mergekit equivalent, so the in-house engine
+    # runs even when mergekit is installed.
+    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "legacy")
+    mod = _export_mod(monkeypatch)
+    backend, checkpoint = _make_backend(mod, monkeypatch, tmp_path)
+    merged = _install_in_memory_recorder(mod, monkeypatch)
 
     ok, msg = backend.load_checkpoint(
-        str(checkpoint), merge_adapters = {"adapter_paths": ["a", "b"], "method": "ties"}
+        str(checkpoint), merge_adapters = {"adapter_paths": ["a", "b"], "method": "ctm"}
     )
     assert ok, msg
     assert calls == []
-    assert [kwargs["method"] for kwargs in merged] == ["ties"]
+    assert [kwargs["method"] for kwargs in merged] == ["ctm"]
 

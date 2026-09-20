@@ -622,9 +622,11 @@ class ExportBackend:
 
             model_id = base_model or checkpoint_path
 
-            # Mergekit-only methods (task_arithmetic/della*/model_stock) cannot merge
-            # into an already-loaded model; they run in the mergekit child process
-            # against the base checkpoint and the merged result is loaded instead.
+            # Methods mergekit implements run in the mergekit child process when it is
+            # installed (auto engine): mergekit writes a merged checkpoint that is then
+            # loaded back below. Mergekit-only methods (task_arithmetic/della*/model_stock)
+            # have no in-house fallback and fail with a pointer when mergekit is missing;
+            # magnitude_prune/ctm/cat always use the in-house engine (no mergekit equivalent).
             if merge_adapters and not _IS_MLX:
                 from unsloth.mergekit_bridge import (
                     MergeKitUnavailableError,
@@ -636,18 +638,19 @@ class ExportBackend:
                 from unsloth.multi_adapter_merge import MERGEKIT_ONLY_METHODS
 
                 _merge_method = merge_adapters.get("method", "linear")
-                if normalize_method(_merge_method) in MERGEKIT_ONLY_METHODS:
-                    if not base_model:
-                        return False, (
-                            f"Merge method '{_merge_method}' requires the adapter's base "
-                            "model, but it could not be determined"
-                        )
-                    if resolve_engine(_merge_method) != "mergekit":
+                if resolve_engine(_merge_method) != "mergekit":
+                    if normalize_method(_merge_method) in MERGEKIT_ONLY_METHODS:
                         return False, (
                             f"Merge method '{_merge_method}' requires the mergekit engine, "
                             "but mergekit is not installed or reachable. Install mergekit "
                             "(or set UNSLOTH_MERGEKIT_PYTHON) or choose a built-in method "
                             "(linear, ties, dare_ties, dare_linear, magnitude_prune, ctm, cat)."
+                        )
+                else:
+                    if not base_model:
+                        return False, (
+                            f"Merge method '{_merge_method}' requires the adapter's base "
+                            "model, but it could not be determined"
                         )
                     _mergekit_output_dir = make_merge_output_dir()
                     try:
