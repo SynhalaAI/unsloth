@@ -517,9 +517,25 @@ _shadow = os.environ.get("UNSLOTH_MERGEKIT_SHADOW", "").strip()
 if _shadow:
     sys.path.insert(0, _shadow)
 
+try:
+    import torch
+except Exception:
+    pass
+
 import yaml
 from mergekit.config import MergeConfiguration
 from mergekit.merge import MergeOptions, run_merge
+
+# In pydantic>=2.10, ConfiguredModuleArchitecture references torch types and
+# requires model_rebuild() once torch is imported.
+for _mod_name in ("mergekit.architecture.base", "mergekit.plan", "mergekit.architecture"):
+    try:
+        _mod = __import__(_mod_name, fromlist=["ConfiguredModuleArchitecture"])
+        _cls = getattr(_mod, "ConfiguredModuleArchitecture", None)
+        if _cls is not None and hasattr(_cls, "model_rebuild"):
+            _cls.model_rebuild()
+    except Exception:
+        pass
 
 with open(sys.argv[1], "r", encoding="utf-8") as handle:
     config = MergeConfiguration.model_validate(yaml.safe_load(handle))
