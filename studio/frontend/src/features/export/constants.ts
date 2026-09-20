@@ -363,6 +363,32 @@ export const MERGE_METHODS: { value: MergeMethodType; label: string; description
   { value: "magnitude_prune", label: "Mag-Prune", description: "Keeps the top-density magnitudes per adapter (a density is required), then takes the weighted sum." },
   { value: "ctm", label: "CtM", description: "Compressed Target Merge - applies low-rank SVD compression after merging, optionally to a target rank." },
   { value: "cat", label: "Cat", description: "Concatenates the adapter factors into a rank-extended adapter - no averaging and no interference; matches Linear once folded into the base weights." },
+  { value: "cat", label: "Cat", description: "Concatenates the adapter factors into a rank-extended adapter - no averaging and no interference; matches Linear once folded into the base weights." },
+];
+
+/**
+ * Methods the mergekit engine implements (mergekit child process). When mergekit is
+ * installed these methods run through it, and only then does the CPU/GPU device
+ * toggle apply. Keep in sync with MERGEKIT_METHOD_MAP in unsloth/mergekit_bridge.py.
+ */
+export const MERGEKIT_METHODS: ReadonlySet<MergeMethodType> = new Set([
+  "linear",
+  "ties",
+  "dare_ties",
+  "dare_linear",
+  "task_arithmetic",
+  "della",
+  "della_ties",
+  "della_linear",
+  "model_stock",
+]);
+
+export type MergeDeviceType = "cpu" | "cuda";
+
+export const MERGE_DEVICES: { value: MergeDeviceType; label: string }[] = [
+  { value: "cpu", label: "CPU" },
+  { value: "cuda", label: "GPU" },
+];
 ];
 
 export const GUIDE_STEPS = [

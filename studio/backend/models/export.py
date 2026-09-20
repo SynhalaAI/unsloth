@@ -83,6 +83,8 @@ class MultiAdapterMergeRequest(BaseModel):
     density: float = Field(0.5, gt = 0.0, le = 1.0)
     drop_rate: float = Field(0.5, ge = 0.0, lt = 1.0)
     target_rank: Optional[int] = Field(None, ge = 1)
+    # Mergekit child-process merge device; ignored by the in-house engine. None = CPU.
+    device: Optional[Literal["cpu", "cuda"]] = None
 
     @field_validator("weights")
     @classmethod

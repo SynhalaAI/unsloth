@@ -17,7 +17,7 @@ import {
   type ExportOperationResponse,
   type ExportStatus,
 } from "../api/export-api";
-import type { ExportMethod, MergeMethodType } from "../constants";
+import type { ExportMethod, MergeMethodType, MergeDeviceType } from "../constants";
 
 /** Thrown by status recovery when the backend reports the op was cancelled. */
 class ExportCanceledError extends Error {
@@ -148,6 +148,8 @@ export interface RunExportParams {
     drop_rate?: number;
     /** CtM truncated-SVD rank; backend defaults to None. */
     target_rank?: number;
+    /** Mergekit merge device ("cpu" | "cuda"); backend defaults to CPU. */
+    device?: MergeDeviceType;
   };
   exportMethod: ExportMethod;
   isAdapter: boolean;

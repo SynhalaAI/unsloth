@@ -78,6 +78,16 @@ class TestMultiAdapterMergeRequest(unittest.TestCase):
         with self.assertRaises(Exception):
             self.schema(adapter_paths = ["a", "b"], weights = [1.0])
 
+    def test_device_is_optional_cpu_or_cuda(self):
+        # The mergekit merge device toggle: absent/None stays on the CPU default.
+        default = self.schema(adapter_paths = ["a", "b"])
+        self.assertIsNone(default.device)
+        for device in ("cpu", "cuda"):
+            model = self.schema(adapter_paths = ["a", "b"], device = device)
+            self.assertEqual(model.device, device)
+        with self.assertRaises(Exception):
+            self.schema(adapter_paths = ["a", "b"], device = "tpu")
+
 
 if __name__ == "__main__":
     unittest.main()

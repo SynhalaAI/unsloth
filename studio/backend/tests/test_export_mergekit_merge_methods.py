@@ -234,3 +234,28 @@ def test_legacy_only_methods_stay_on_the_in_memory_engine(monkeypatch, tmp_path)
     assert calls == []
     assert [kwargs["method"] for kwargs in merged] == ["ctm"]
 
+
+def test_merge_device_reaches_the_mergekit_engine(monkeypatch, tmp_path):
+    # The Export page's CPU/GPU toggle must reach merge_adapters_via_mergekit; a
+    # missing/empty device stays on the safe CPU default.
+    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "mergekit")
+    mod = _export_mod(monkeypatch)
+    backend, checkpoint = _make_backend(mod, monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        mod,
+        "FastLanguageModel",
+        types.SimpleNamespace(from_pretrained = lambda **kwargs: (object(), object())),
+    )
+
+    ok, msg = backend.load_checkpoint(
+        str(checkpoint),
+        merge_adapters = {"adapter_paths": ["a", "b"], "method": "linear", "device": "cuda"},
+    )
+    assert ok, msg
+    ok, msg = backend.load_checkpoint(
+        str(checkpoint),
+        merge_adapters = {"adapter_paths": ["a", "b"], "method": "linear"},
+    )
+    assert ok, msg
+    assert [call["device"] for call in calls] == ["cuda", "cpu"]
+

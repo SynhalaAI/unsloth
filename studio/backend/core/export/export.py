@@ -653,6 +653,7 @@ class ExportBackend:
                             "model, but it could not be determined"
                         )
                     _mergekit_output_dir = make_merge_output_dir()
+                    _merge_device = merge_adapters.get("device") or "cpu"
                     try:
                         merge_adapters_via_mergekit(
                             base_model = base_model,
@@ -663,6 +664,7 @@ class ExportBackend:
                             normalize_weights = merge_adapters.get("normalize_weights", True),
                             density = merge_adapters.get("density", 0.5),
                             drop_rate = merge_adapters.get("drop_rate", 0.5),
+                            device = _merge_device,
                         )
                     except MergeKitUnavailableError:
                         return False, (

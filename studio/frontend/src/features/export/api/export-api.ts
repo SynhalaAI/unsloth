@@ -4,7 +4,7 @@
 import { authFetch } from "@/features/auth";
 import { readFastApiError } from "@/lib/format-fastapi-error";
 import { openStreamResponse } from "@/lib/open-stream-response";
-import { type MergeMethodType } from "../constants";
+import { type MergeMethodType, type MergeDeviceType } from "../constants";
 
 const readError = (r: Response): Promise<string> => readFastApiError(r);
 
@@ -144,6 +144,8 @@ export async function loadCheckpoint(params: {
     drop_rate?: number;
     /** CtM truncated-SVD rank; backend defaults to None. */
     target_rank?: number;
+    /** Mergekit merge device ("cpu" | "cuda"); backend defaults to CPU. */
+    device?: MergeDeviceType;
   } | null;
 }): Promise<ExportOperationResponse> {
   const response = await authFetch("/api/export/load-checkpoint", {

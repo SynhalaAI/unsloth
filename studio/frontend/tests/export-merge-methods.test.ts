@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { loadCheckpoint } from "../src/features/export/api/export-api.ts";
-import { MERGE_METHODS, type MergeMethodType } from "../src/features/export/constants.ts";
+import { MERGEKIT_METHODS, MERGE_METHODS, type MergeMethodType } from "../src/features/export/constants.ts";
 import type { RunExportParams } from "../src/features/export/stores/export-runtime-store.ts";
 
 import { readSrc } from "./helpers/kit.ts";
@@ -157,9 +157,11 @@ test("the store and api pass-through types carry every merge field", () => {
   assert.match(storeSource, /method: MergeMethodType;/);
   assert.match(storeSource, /drop_rate\?: number;/);
   assert.match(storeSource, /target_rank\?: number;/);
+  assert.match(storeSource, /device\?: MergeDeviceType;/);
   assert.match(apiSource, /method\?: MergeMethodType;/);
   assert.match(apiSource, /drop_rate\?: number;/);
   assert.match(apiSource, /target_rank\?: number;/);
+  assert.match(apiSource, /device\?: MergeDeviceType;/);
   // The narrowed linear/ties-only unions must be gone from both pass-throughs.
   assert.doesNotMatch(storeSource, /method: "linear" \| "ties"/);
   assert.doesNotMatch(apiSource, /method\?: "linear" \| "ties"/);
@@ -199,10 +201,39 @@ test("the page-built merge payload satisfies the runtime request chain", () => {
       density: 0.5,
       drop_rate: 0.2,
       target_rank: method === "ctm" ? 16 : undefined,
+      device: MERGEKIT_METHODS.has(method) ? "cuda" : undefined,
     };
     assert.equal(pagePayload.adapter_paths.length, pagePayload.weights.length);
     // The store param must flow into the load-checkpoint request unchanged.
     const apiPayload: ApiMerge = pagePayload;
     assert.equal(apiPayload.method, method);
+test("the mergekit device toggle renders only for mergekit-implemented methods", () => {
+  // Keep in sync with MERGEKIT_METHOD_MAP in unsloth/mergekit_bridge.py: these are
+  // exactly the methods whose merge can run on GPU via the mergekit engine.
+  assert.deepEqual([...MERGEKIT_METHODS], [
+    "linear",
+    "ties",
+    "dare_ties",
+    "dare_linear",
+    "task_arithmetic",
+    "della",
+    "della_ties",
+    "della_linear",
+    "model_stock",
+  ]);
+  for (const legacyOnly of ["magnitude_prune", "ctm", "cat"]) {
+    assert.ok(!MERGEKIT_METHODS.has(legacyOnly as MergeMethodType), legacyOnly);
+  }
+  assert.match(exportPageSource, /useState<MergeDeviceType>\("cpu"\)/);
+  assert.match(exportPageSource, /MERGEKIT_METHODS\.has\(mergeMethod\) && \(/);
+  assert.match(exportPageSource, /aria-label="Merge device"/);
+  // The payload only carries a device for mergekit methods.
+  assert.match(
+    exportPageSource,
+    /device: MERGEKIT_METHODS\.has\(mergeMethod\) \? mergeDevice : undefined,/,
+  );
+  // The toggle state must feed the request deps so a change is never stale-sent.
+  assert.match(exportPageSource, /mergeTargetRank,\s*\n\s*mergeDevice,/);
+});
   }
 });

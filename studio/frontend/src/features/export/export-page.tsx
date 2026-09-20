@@ -85,6 +85,9 @@ import {
   type MergedFormatOption,
   MERGE_METHODS,
   type MergeMethodType,
+  MERGEKIT_METHODS,
+  MERGE_DEVICES,
+  type MergeDeviceType,
   QUANT_OPTIONS,
   buildQuantSizeLabels,
   getEstimatedSize,
@@ -417,6 +420,8 @@ export function ExportPage() {
   // DARE-TIES drop rate and CtM SVD target rank: shown only for their merge methods.
   const [mergeDropRate, setMergeDropRate] = useState("0.5");
   const [mergeTargetRank, setMergeTargetRank] = useState("");
+  // Mergekit merge device; only applies to the methods mergekit implements.
+  const [mergeDevice, setMergeDevice] = useState<MergeDeviceType>("cpu");
   const [adapterMergeSelections, setAdapterMergeSelections] = useState<
     AdapterMergeSelection[]
   >([]);
@@ -1205,6 +1210,8 @@ export function ExportPage() {
             Number(mergeTargetRank) >= 1
               ? Number(mergeTargetRank)
               : undefined,
+          // Only the mergekit engine honours a device; legacy-only methods ignore it.
+          device: MERGEKIT_METHODS.has(mergeMethod) ? mergeDevice : undefined,
         }
       : undefined;
 
@@ -1320,6 +1327,7 @@ export function ExportPage() {
     mergeDensity,
     mergeDropRate,
     mergeTargetRank,
+    mergeDevice,
     exportUnsupported,
     destination,
     saveDirectory,
@@ -2086,6 +2094,36 @@ export function ExportPage() {
                             ?.description ??
                             "How several LoRA checkpoints are blended into one model."}
                         </InfoHint>
+                        {MERGEKIT_METHODS.has(mergeMethod) && (
+                          <span className="flex items-center gap-1">
+                            <Select
+                              value={mergeDevice}
+                              onValueChange={(value: MergeDeviceType) =>
+                                setMergeDevice(value)
+                              }
+                            >
+                              <SelectTrigger
+                                className="w-20"
+                                aria-label="Merge device"
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {MERGE_DEVICES.map((device) => (
+                                  <SelectItem key={device.value} value={device.value}>
+                                    {device.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <InfoHint>
+                              Device for the mergekit merge (this method runs through
+                              mergekit). GPU is faster but needs enough VRAM to hold
+                              the base model plus the merged adapters. Requires
+                              mergekit to be installed.
+                            </InfoHint>
+                          </span>
+                        )}
                         {(mergeMethod === "ties" ||
                           mergeMethod === "dare_ties" ||
                           mergeMethod === "magnitude_prune") && (
