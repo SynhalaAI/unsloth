@@ -187,20 +187,34 @@ test("the page-built merge payload satisfies the runtime request chain", () => {
 });
 
 test("the method picker groups methods by category with a per-method info card", () => {
-  // Grouped dropdown: SelectLabel category headers must sit inside SelectGroup
-  // (Radix throws "SelectLabel must be used within SelectGroup" otherwise).
+  // Two-step picker: the category dropdown lists every group order entry,
+  // and the method dropdown renders the filtered list for that category.
   assert.match(
     exportPageSource,
-    /MERGE_METHOD_CATEGORY_ORDER\.map\(\(category\) => \(\s*<SelectGroup key=\{category\}>/,
+    /MERGE_METHOD_CATEGORY_ORDER\.map\(\(category\) => \(\s*<SelectItem key=\{category\} value=\{category\}>/,
   );
   assert.match(
     exportPageSource,
-    /<SelectLabel[^>]*>\s*\{MERGE_METHOD_CATEGORY_LABELS\[category\]\}/,
+    /<SelectItem[^>]*>\s*\{MERGE_METHOD_CATEGORY_LABELS\[category\]\}/,
   );
-  assert.match(exportPageSource, /<\/SelectGroup>/);
   assert.match(
     exportPageSource,
-    /import \{\s*Select,\s*SelectContent,\s*SelectGroup,\s*SelectItem,\s*SelectLabel,\s*SelectTrigger,\s*SelectValue,\s*\} from "@\/components\/ui\/select";/,
+    /mergeMethodsForCategory\.map\(\(method\) => \(\s*<SelectItem key=\{method\.value\} value=\{method\.value\}>/,
+  );
+  assert.match(exportPageSource, /\{method\.label\}/);
+  // No stale grouped markup may remain: labels must only come from the
+  // category dropdown, never from inside the method list.
+  assert.doesNotMatch(exportPageSource, /<SelectGroup/);
+  assert.doesNotMatch(exportPageSource, /<SelectLabel/);
+  // Changing the category resets the method to that group's first method.
+  assert.match(
+    exportPageSource,
+    /const handleMergeCategoryChange[\s\S]*?setMergeMethod\(first\.value\)/,
+  );
+  // Importing / otherwise setting a method moves the category to match.
+  assert.match(
+    exportPageSource,
+    /const handleMergeMethodChange[\s\S]*?setMergeCategory\(category\)/,
   );
   // Info card shows the selected method's bestFor guidance.
   assert.match(

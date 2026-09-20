@@ -30,9 +30,7 @@ import {
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -96,6 +94,7 @@ import {
   MERGE_METHODS_WITH_GAMMA,
   MERGE_METHODS_WITH_RANK,
   MERGE_METHODS_WITH_TOPK,
+  type MergeMethodCategory,
   type MergeMethodType,
   QUANT_OPTIONS,
   buildQuantSizeLabels,
@@ -433,6 +432,42 @@ export function ExportPage() {
   const [mergeDellaEpsilon, setMergeDellaEpsilon] = useState("0.15");
   const [mergeGamma, setMergeGamma] = useState("0.01");
   const [mergeSelectTopk, setMergeSelectTopk] = useState("1");
+  const [mergeCategory, setMergeCategory] = useState<MergeMethodCategory>(
+    "recommended",
+  );
+
+  // Methods available in the currently selected category. The two dropdowns
+  // stay in sync: changing the category resets the method to the category's
+  // first method, and any method set programmatically (e.g. from an imported
+  // config) moves the category to the method's group.
+  const mergeMethodsForCategory = useMemo(
+    () => MERGE_METHODS.filter((method) => method.category === mergeCategory),
+    [mergeCategory],
+  );
+  useEffect(() => {
+    if (!mergeMethodsForCategory.some((method) => method.value === mergeMethod)) {
+      const first = mergeMethodsForCategory[0];
+      if (first) {
+        setMergeMethod(first.value);
+      }
+    }
+  }, [mergeCategory, mergeMethod, mergeMethodsForCategory]);
+  const handleMergeCategoryChange = useCallback((value: MergeMethodCategory) => {
+    setMergeCategory(value);
+    const first = MERGE_METHODS.find((method) => method.category === value);
+    if (first) {
+      setMergeMethod(first.value);
+    }
+  }, []);
+  const handleMergeMethodChange = useCallback((value: MergeMethodType) => {
+    setMergeMethod(value);
+    const category = MERGE_METHODS.find(
+      (method) => method.value === value,
+    )?.category;
+    if (category) {
+      setMergeCategory(category);
+    }
+  }, []);
   const [adapterMergeSelections, setAdapterMergeSelections] = useState<
     AdapterMergeSelection[]
   >([]);
@@ -1097,6 +1132,12 @@ export function ExportPage() {
         setAdapterMergeSelections(adapters);
         if (config.method && MERGE_METHODS.some((item) => item.value === config.method)) {
           setMergeMethod(config.method);
+          const category = MERGE_METHODS.find(
+            (item) => item.value === config.method,
+          )?.category;
+          if (category) {
+            setMergeCategory(category);
+          }
         }
         if (typeof config.density === "string") {
           setMergeDensity(config.density);
@@ -1377,6 +1418,7 @@ export function ExportPage() {
     adapterMergeSelections,
     localMetaById,
     mergeMethod,
+    mergeCategory,
     mergeDensity,
     mergeDropRate,
     mergeTargetRank,
@@ -2128,31 +2170,39 @@ export function ExportPage() {
                           Save config
                         </Button>
                         <Select
-                          value={mergeMethod}
-                          onValueChange={(value: MergeMethodType) =>
-                            setMergeMethod(value)
+                          value={mergeCategory}
+                          onValueChange={(value: MergeMethodCategory) =>
+                            handleMergeCategoryChange(value)
                           }
                         >
-                          <SelectTrigger className="w-36">
+                          <SelectTrigger
+                            className="w-40"
+                            aria-label="Merge method category"
+                          >
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
                             {MERGE_METHOD_CATEGORY_ORDER.map((category) => (
-                              <SelectGroup key={category}>
-                                <SelectLabel className="text-xs font-medium text-muted-foreground">
-                                  {MERGE_METHOD_CATEGORY_LABELS[category]}
-                                </SelectLabel>
-                                {MERGE_METHODS.filter(
-                                  (method) => method.category === category,
-                                ).map((method) => (
-                                  <SelectItem
-                                    key={method.value}
-                                    value={method.value}
-                                  >
-                                    {method.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectGroup>
+                              <SelectItem key={category} value={category}>
+                                {MERGE_METHOD_CATEGORY_LABELS[category]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={mergeMethod}
+                          onValueChange={(value: MergeMethodType) =>
+                            handleMergeMethodChange(value)
+                          }
+                        >
+                          <SelectTrigger className="w-36" aria-label="Merge method">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {mergeMethodsForCategory.map((method) => (
+                              <SelectItem key={method.value} value={method.value}>
+                                {method.label}
+                              </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
