@@ -2113,14 +2113,14 @@ export function ExportPage() {
                             );
                             if (!selected) {
                               return (
-                                <React.Fragment>
+                                <>
                                   How several LoRA checkpoints are blended into
                                   one model.
-                                </React.Fragment>
+                                </>
                               );
                             }
                             return (
-                              <React.Fragment>
+                              <>
                                 <span className="block">
                                   {selected.description}
                                 </span>
@@ -2130,7 +2130,7 @@ export function ExportPage() {
                                 <span className="block">
                                   Best for: {selected.strengths}
                                 </span>
-                              </React.Fragment>
+                              </>
                             );
                           })()}
                         </InfoHint>
