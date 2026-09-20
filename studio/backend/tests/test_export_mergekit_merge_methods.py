@@ -54,6 +54,20 @@ def _install_merge_stubs(monkeypatch, *, resolve_engine):
     multi = types.ModuleType("unsloth.multi_adapter_merge")
     multi.MERGEKIT_ONLY_METHODS = MERGEKIT_ONLY
 
+    resolved: list = []
+
+    def _fake_resolve_adapter_path(adapter_path, hf_token = None):
+        resolved.append(adapter_path)
+        key = (
+            adapter_path.get("repo_id", "")
+            if isinstance(adapter_path, dict)
+            else str(adapter_path)
+        )
+        return f"/resolved/{key}"
+
+    multi._resolve_adapter_path = _fake_resolve_adapter_path
+    multi._resolved_adapter_paths = resolved
+
     def _boom(*args, **kwargs):  # the in-memory engine must never see these methods
         raise AssertionError("merge_adapters_into_model must not run for mergekit-only methods")
 
@@ -133,7 +147,11 @@ def test_mergekit_only_methods_route_to_the_mergekit_engine(monkeypatch, tmp_pat
     assert [call["method"] for call in calls] == list(MERGEKIT_ONLY)
     for call in calls:
         assert call["base_model"] == "base/model"
-        assert call["adapters"] == (["a", "b", "c"] if call["method"] == "model_stock" else ["a", "b"])
+        assert call["adapters"] == (
+            ["/resolved/a", "/resolved/b", "/resolved/c"]
+            if call["method"] == "model_stock"
+            else ["/resolved/a", "/resolved/b"]
+        )
     # Every merge loaded the merged checkpoint back instead of the raw adapter.
     assert all(kwargs["model_name"] == calls[0]["output_dir"] for kwargs in loaded)
     assert len(loaded) == len(MERGEKIT_ONLY)
@@ -318,6 +336,52 @@ def test_local_full_model_selection_is_used_as_the_merge_base(monkeypatch, tmp_p
     assert ok, msg
     assert remote_calls == []
     assert calls[0]["base_model"] == str(local_model)
+
+
+def test_local_base_with_hf_adapter_dicts_reaches_mergekit_resolved(monkeypatch, tmp_path):
+    # The user's flow: pick a LOCAL full model as the base, two HuggingFace
+    # adapters as {repo_id, subfolder} dicts, a mergekit method, and export.
+    # The local model dir is the merge base and every adapter dict must be
+    # resolved into a real local snapshot path before mergekit sees it.
+    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "mergekit")
+    mod = _export_mod(monkeypatch)
+    monkeypatch.setattr(
+        mod,
+        "FastLanguageModel",
+        types.SimpleNamespace(from_pretrained = lambda **kwargs: (object(), object())),
+    )
+
+    backend = mod.ExportBackend.__new__(mod.ExportBackend)
+    backend.cleanup_memory = lambda: None
+    backend._audio_type = None
+    backend.is_vision = False
+
+    local_model = tmp_path / "SynhalaA9" / "AIBD"
+    local_model.mkdir(parents = True)
+    (local_model / "config.json").write_text("{}")
+
+    ok, msg = backend.load_checkpoint(
+        str(local_model),
+        merge_adapters = {
+            "adapter_paths": [
+                {"repo_id": "SynhalaAI/AehAI-Gemma4-E2B-OCR"},
+                {"repo_id": "SynhalaAI/AehAI-Gemma4-E2B-VSION", "subfolder": "checkpoint-704"},
+            ],
+            "method": "della",
+            "weights": [0.6, 0.4],
+        },
+    )
+    assert ok, msg
+    multi = sys.modules["unsloth.multi_adapter_merge"]
+    assert multi._resolved_adapter_paths == [
+        {"repo_id": "SynhalaAI/AehAI-Gemma4-E2B-OCR"},
+        {"repo_id": "SynhalaAI/AehAI-Gemma4-E2B-VSION", "subfolder": "checkpoint-704"},
+    ]
+    assert calls[0]["base_model"] == str(local_model)
+    assert calls[0]["adapters"] == [
+        "/resolved/SynhalaAI/AehAI-Gemma4-E2B-OCR",
+        "/resolved/SynhalaAI/AehAI-Gemma4-E2B-VSION",
+    ]
 
 
 def test_hub_adapter_repo_resolves_base_from_remote_config(monkeypatch, tmp_path):

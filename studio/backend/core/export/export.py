@@ -717,10 +717,20 @@ class ExportBackend:
                         )
                     _mergekit_output_dir = make_merge_output_dir()
                     _merge_device = merge_adapters.get("device") or "cpu"
+                    # The page sends HF adapters as {repo_id, subfolder} dicts and
+                    # repo-id strings; mergekit needs real local paths, so resolve
+                    # each one into its (downloaded) snapshot directory first --
+                    # the same resolution the in-memory engine does internally.
+                    from unsloth.multi_adapter_merge import _resolve_adapter_path
+
+                    _resolved_adapters = [
+                        _resolve_adapter_path(path, hf_token = token)
+                        for path in merge_adapters["adapter_paths"]
+                    ]
                     try:
                         merge_adapters_via_mergekit(
                             base_model = base_model,
-                            adapters = merge_adapters["adapter_paths"],
+                            adapters = _resolved_adapters,
                             output_dir = _mergekit_output_dir,
                             weights = merge_adapters.get("weights"),
                             method = _merge_method,

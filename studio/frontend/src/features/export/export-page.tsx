@@ -2112,18 +2112,25 @@ export function ExportPage() {
                               (method) => method.value === mergeMethod,
                             );
                             if (!selected) {
-                              return "How several LoRA checkpoints are blended into one model.";
+                              return (
+                                <React.Fragment>
+                                  How several LoRA checkpoints are blended into
+                                  one model.
+                                </React.Fragment>
+                              );
                             }
                             return (
-                              <span>
-                                <span className="block">{selected.description}</span>
+                              <React.Fragment>
+                                <span className="block">
+                                  {selected.description}
+                                </span>
                                 <span className="block">
                                   Core idea: {selected.coreIdea}
                                 </span>
                                 <span className="block">
                                   Best for: {selected.strengths}
                                 </span>
-                              </span>
+                              </React.Fragment>
                             );
                           })()}
                         </InfoHint>
