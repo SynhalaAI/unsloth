@@ -367,6 +367,15 @@ export const MERGE_METHOD_CATEGORY_LABELS: Record<MergeMethodCategory, string> =
   export: "📦 Export",
 };
 
+/** Display order of the picker groups (most-used first). */
+export const MERGE_METHOD_CATEGORY_ORDER: MergeMethodCategory[] = [
+  "recommended",
+  "basic",
+  "robust",
+  "advanced",
+  "export",
+];
+
 export const MERGE_METHODS: {
   value: MergeMethodType;
   label: string;

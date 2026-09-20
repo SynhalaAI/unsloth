@@ -86,7 +86,8 @@ import {
   type MergedFormatOption,
   MERGE_METHODS,
   MERGE_METHODS_AUTO_WEIGHTS,
-  MERGE_METHODS_CATEGORY_LABELS,
+  MERGE_METHOD_CATEGORY_LABELS,
+  MERGE_METHOD_CATEGORY_ORDER,
   MERGE_METHODS_MIN_3_ADAPTERS,
   MERGE_METHODS_WITH_DENSITY,
   MERGE_METHODS_WITH_DROPOUT,
@@ -94,7 +95,6 @@ import {
   MERGE_METHODS_WITH_GAMMA,
   MERGE_METHODS_WITH_RANK,
   MERGE_METHODS_WITH_TOPK,
-  type MergeMethodCategory,
   type MergeMethodType,
   QUANT_OPTIONS,
   buildQuantSizeLabels,
@@ -944,17 +944,29 @@ export function ExportPage() {
         adapterMergeSelections.every(
           (item) => item.path && Number.isFinite(Number(item.weight)),
         ) &&
-        ((mergeMethod !== "ties" &&
-          mergeMethod !== "dare_ties" &&
-          mergeMethod !== "magnitude_prune") ||
+        (!MERGE_METHODS_WITH_DENSITY.has(mergeMethod) ||
           (Number.isFinite(Number(mergeDensity)) &&
             Number(mergeDensity) > 0 &&
             Number(mergeDensity) <= 1)) &&
-        ((mergeMethod !== "dare_ties" && mergeMethod !== "dare_linear") ||
+        (!MERGE_METHODS_WITH_DROPOUT.has(mergeMethod) ||
           (Number.isFinite(Number(mergeDropRate)) &&
             Number(mergeDropRate) >= 0 &&
             Number(mergeDropRate) < 1)) &&
-        (mergeMethod !== "ctm" ||
+        (!MERGE_METHODS_WITH_EPSILON.has(mergeMethod) ||
+          (Number.isFinite(Number(mergeDellaEpsilon)) &&
+            Number(mergeDellaEpsilon) > 0 &&
+            Number(mergeDellaEpsilon) < 1)) &&
+        (!MERGE_METHODS_WITH_GAMMA.has(mergeMethod) ||
+          (Number.isFinite(Number(mergeGamma)) &&
+            Number(mergeGamma) >= 0 &&
+            Number(mergeGamma) < 1)) &&
+        (!MERGE_METHODS_WITH_TOPK.has(mergeMethod) ||
+          (Number.isFinite(Number(mergeSelectTopk)) &&
+            Number(mergeSelectTopk) > 0 &&
+            Number(mergeSelectTopk) <= 1)) &&
+        (!MERGE_METHODS_MIN_3_ADAPTERS.has(mergeMethod) ||
+          adapterMergeSelections.length >= 3) &&
+        (!MERGE_METHODS_WITH_RANK.has(mergeMethod) ||
           mergeTargetRank.trim() === "" ||
           (Number.isInteger(Number(mergeTargetRank)) &&
             Number(mergeTargetRank) >= 1))))
@@ -2124,13 +2136,10 @@ export function ExportPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {(Object.entries(MERGE_METHOD_CATEGORY_LABELS) as [
-                              MergeMethodCategory,
-                              string,
-                            ][]).map(([category, categoryLabel]) => (
+                            {MERGE_METHOD_CATEGORY_ORDER.map((category) => (
                               <div key={category}>
                                 <SelectLabel className="text-xs font-medium text-muted-foreground">
-                                  {categoryLabel}
+                                  {MERGE_METHOD_CATEGORY_LABELS[category]}
                                 </SelectLabel>
                                 {MERGE_METHODS.filter(
                                   (method) => method.category === category,

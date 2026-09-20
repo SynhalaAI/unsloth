@@ -52,10 +52,11 @@ test("the constants module keeps the picker type and list in one place", () => {
 
 test("the export page picker renders from MERGE_METHODS, not hardcoded items", () => {
   assert.match(exportPageSource, /useState<MergeMethodType>\("linear"\)/);
-  assert.match(
-    exportPageSource,
-    /MERGE_METHODS\.map\(\(method\) => \(\s*<SelectItem key=\{method\.value\} value=\{method\.value\}>\s*\{method\.label\}/,
-  );
+  // The grouped picker still renders every entry from the shared list.
+  assert.match(exportPageSource, /MERGE_METHODS\.filter\(/);
+  assert.match(exportPageSource, /\.map\(\(method\) => \(/);
+  assert.match(exportPageSource, /value=\{method\.value\}/);
+  assert.match(exportPageSource, /\{method\.label\}/);
   // The old hardcoded pair must be gone: a future fourth method would silently miss it.
   assert.doesNotMatch(exportPageSource, /<SelectItem value="linear">Linear<\/SelectItem>/);
   assert.doesNotMatch(exportPageSource, /<SelectItem value="ties">TIES<\/SelectItem>/);
@@ -186,7 +187,11 @@ test("the page-built merge payload satisfies the runtime request chain", () => {
 });
 
 test("the method picker groups methods by category with a per-method info card", () => {
-  // Grouped dropdown: SelectLabel category headers from MERGE_METHOD_CATEGORY_LABELS.
+  // Grouped dropdown: SelectLabel category headers, rendered in a fixed order.
+  assert.match(
+    exportPageSource,
+    /MERGE_METHOD_CATEGORY_ORDER\.map\(\(category\) => \(/,
+  );
   assert.match(
     exportPageSource,
     /MERGE_METHOD_CATEGORY_LABELS\[category\]/,
@@ -194,15 +199,16 @@ test("the method picker groups methods by category with a per-method info card",
   // Info card shows the selected method's bestFor guidance.
   assert.match(
     exportPageSource,
-    /MERGE_METHODS\.find\(\(method\) => method\.value === mergeMethod\)\?\.bestFor/,
+    /MERGE_METHODS\.find\(\s*\(method\) => method\.value === mergeMethod,\s*\)/,
   );
+  assert.match(exportPageSource, /selected\.bestFor/);
   // model_stock requires 3+ adapters — the picker surfaces the requirement.
   assert.match(
     exportPageSource,
     /MERGE_METHODS_MIN_3_ADAPTERS\.has\(mergeMethod\)/,
   );
-  // sce / model_stock derive their own weights — the weights inputs are
-  // disabled with a note instead of silently ignored.
+  // sce / model_stock derive their own weights — the picker says so instead of
+  // silently ignoring the weight inputs.
   assert.match(
     exportPageSource,
     /MERGE_METHODS_AUTO_WEIGHTS\.has\(mergeMethod\)/,
