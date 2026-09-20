@@ -5,7 +5,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { loadCheckpoint } from "../src/features/export/api/export-api.ts";
-import { MERGEKIT_METHODS, MERGE_METHODS, type MergeMethodType } from "../src/features/export/constants.ts";
+import {
+  MERGEKIT_METHODS,
+  MERGE_METHODS,
+  MERGE_METHOD_MIN_ADAPTERS,
+  type MergeMethodType,
+} from "../src/features/export/constants.ts";
 import type { RunExportParams } from "../src/features/export/stores/export-runtime-store.ts";
 
 import { readSrc } from "./helpers/kit.ts";
@@ -53,7 +58,22 @@ test("the merge picker lists every method the core merger supports", () => {
   );
   for (const method of MERGE_METHODS) {
     assert.ok(method.description.trim().length > 0, `${method.value} needs a description`);
+    assert.ok(method.coreIdea.trim().length > 0, `${method.value} needs a coreIdea`);
+    assert.ok(method.strengths.trim().length > 0, `${method.value} needs strengths`);
   }
+});
+
+test("the method hint explains the core idea and best use case", () => {
+  // The InfoHint shows description + core idea + strengths, one per line.
+  assert.match(
+    exportPageSource,
+    /Core idea: \{selected\.coreIdea\}/,
+  );
+  assert.match(
+    exportPageSource,
+    /Best for: \{selected\.strengths\}/,
+  );
+  assert.match(exportPageSource, /className="block">\{selected\.description\}/);
 });
 
 test("the constants module keeps the picker type and list in one place", () => {
@@ -66,13 +86,37 @@ test("the constants module keeps the picker type and list in one place", () => {
 
 test("the export page picker renders from MERGE_METHODS, not hardcoded items", () => {
   assert.match(exportPageSource, /useState<MergeMethodType>\("linear"\)/);
+  // The picker renders the filtered list (adapter-count gated), not the raw one.
   assert.match(
     exportPageSource,
-    /MERGE_METHODS\.map\(\(method\) => \(\s*<SelectItem key=\{method\.value\} value=\{method\.value\}>\s*\{method\.label\}/,
+    /availableMergeMethods\.map\(\(method\) => \(\s*<SelectItem key=\{method\.value\} value=\{method\.value\}>\s*\{method\.label\}/,
   );
   // The old hardcoded pair must be gone: a future fourth method would silently miss it.
   assert.doesNotMatch(exportPageSource, /<SelectItem value="linear">Linear<\/SelectItem>/);
   assert.doesNotMatch(exportPageSource, /<SelectItem value="ties">TIES<\/SelectItem>/);
+});
+
+test("model-stock is hidden until 3+ adapters are selected", () => {
+  // mergekit's stock estimator needs at least three models; every other merge
+  // method works with two. Keep in sync with the backend guard in
+  // core/export/export.py.
+  assert.deepEqual(MERGE_METHOD_MIN_ADAPTERS, { model_stock: 3 });
+  for (const method of MERGE_METHODS) {
+    const min = MERGE_METHOD_MIN_ADAPTERS[method.value] ?? 1;
+    assert.ok(min >= 1, `${method.value} needs a sane minimum`);
+  }
+  // The page derives the filtered list from the adapter count and auto-resets
+  // a now-unavailable method back to linear.
+  assert.match(
+    exportPageSource,
+    /const availableMergeMethods = MERGE_METHODS\.filter\(\s*\(method\) => selectedAdapterCount >= \(MERGE_METHOD_MIN_ADAPTERS\[method\.value\] \?\? 1\),\s*\);/,
+  );
+  assert.match(exportPageSource, /setMergeMethod\("linear"\);/);
+  // And the user is told why the list shrank.
+  assert.ok(
+    exportPageSource.includes("Model Stock needs 3+ adapters"),
+    "missing the Model Stock 3+ adapters hint",
+  );
 });
 
 test("method-specific controls exist for the new strategies", () => {
@@ -123,10 +167,11 @@ test("merge parameter inputs carry hover hints", () => {
   // The number inputs are bare (no visible labels), so each one gets the UI's
   // standard InfoHint affordance explaining what value belongs in it.
   assert.match(exportPageSource, /import \{ InfoHint \} from "@\/components\/ui\/info-hint";/);
-  // The method select explains itself from the shared MERGE_METHODS description.
+  // The method select explains itself from the shared MERGE_METHODS tips (the
+  // three-line description / core idea / strengths hint).
   assert.match(
     exportPageSource,
-    /<InfoHint>\s*\{MERGE_METHODS\.find\(\(method\) => method\.value === mergeMethod\)\s*\?\.description/,
+    /<InfoHint>\s*\{\(\(\) => \{\s*const selected = MERGE_METHODS\.find\(/,
   );
   for (const hintText of [
     "Fraction of each adapter's strongest weight changes to",
@@ -207,6 +252,9 @@ test("the page-built merge payload satisfies the runtime request chain", () => {
     // The store param must flow into the load-checkpoint request unchanged.
     const apiPayload: ApiMerge = pagePayload;
     assert.equal(apiPayload.method, method);
+  }
+});
+
 test("the mergekit device toggle renders only for mergekit-implemented methods", () => {
   // Keep in sync with MERGEKIT_METHOD_MAP in unsloth/mergekit_bridge.py: these are
   // exactly the methods whose merge can run on GPU via the mergekit engine.
@@ -235,5 +283,4 @@ test("the mergekit device toggle renders only for mergekit-implemented methods",
   // The toggle state must feed the request deps so a change is never stale-sent.
   assert.match(exportPageSource, /mergeTargetRank,\s*\n\s*mergeDevice,/);
 });
-  }
-});
+

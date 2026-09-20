@@ -123,14 +123,17 @@ def test_mergekit_only_methods_route_to_the_mergekit_engine(monkeypatch, tmp_pat
     )
 
     for method in MERGEKIT_ONLY:
-        merge = {"adapter_paths": ["a", "b"], "method": method}
+        # Model Stock needs 3+ adapters (see test_model_stock_with_two_adapters_is_rejected);
+        # the rest merge fine with two.
+        adapters = ["a", "b", "c"] if method == "model_stock" else ["a", "b"]
+        merge = {"adapter_paths": adapters, "method": method}
         ok, _msg = backend.load_checkpoint(str(checkpoint), merge_adapters = merge)
         assert ok, f"{method}: {_msg}"
 
     assert [call["method"] for call in calls] == list(MERGEKIT_ONLY)
     for call in calls:
         assert call["base_model"] == "base/model"
-        assert call["adapters"] == ["a", "b"]
+        assert call["adapters"] == (["a", "b", "c"] if call["method"] == "model_stock" else ["a", "b"])
     # Every merge loaded the merged checkpoint back instead of the raw adapter.
     assert all(kwargs["model_name"] == calls[0]["output_dir"] for kwargs in loaded)
     assert len(loaded) == len(MERGEKIT_ONLY)
@@ -240,6 +243,46 @@ def test_legacy_only_methods_stay_on_the_in_memory_engine(monkeypatch, tmp_path)
     assert [kwargs["method"] for kwargs in merged] == ["ctm"]
 
 
+
+def test_single_adapter_merge_is_rejected(monkeypatch, tmp_path):
+    # One adapter + the checkpoint's own merge is a plain adapter load, not a
+    # merge; the picker hides multi-merge until 2+ adapters and the backend
+    # guards the same floor.
+    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "legacy")
+    mod = _export_mod(monkeypatch)
+    backend, checkpoint = _make_backend(mod, monkeypatch, tmp_path)
+    merged = _install_in_memory_recorder(mod, monkeypatch)
+
+    ok, msg = backend.load_checkpoint(
+        str(checkpoint), merge_adapters = {"adapter_paths": ["a"], "method": "linear"}
+    )
+    assert not ok
+    assert "at least 2 adapters" in msg
+    assert calls == []
+    assert merged == []
+
+
+
+def test_model_stock_with_two_adapters_is_rejected(monkeypatch, tmp_path):
+    # mergekit's stock estimator needs three models; the picker hides it below
+    # 3 adapters and the backend guards the same floor.
+    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "mergekit")
+    mod = _export_mod(monkeypatch)
+    backend, checkpoint = _make_backend(mod, monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        mod,
+        "FastLanguageModel",
+        types.SimpleNamespace(from_pretrained = lambda **kwargs: (object(), object())),
+    )
+
+    ok, msg = backend.load_checkpoint(
+        str(checkpoint), merge_adapters = {"adapter_paths": ["a", "b"], "method": "model_stock"}
+    )
+    assert not ok
+    assert "at least 3 adapters" in msg
+    assert calls == []
+
+
 def test_hub_adapter_repo_resolves_base_from_remote_config(monkeypatch, tmp_path):
     # A Hub repo id has no local adapter_config.json, so the mergekit branch must
     # fall back to the identifier resolver (the security gate's remote reader) --
@@ -276,6 +319,67 @@ def test_hub_adapter_repo_resolves_base_from_remote_config(monkeypatch, tmp_path
     assert ok, msg
     assert seen["args"] == ("org/adapter-repo", None)
     assert calls[0]["base_model"] == "base/model"
+
+
+def test_cached_snapshot_resolves_the_base_before_the_hub(monkeypatch, tmp_path):
+    # The load itself snapshot-downloads the adapter, so the cache almost always
+    # has adapter_config.json: it wins over the remote reader and works offline.
+    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "mergekit")
+    mod = _export_mod(monkeypatch)
+
+    remote_calls = []
+    monkeypatch.setattr(
+        sys.modules["utils.models"],
+        "get_base_model_from_lora_identifier",
+        lambda *a, **k: remote_calls.append(1) or "base/model",
+    )
+    monkeypatch.setattr(
+        mod, "_resolve_merge_base_from_cache", lambda repo_id: "cached/base"
+    )
+    monkeypatch.setattr(
+        mod,
+        "FastLanguageModel",
+        types.SimpleNamespace(from_pretrained = lambda **kwargs: (object(), object())),
+    )
+
+    backend = mod.ExportBackend.__new__(mod.ExportBackend)
+    backend.cleanup_memory = lambda: None
+    backend._audio_type = None
+    backend.is_vision = False
+
+    ok, msg = backend.load_checkpoint(
+        "org/adapter-repo",
+        merge_adapters = {"adapter_paths": ["a", "b"], "method": "della"},
+    )
+    assert ok, msg
+    assert remote_calls == []
+    assert calls[0]["base_model"] == "cached/base"
+
+
+def test_merged_model_checkpoint_gets_a_clear_merge_base_error(monkeypatch, tmp_path):
+    # A merged (non-adapter) checkpoint has no adapter_config.json anywhere; the
+    # error must say so instead of the vague "could not be determined".
+    _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "mergekit")
+    mod = _export_mod(monkeypatch)
+    monkeypatch.setattr(mod, "_resolve_merge_base_from_cache", lambda repo_id: None)
+    monkeypatch.setattr(
+        sys.modules["utils.models"],
+        "get_base_model_from_lora_identifier",
+        lambda *a, **k: None,
+    )
+
+    backend = mod.ExportBackend.__new__(mod.ExportBackend)
+    backend.cleanup_memory = lambda: None
+    backend._audio_type = None
+    backend.is_vision = False
+
+    ok, msg = backend.load_checkpoint(
+        "org/merged-model",
+        merge_adapters = {"adapter_paths": ["a", "b"], "method": "della"},
+    )
+    assert not ok
+    assert "org/merged-model" in msg
+    assert "merged model" in msg
 
 
 def test_merge_device_reaches_the_mergekit_engine(monkeypatch, tmp_path):

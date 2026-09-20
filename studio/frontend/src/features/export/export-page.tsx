@@ -88,6 +88,7 @@ import {
   MERGEKIT_METHODS,
   MERGE_DEVICES,
   type MergeDeviceType,
+  MERGE_METHOD_MIN_ADAPTERS,
   QUANT_OPTIONS,
   buildQuantSizeLabels,
   getEstimatedSize,
@@ -149,6 +150,7 @@ type AdapterMergeConfig = {
   density: string;
   dropout?: string;
   rank?: string;
+  device?: MergeDeviceType;
   destination: "local" | "hub";
   hfUsername: string;
   modelName: string;
@@ -429,6 +431,17 @@ export function ExportPage() {
   const multiAdapterMerge = adapterMergeSelections.some(
     (item) => item.path.trim() !== "",
   );
+  // Mergekit-only methods are model-space merges and are only offered once
+  // enough adapters are selected; the backend guards the same minimum.
+  const selectedAdapterCount = adapterMergeSelections.filter(
+    (item) => item.path.trim() !== "",
+  ).length;
+  const availableMergeMethods = MERGE_METHODS.filter(
+    (method) => selectedAdapterCount >= (MERGE_METHOD_MIN_ADAPTERS[method.value] ?? 1),
+  );
+  if (!availableMergeMethods.some((method) => method.value === mergeMethod)) {
+    setMergeMethod("linear");
+  }
   const [adapterCheckpointOptions, setAdapterCheckpointOptions] = useState<
     Record<string, string[]>
   >({});
@@ -1027,6 +1040,7 @@ export function ExportPage() {
       density: mergeDensity,
       dropout: mergeDropRate,
       rank: mergeTargetRank,
+      device: mergeDevice,
       destination,
       hfUsername,
       modelName,
@@ -1083,6 +1097,9 @@ export function ExportPage() {
         }
         if (typeof config.rank === "string") {
           setMergeTargetRank(config.rank);
+        }
+        if (config.device === "cpu" || config.device === "cuda") {
+          setMergeDevice(config.device);
         }
         if (config.destination === "local" || config.destination === "hub") {
           setDestination(config.destination);
@@ -2082,7 +2099,7 @@ export function ExportPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {MERGE_METHODS.map((method) => (
+                            {availableMergeMethods.map((method) => (
                               <SelectItem key={method.value} value={method.value}>
                                 {method.label}
                               </SelectItem>
@@ -2090,10 +2107,33 @@ export function ExportPage() {
                           </SelectContent>
                         </Select>
                         <InfoHint>
-                          {MERGE_METHODS.find((method) => method.value === mergeMethod)
-                            ?.description ??
-                            "How several LoRA checkpoints are blended into one model."}
+                          {(() => {
+                            const selected = MERGE_METHODS.find(
+                              (method) => method.value === mergeMethod,
+                            );
+                            if (!selected) {
+                              return "How several LoRA checkpoints are blended into one model.";
+                            }
+                            return (
+                              <span>
+                                <span className="block">{selected.description}</span>
+                                <span className="block">
+                                  Core idea: {selected.coreIdea}
+                                </span>
+                                <span className="block">
+                                  Best for: {selected.strengths}
+                                </span>
+                              </span>
+                            );
+                          })()}
                         </InfoHint>
+                        {selectedAdapterCount < 3 && (
+                          <InfoHint>
+                            Model Stock needs 3+ adapters (it estimates weights
+                            from three or more checkpoints) and appears once
+                            they are selected.
+                          </InfoHint>
+                        )}
                         {MERGEKIT_METHODS.has(mergeMethod) && (
                           <span className="flex items-center gap-1">
                             <Select

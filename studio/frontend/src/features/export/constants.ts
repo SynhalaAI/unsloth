@@ -350,19 +350,87 @@ export type MergeMethodType =
   | "ctm"
   | "cat";
 
-export const MERGE_METHODS: { value: MergeMethodType; label: string; description: string }[] = [
-  { value: "linear", label: "Linear", description: "Simple weighted average of adapter weights." },
-  { value: "ties", label: "TIES", description: "Trim Elect Interpolate Sign - resolves conflicting weight signs." },
-  { value: "dare_ties", label: "DARE-TIES", description: "Dropout-aware TIES - randomly drops small deltas before merging." },
-  { value: "dare_linear", label: "DARE-Linear", description: "Dropout-aware weighted sum - DARE dropout without sign election." },
-  { value: "task_arithmetic", label: "Task Arithmetic", description: "Task Arithmetic - adds scaled adapter task vectors directly into the base model." },
-  { value: "della", label: "DELLA", description: "DELLA - combines magnitude pruning with a probability ramp and sign election." },
-  { value: "della_ties", label: "DELLA-TIES", description: "DELLA-TIES - alias for DELLA with TIES sign consensus." },
-  { value: "della_linear", label: "DELLA-Linear", description: "DELLA-Linear - magnitude pruning with a probability ramp without sign election." },
-  { value: "model_stock", label: "Model Stock", description: "Model Stock - uses geometric properties of fine-tuned weights to estimate optimal model weights." },
-  { value: "magnitude_prune", label: "Mag-Prune", description: "Keeps the top-density magnitudes per adapter (a density is required), then takes the weighted sum." },
-  { value: "ctm", label: "CtM", description: "Compressed Target Merge - applies low-rank SVD compression after merging, optionally to a target rank." },
-  { value: "cat", label: "Cat", description: "Concatenates the adapter factors into a rank-extended adapter - no averaging and no interference; matches Linear once folded into the base weights." },
+export const MERGE_METHODS: {
+  value: MergeMethodType;
+  label: string;
+  description: string;
+  /** What the merge actually does to the weights. */
+  coreIdea: string;
+  /** When the method shines. */
+  strengths: string;
+}[] = [
+  {
+    value: "linear", label: "Linear",
+    description: "Simple weighted average of adapter weights.",
+    coreIdea: "A simple weighted average of the model parameters.",
+    strengths: "Averaging similar checkpoints; model soups.",
+  },
+  {
+    value: "ties", label: "TIES",
+    description: "Trim Elect Interpolate Sign - resolves conflicting weight signs.",
+    coreIdea: "Task arithmetic plus sparsification and sign consensus.",
+    strengths: "Merging many models while reducing interference.",
+  },
+  {
+    value: "dare_ties", label: "DARE-TIES",
+    description: "Dropout-aware TIES - randomly drops small deltas before merging.",
+    coreIdea: "Task arithmetic plus random pruning and rescaling (with TIES sign election).",
+    strengths: "Robust skill retention, similar to TIES.",
+  },
+  {
+    value: "dare_linear", label: "DARE-Linear",
+    description: "Dropout-aware weighted sum - DARE dropout without sign election.",
+    coreIdea: "Task arithmetic plus random pruning and rescaling, without sign election.",
+    strengths: "Robust skill retention when sign conflicts are rare.",
+  },
+  {
+    value: "task_arithmetic", label: "Task Arithmetic",
+    description: "Adds scaled adapter task vectors directly into the base model.",
+    coreIdea: "Linearly combines task vectors (differences from the base model).",
+    strengths: "Transferring and combining fine-tuned skills.",
+  },
+  {
+    value: "della", label: "DELLA",
+    description: "Combines magnitude pruning with a probability ramp and sign election.",
+    coreIdea: "Task arithmetic plus adaptive magnitude-based pruning.",
+    strengths: "Prioritizing important changes while reducing interference.",
+  },
+  {
+    value: "della_ties", label: "DELLA-TIES",
+    description: "Alias for DELLA with TIES sign consensus.",
+    coreIdea: "DELLA's adaptive pruning paired with TIES sign consensus.",
+    strengths: "Prioritizing important changes when merging many adapters.",
+  },
+  {
+    value: "della_linear", label: "DELLA-Linear",
+    description: "Magnitude pruning with a probability ramp without sign election.",
+    coreIdea: "DELLA's adaptive pruning without TIES sign election.",
+    strengths: "Prioritizing important changes when sign conflicts are rare.",
+  },
+  {
+    value: "model_stock", label: "Model Stock",
+    description: "Uses geometric properties of fine-tuned weights to estimate optimal model weights.",
+    coreIdea: "Geometric weight calculation for linear interpolation.",
+    strengths: "Finding good interpolation weights across many checkpoints.",
+  },
+  {
+    value: "magnitude_prune", label: "Mag-Prune",
+    description: "Keeps the top-density magnitudes per adapter (a density is required), then takes the weighted sum.",
+    coreIdea: "Sparsifies each adapter to its strongest weight changes, then averages.",
+    strengths: "A lighter-weight TIES alternative when sign conflicts matter less.",
+  },
+  {
+    value: "ctm", label: "CtM",
+    description: "Applies low-rank SVD compression after merging, optionally to a target rank.",
+    coreIdea: "Low-rank SVD compression applied after the merge.",
+    strengths: "Smaller merged checkpoints with minimal quality loss.",
+  },
+  {
+    value: "cat", label: "Cat",
+    description: "Concatenates the adapter factors into a rank-extended adapter - no averaging and no interference; matches Linear once folded into the base weights.",
+    coreIdea: "Concatenates the adapter factors into one rank-extended adapter.",
+    strengths: "No averaging or interference; matches Linear once folded into the base.",
+  },
 ];
 
 /**
@@ -388,6 +456,16 @@ export const MERGE_DEVICES: { value: MergeDeviceType; label: string }[] = [
   { value: "cpu", label: "CPU" },
   { value: "cuda", label: "GPU" },
 ];
+
+/**
+ * Methods only offered once enough adapters are selected. Only Model Stock
+ * needs 3+ adapters (mergekit's stock estimator requires at least three
+ * models); the other mergekit methods work with two. Keep in sync with the
+ * backend guard in core/export/export.py.
+ */
+export const MERGE_METHOD_MIN_ADAPTERS: Partial<Record<MergeMethodType, number>> = {
+  model_stock: 3,
+};
 
 export const GUIDE_STEPS = [
   "Select a training checkpoint to export from",

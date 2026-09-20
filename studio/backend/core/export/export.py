@@ -530,6 +530,27 @@ def _publish_unsloth_model_card(hf_api, repo_id, model, hf_token):
         logger.warning(f"Could not publish the model card: {exception}")
 
 
+def _resolve_merge_base_from_cache(repo_id: str) -> Optional[str]:
+    """Read the base model off a Hub adapter already in the local HF cache.
+
+    The export load itself snapshot-downloads the adapter, so its
+    ``adapter_config.json`` is usually already on disk -- this avoids a network
+    round-trip and works when the Hub is unreachable.
+    """
+    try:
+        from huggingface_hub import snapshot_download
+
+        snapshot = snapshot_download(
+            repo_id = repo_id,
+            local_files_only = True,
+            allow_patterns = ["adapter_config.json"],
+        )
+    except Exception as exc:
+        logger.info(f"No cached adapter snapshot for '{repo_id}': {exc}")
+        return None
+    return get_base_model_from_lora(snapshot)
+
+
 class ExportBackend:
     def __init__(self):
         self.inference_backend = get_inference_backend()
@@ -647,19 +668,42 @@ class ExportBackend:
                             "(linear, ties, dare_ties, dare_linear, magnitude_prune, ctm, cat)."
                         )
                 else:
+                    if (
+                        normalize_method(_merge_method) == "model_stock"
+                        and len(merge_adapters["adapter_paths"]) < 3
+                    ):
+                        # mergekit's stock estimator needs at least three models.
+                        return False, (
+                            "Merge method 'model_stock' requires at least 3 adapters "
+                            f"(got {len(merge_adapters['adapter_paths'])})"
+                        )
                     if not base_model:
                         # A Hub adapter repo has no local adapter_config.json; read the
-                        # base straight from the remote config (metadata only, the same
+                        # base from the HF-cache snapshot first (the load itself has
+                        # already pulled it), then from the remote config (the same
                         # resolver the security gate uses).
+                        base_model = _resolve_merge_base_from_cache(checkpoint_path)
+                        if base_model:
+                            logger.info(f"Resolved merge base from the HF cache: {base_model}")
+                    if not base_model:
                         from utils.models import get_base_model_from_lora_identifier
 
                         base_model = get_base_model_from_lora_identifier(
                             checkpoint_path, hf_token = token
                         )
+                        if base_model:
+                            logger.info(f"Resolved merge base from the Hub: {base_model}")
                     if not base_model:
+                        logger.error(
+                            f"Could not determine the merge base for '{checkpoint_path}': "
+                            "no adapter_config.json in the HF cache or on the Hub "
+                            "(is the checkpoint a merged model rather than an adapter?)"
+                        )
                         return False, (
                             f"Merge method '{_merge_method}' requires the adapter's base "
-                            "model, but it could not be determined"
+                            f"model, but '{checkpoint_path}' has no adapter_config.json "
+                            "in the HF cache or on the Hub. Is it a merged model rather "
+                            "than a LoRA adapter?"
                         )
                     _mergekit_output_dir = make_merge_output_dir()
                     _merge_device = merge_adapters.get("device") or "cpu"
@@ -820,6 +864,11 @@ class ExportBackend:
                 self.is_peft = isinstance(model, (PeftModel, PeftModelForCausalLM))
 
             if merge_adapters:
+                if len(merge_adapters["adapter_paths"]) < 2:
+                    return False, (
+                        "Merging requires at least 2 adapters; the selected checkpoint "
+                        "is already merged into the base model"
+                    )
                 from unsloth.multi_adapter_merge import merge_adapters_into_model
 
                 model = merge_adapters_into_model(
