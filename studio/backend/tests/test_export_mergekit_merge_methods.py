@@ -283,6 +283,43 @@ def test_model_stock_with_two_adapters_is_rejected(monkeypatch, tmp_path):
     assert calls == []
 
 
+def test_local_full_model_selection_is_used_as_the_merge_base(monkeypatch, tmp_path):
+    # Selecting a local FULL model as the base + merge adapters: the model dir has
+    # no adapter_config.json, so it cannot be an adapter -- it IS the merge base
+    # the adapters fold into, and its path must reach mergekit unchanged.
+    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "mergekit")
+    mod = _export_mod(monkeypatch)
+
+    remote_calls = []
+    monkeypatch.setattr(
+        sys.modules["utils.models"],
+        "get_base_model_from_lora_identifier",
+        lambda *a, **k: remote_calls.append(1) or None,
+    )
+    monkeypatch.setattr(
+        mod,
+        "FastLanguageModel",
+        types.SimpleNamespace(from_pretrained = lambda **kwargs: (object(), object())),
+    )
+
+    backend = mod.ExportBackend.__new__(mod.ExportBackend)
+    backend.cleanup_memory = lambda: None
+    backend._audio_type = None
+    backend.is_vision = False
+
+    local_model = tmp_path / "gemma-3n-E2B-it"
+    local_model.mkdir()
+    (local_model / "config.json").write_text("{}")
+
+    ok, msg = backend.load_checkpoint(
+        str(local_model),
+        merge_adapters = {"adapter_paths": ["a", "b"], "method": "della"},
+    )
+    assert ok, msg
+    assert remote_calls == []
+    assert calls[0]["base_model"] == str(local_model)
+
+
 def test_hub_adapter_repo_resolves_base_from_remote_config(monkeypatch, tmp_path):
     # A Hub repo id has no local adapter_config.json, so the mergekit branch must
     # fall back to the identifier resolver (the security gate's remote reader) --

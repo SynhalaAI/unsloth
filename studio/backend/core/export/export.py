@@ -677,6 +677,16 @@ class ExportBackend:
                             "Merge method 'model_stock' requires at least 3 adapters "
                             f"(got {len(merge_adapters['adapter_paths'])})"
                         )
+                    if (
+                        not base_model
+                        and checkpoint_path_obj.is_dir()
+                        and not adapter_config.exists()
+                    ):
+                        # A local full-model selection IS the merge base itself: the
+                        # adapters fold into it. (The missing adapter_config.json is
+                        # what told us it is not an adapter.)
+                        base_model = str(checkpoint_path_obj)
+                        logger.info(f"Using the selected local model as the merge base: {base_model}")
                     if not base_model:
                         # A Hub adapter repo has no local adapter_config.json; read the
                         # base from the HF-cache snapshot first (the load itself has
