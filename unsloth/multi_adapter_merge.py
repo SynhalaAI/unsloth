@@ -134,6 +134,7 @@ def _adapter_display_name(raw_spec: Union[str, dict], resolved_path: Optional[st
 SUPPORTED_METHODS = (
     "linear", "ties", "dare_ties", "dare_linear", "magnitude_prune", "ctm", "cat",
     "sce", "della", "della_linear", "breadcrumbs", "breadcrumbs_ties", "multislerp",
+    "model_stock",
 )
 
 
@@ -185,6 +186,8 @@ class MultiAdapterMergeConfig:
             method_lower = "breadcrumbs"
         elif method_lower in ("multi_slerp", "karcher"):
             method_lower = "multislerp"
+        elif method_lower in ("modelstock", "stock"):
+            method_lower = "model_stock"
 
         if method_lower not in SUPPORTED_METHODS:
             raise ValueError(
@@ -192,6 +195,11 @@ class MultiAdapterMergeConfig:
                 f"Supported: {', '.join(SUPPORTED_METHODS)}."
             )
         self.method = method_lower
+        if self.method == "model_stock" and len(self.adapter_paths) < 3:
+            raise ValueError(
+                f"Unsloth: model_stock requires at least 3 adapters "
+                f"(got {len(self.adapter_paths)})."
+            )
         if self.normalize_weights:
             total = sum(self.weights)
             if total == 0:
@@ -1012,6 +1020,57 @@ def _multislerp_merge_key(
     return (result * avg_norm).view(tensors.shape[1:])
 
 
+def _model_stock_merge_key(
+    per_adapter_deltas: List[torch.Tensor],
+    per_adapter_weights: List[float],
+) -> torch.Tensor:
+    """Model Stock merge ONE module's deltas (mergekit ``model_stock``).
+
+    LoRA-delta adaptation: in mergekit's formulation the base is W₀ and the
+    fine-tuned models are W₀+δᵢ, so the offsets are exactly our deltas δᵢ.
+    The merged result is ``t · mean(δᵢ)`` where ``t = N·cosθ / (1+(N−1)·cosθ)``
+    and cosθ is the mean pairwise cosine similarity of the deltas. When all
+    deltas point the same way (cosθ→1), t→1 (keep everything); when they are
+    orthogonal (cosθ→0), t→0 (fall back toward the base — i.e. merge to zero
+    delta). Requires ≥ 3 adapters.
+
+    Reference: mergekit/merge_methods/model_stock.py; Model Stock paper
+    (Jang et al., 2024, arXiv:2403.19522).
+    Note: ``per_adapter_weights`` are not used — Model Stock is uniformly
+    weighted by construction.
+    """
+    n = len(per_adapter_deltas)
+    if n < 3:
+        raise ValueError(
+            f"Unsloth: model_stock requires at least 3 adapters, got {n}."
+        )
+
+    # Compute in float32 on flattened deltas (mergekit non-filter-wise mode).
+    flats = [d.reshape(-1).to(torch.float32) for d in per_adapter_deltas]
+
+    cos_thetas = []
+    for idx, offset_a in enumerate(flats):
+        for offset_b in flats[idx + 1:]:
+            norm_product = torch.norm(offset_a) * torch.norm(offset_b)
+            cos_thetas.append(
+                ((offset_a * offset_b).sum() / norm_product.clamp(min=1e-6))
+                .clamp(-1, 1)
+            )
+
+    cos_theta = torch.stack(cos_thetas).mean(dim=0)
+    denominator = 1 + (n - 1) * cos_theta
+    # At the singularity there is no finite interpolation estimate; keep the
+    # base (zero delta) instead of amplifying opposing updates.
+    singular = denominator.abs() < 1e-6
+    if singular:
+        return torch.zeros_like(per_adapter_deltas[0])
+    t = (n * cos_theta) / denominator
+
+    average = sum(flats) / n
+    merged = (t * average).reshape(per_adapter_deltas[0].shape)
+    return merged
+
+
 # ---------------------------------------------------------------------------
 # Compatibility validation
 # ---------------------------------------------------------------------------
@@ -1082,7 +1141,8 @@ def merge_adapters_into_model(
         Note: SCE ignores these (it derives weights from delta energies).
     method : ``"linear"`` | ``"ties"`` | ``"dare_ties"`` | ``"dare_linear"`` | \
 ``"magnitude_prune"`` | ``"ctm"`` | ``"cat"`` | ``"sce"`` | ``"della"`` | \
-``"della_linear"`` | ``"breadcrumbs"`` | ``"breadcrumbs_ties"`` | ``"multislerp"``
+``"della_linear"`` | ``"breadcrumbs"`` | ``"breadcrumbs_ties"`` | ``"multislerp"`` | \
+``"model_stock"``
         Merge strategy.
     normalize_weights : bool
         If ``True``, weights are normalised to sum to 1.
@@ -1335,6 +1395,11 @@ def merge_adapters_into_model(
                 )
             elif config.method == "multislerp":
                 delta = _multislerp_merge_key(
+                    per_adapter_deltas,
+                    per_adapter_weights,
+                )
+            elif config.method == "model_stock":
+                delta = _model_stock_merge_key(
                     per_adapter_deltas,
                     per_adapter_weights,
                 )

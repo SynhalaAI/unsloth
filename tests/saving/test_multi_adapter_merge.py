@@ -53,6 +53,7 @@ _breadcrumbs_merge_key = _mod._breadcrumbs_merge_key
 _breadcrumbs_ties_merge_key = _mod._breadcrumbs_ties_merge_key
 _sce_merge_key = _mod._sce_merge_key
 _multislerp_merge_key = _mod._multislerp_merge_key
+_model_stock_merge_key = _mod._model_stock_merge_key
 _validate_adapters = _mod._validate_adapters
 _adapter_display_name = _mod._adapter_display_name
 merge_adapters_into_model = _mod.merge_adapters_into_model
@@ -602,6 +603,33 @@ class TestNewMergeMethods:
         merged = _multislerp_merge_key([d], [0.7])
         assert torch.allclose(merged, d * 0.7, atol=1e-6)
 
+    def test_model_stock_same_direction_keeps_delta(self):
+        """All deltas pointing the same way → cosθ→1 → t→1 → keep full mean."""
+        base = torch.randn(16, 16)
+        deltas = [base * (0.8 + 0.1 * i) for i in range(3)]
+        merged = _model_stock_merge_key(deltas, [1/3, 1/3, 1/3])
+        expected = sum(deltas) / 3  # t ≈ 1
+        assert torch.allclose(merged, expected, atol=1e-3)
+
+    def test_model_stock_orthogonal_shrinks(self):
+        """Orthogonal deltas → cosθ→0 → t→0 → merged delta shrinks toward 0."""
+        g = torch.Generator().manual_seed(7)
+        deltas = [torch.randn(64, 64, generator=g) for _ in range(3)]
+        merged = _model_stock_merge_key(deltas, [1/3, 1/3, 1/3])
+        mean_norm = (sum(deltas) / 3).norm()
+        assert merged.norm() < mean_norm  # t < 1 → attenuated
+
+    def test_model_stock_requires_3_adapters(self):
+        deltas = [torch.randn(8, 8) for _ in range(2)]
+        with pytest.raises(ValueError, match="at least 3"):
+            _model_stock_merge_key(deltas, [0.5, 0.5])
+
+    def test_model_stock_config_rejects_2_adapters(self):
+        with pytest.raises(ValueError, match="at least 3"):
+            MultiAdapterMergeConfig(
+                adapter_paths=["a", "b"], weights=[0.5, 0.5], method="model_stock",
+            )
+
 
 # ---------------------------------------------------------------------------
 # End-to-end tests for new methods (synthetic model)
@@ -641,6 +669,19 @@ class TestEndToEndNewMethods:
             if "q_proj" in name or "v_proj" in name:
                 assert torch.isfinite(param).all()
                 assert not torch.allclose(param, torch.zeros_like(param))
+
+    def test_model_stock_applies_to_model(self, tmp_path):
+        p1 = _make_adapter_dir(str(tmp_path), "n1", out_features=16, in_features=16, seed=20)
+        p2 = _make_adapter_dir(str(tmp_path), "n2", out_features=16, in_features=16, seed=21)
+        p3 = _make_adapter_dir(str(tmp_path), "n3", out_features=16, in_features=16, seed=22)
+        model = self._make_simple_model()
+        result = merge_adapters_into_model(
+            model, adapter_paths=[p1, p2, p3], weights=[0.5, 0.3, 0.2],
+            method="model_stock",
+        )
+        for name, param in result.named_parameters():
+            if "q_proj" in name or "v_proj" in name:
+                assert torch.isfinite(param).all()
 
 
 class TestEndToEnd:

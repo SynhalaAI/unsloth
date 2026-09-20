@@ -48,6 +48,7 @@ PyTorch, but their algorithms **must remain faithful to the published references
 | `della` / `della_linear` | [mergekit `sparsify.py` `della_magprune`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/sparsify.py) ([DELLA paper](https://arxiv.org/abs/2406.11617)) |
 | `breadcrumbs` / `breadcrumbs_ties` | [mergekit `sparsify.py` `magnitude_outliers`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/sparsify.py) ([Breadcrumbs paper](https://arxiv.org/abs/2312.06795)) |
 | `multislerp` | [mergekit `multislerp.py`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/merge_methods/multislerp.py) (delta-space adaptation; no base tensor) |
+| `model_stock` | [mergekit `model_stock.py`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/merge_methods/model_stock.py) ([Model Stock paper](https://arxiv.org/abs/2403.19522); delta-space adaptation, ≥3 adapters) |
 
 ### Rules for merging-related changes
 
