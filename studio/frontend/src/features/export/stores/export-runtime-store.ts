@@ -148,6 +148,12 @@ export interface RunExportParams {
     drop_rate?: number;
     /** CtM truncated-SVD rank; backend defaults to None. */
     target_rank?: number;
+    /** DELLA probability half-width; backend defaults to 0.15. */
+    della_epsilon?: number;
+    /** Breadcrumbs outlier-removal fraction; backend defaults to 0.01. */
+    gamma?: number;
+    /** SCE variance-selection fraction; backend defaults to 1.0. */
+    select_topk?: number;
   };
   exportMethod: ExportMethod;
   isAdapter: boolean;

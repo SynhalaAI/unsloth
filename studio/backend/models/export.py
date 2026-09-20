@@ -65,17 +65,32 @@ class MultiAdapterMergeRequest(BaseModel):
 
     adapter_paths: List[Union[str, Dict[str, str]]] = Field(..., min_length = 2)
     weights: Optional[List[float]] = None
-    method: Literal["linear", "ties", "dare_ties", "dare_linear", "magnitude_prune", "ctm", "cat"] = "linear"
+    method: Literal[
+        "linear", "ties", "dare_ties", "dare_linear", "magnitude_prune", "ctm",
+        "cat", "sce", "della", "della_linear", "breadcrumbs", "breadcrumbs_ties",
+        "multislerp", "model_stock",
+    ] = "linear"
     normalize_weights: bool = True
     density: float = Field(0.5, gt = 0.0, le = 1.0)
     drop_rate: float = Field(0.5, ge = 0.0, lt = 1.0)
     target_rank: Optional[int] = Field(None, ge = 1)
+    della_epsilon: float = Field(0.15, gt = 0.0, lt = 1.0)
+    gamma: float = Field(0.01, ge = 0.0, lt = 1.0)
+    select_topk: float = Field(1.0, gt = 0.0, le = 1.0)
 
     @field_validator("weights")
     @classmethod
     def _check_weights(cls, value, info):
         if value is not None and len(value) != len(info.data.get("adapter_paths", [])):
             raise ValueError("weights must match adapter_paths")
+        return value
+
+    @field_validator("method")
+    @classmethod
+    def _check_model_stock_adapters(cls, value, info):
+        if value == "model_stock":
+            if len(info.data.get("adapter_paths", [])) < 3:
+                raise ValueError("model_stock requires at least 3 adapters")
         return value
 
 

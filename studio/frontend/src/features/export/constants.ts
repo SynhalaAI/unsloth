@@ -342,16 +342,153 @@ export type MergeMethodType =
   | "dare_ties"
   | "dare_linear"
   | "magnitude_prune"
-  | "ctm";
+  | "ctm"
+  | "cat"
+  | "sce"
+  | "della"
+  | "della_linear"
+  | "breadcrumbs"
+  | "breadcrumbs_ties"
+  | "multislerp"
+  | "model_stock";
 
-export const MERGE_METHODS: { value: MergeMethodType; label: string; description: string }[] = [
-  { value: "linear", label: "Linear", description: "Simple weighted average of adapter weights." },
-  { value: "ties", label: "TIES", description: "Trim Elect Interpolate Sign - resolves conflicting weight signs." },
-  { value: "dare_ties", label: "DARE-TIES", description: "Dropout-aware TIES - randomly drops small deltas before merging." },
-  { value: "dare_linear", label: "DARE-Linear", description: "Dropout-aware weighted sum - DARE dropout without sign election." },
-  { value: "magnitude_prune", label: "Mag-Prune", description: "Keeps the top-density magnitudes per adapter, then takes the weighted sum." },
-  { value: "ctm", label: "CtM", description: "Compressed Target Merge - low-rank SVD compression after merging." },
+export type MergeMethodCategory =
+  | "recommended"
+  | "basic"
+  | "robust"
+  | "advanced"
+  | "export";
+
+export const MERGE_METHOD_CATEGORY_LABELS: Record<MergeMethodCategory, string> = {
+  recommended: "✨ Recommended",
+  basic: "🔧 Basic",
+  robust: "🛡️ Robust",
+  advanced: "🧪 Advanced",
+  export: "📦 Export",
+};
+
+export const MERGE_METHODS: {
+  value: MergeMethodType;
+  label: string;
+  description: string;
+  category: MergeMethodCategory;
+  bestFor: string;
+  params?: string[];
+}[] = [
+  {
+    value: "linear", label: "Linear", category: "recommended",
+    description: "Simple weighted average of adapter weights.",
+    bestFor: "Similar adapters, no conflicts expected.",
+  },
+  {
+    value: "ties", label: "TIES", category: "recommended",
+    description: "Trim Elect Interpolate Sign — resolves conflicting weight signs.",
+    bestFor: "Adapters from different domains that may conflict.",
+    params: ["density"],
+  },
+  {
+    value: "dare_ties", label: "DARE-TIES", category: "basic",
+    description: "Dropout-aware TIES — randomly drops small deltas before merging.",
+    bestFor: "Noisy adapters trained on small datasets.",
+    params: ["density", "dropout"],
+  },
+  {
+    value: "dare_linear", label: "DARE-Linear", category: "basic",
+    description: "Dropout-aware weighted sum — DARE dropout without sign election.",
+    bestFor: "Related but noisy adapters (same task, different epochs).",
+    params: ["dropout"],
+  },
+  {
+    value: "magnitude_prune", label: "Mag-Prune", category: "basic",
+    description: "Keeps the top-density magnitudes per adapter, then takes the weighted sum.",
+    bestFor: "Sparse adapters where only large weights matter.",
+    params: ["density"],
+  },
+  {
+    value: "sce", label: "SCE", category: "robust",
+    description: "Sign-Consensus Erasure — auto-weights adapters by energy, then sign-vote.",
+    bestFor: "Adapters with different quality/strength; no manual weight tuning needed.",
+    params: ["select_topk"],
+  },
+  {
+    value: "della", label: "DELLA", category: "robust",
+    description: "Rank-based probabilistic pruning + TIES — larger deltas more likely kept.",
+    bestFor: "Smart probabilistic merge with magnitude awareness.",
+    params: ["density", "della_epsilon"],
+  },
+  {
+    value: "della_linear", label: "DELLA-Linear", category: "robust",
+    description: "Rank-based probabilistic pruning + weighted sum.",
+    bestFor: "Smart drop without sign election.",
+    params: ["density", "della_epsilon"],
+  },
+  {
+    value: "breadcrumbs", label: "Breadcrumbs", category: "robust",
+    description: "Outlier removal + magnitude pruning, then weighted sum.",
+    bestFor: "When one adapter might have exploded/corrupted weights.",
+    params: ["density", "gamma"],
+  },
+  {
+    value: "breadcrumbs_ties", label: "Breadcrumbs-TIES", category: "robust",
+    description: "Outlier removal + magnitude pruning + TIES sign election.",
+    bestFor: "Robust merge with both outlier removal and conflict resolution.",
+    params: ["density", "gamma"],
+  },
+  {
+    value: "multislerp", label: "Multi-SLERP", category: "advanced",
+    description: "Barycentric hypersphere interpolation — preserves delta norms.",
+    bestFor: "Smooth interpolation when adapter scale matters.",
+  },
+  {
+    value: "model_stock", label: "Model Stock", category: "advanced",
+    description: "Angle-aware attenuation — amplifies agreements, shrinks conflicts.",
+    bestFor: "3+ adapters where compatibility is unknown (safe fallback).",
+  },
+  {
+    value: "ctm", label: "CtM", category: "advanced",
+    description: "Compressed Target Merge — low-rank SVD compression after merging.",
+    bestFor: "Minimizing merged adapter size.",
+    params: ["rank"],
+  },
+  {
+    value: "cat", label: "CAT", category: "export",
+    description: "Factor concatenation — lossless, exports as valid LoRA adapter.",
+    bestFor: "Saving merged result as a reusable LoRA adapter.",
+  },
 ];
+
+/** Methods that use the density parameter. */
+export const MERGE_METHODS_WITH_DENSITY: Set<MergeMethodType> = new Set([
+  "ties", "dare_ties", "magnitude_prune", "della", "della_linear",
+  "breadcrumbs", "breadcrumbs_ties",
+]);
+
+/** Methods that use the DARE drop rate. */
+export const MERGE_METHODS_WITH_DROPOUT: Set<MergeMethodType> = new Set([
+  "dare_ties", "dare_linear",
+]);
+
+/** Methods that use the SVD target rank. */
+export const MERGE_METHODS_WITH_RANK: Set<MergeMethodType> = new Set(["ctm"]);
+
+/** Methods that use DELLA epsilon. */
+export const MERGE_METHODS_WITH_EPSILON: Set<MergeMethodType> = new Set([
+  "della", "della_linear",
+]);
+
+/** Methods that use breadcrumbs gamma. */
+export const MERGE_METHODS_WITH_GAMMA: Set<MergeMethodType> = new Set([
+  "breadcrumbs", "breadcrumbs_ties",
+]);
+
+/** Methods that use SCE select_topk. */
+export const MERGE_METHODS_WITH_TOPK: Set<MergeMethodType> = new Set(["sce"]);
+
+/** Methods that require at least 3 adapters. */
+export const MERGE_METHODS_MIN_3_ADAPTERS: Set<MergeMethodType> = new Set(["model_stock"]);
+
+/** Methods that ignore user weights (derive their own). */
+export const MERGE_METHODS_AUTO_WEIGHTS: Set<MergeMethodType> = new Set(["sce", "model_stock"]);
 
 export const GUIDE_STEPS = [
   "Select a training checkpoint to export from",

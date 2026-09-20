@@ -774,6 +774,9 @@ class ExportBackend:
                     density = merge_adapters.get("density", 0.5),
                     drop_rate = merge_adapters.get("drop_rate", 0.5),
                     target_rank = merge_adapters.get("target_rank"),
+                    della_epsilon = merge_adapters.get("della_epsilon", 0.15),
+                    gamma = merge_adapters.get("gamma", 0.01),
+                    select_topk = merge_adapters.get("select_topk", 1.0),
                     hf_token = token,
                     report_callback = merge_report_callback,
                 )

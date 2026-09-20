@@ -19,23 +19,35 @@ test("the merge picker lists every method the core merger supports", () => {
   // Keep in sync with SUPPORTED_METHODS in unsloth/multi_adapter_merge.py.
   assert.deepEqual(
     MERGE_METHODS.map((method) => method.value),
-    ["linear", "ties", "dare_ties", "dare_linear", "magnitude_prune", "ctm"],
+    [
+      "linear", "ties", "dare_ties", "dare_linear", "magnitude_prune",
+      "sce", "della", "della_linear", "breadcrumbs", "breadcrumbs_ties",
+      "multislerp", "model_stock", "ctm", "cat",
+    ],
   );
   assert.deepEqual(
     MERGE_METHODS.map((method) => method.label),
-    ["Linear", "TIES", "DARE-TIES", "DARE-Linear", "Mag-Prune", "CtM"],
+    [
+      "Linear", "TIES", "DARE-TIES", "DARE-Linear", "Mag-Prune",
+      "SCE", "DELLA", "DELLA-Linear", "Breadcrumbs", "Breadcrumbs-TIES",
+      "Multi-SLERP", "Model Stock", "CtM", "CAT",
+    ],
   );
   for (const method of MERGE_METHODS) {
     assert.ok(method.description.trim().length > 0, `${method.value} needs a description`);
+    assert.ok(method.bestFor.trim().length > 0, `${method.value} needs a bestFor`);
+    assert.ok(method.category, `${method.value} needs a category`);
   }
 });
 
 test("the constants module keeps the picker type and list in one place", () => {
   assert.match(
     constantsSource,
-    /export type MergeMethodType =\s*\n\s*\| "linear"\s*\n\s*\| "ties"\s*\n\s*\| "dare_ties"\s*\n\s*\| "dare_linear"\s*\n\s*\| "magnitude_prune"\s*\n\s*\| "ctm";/,
+    /export type MergeMethodType =[\s\S]*"model_stock";/,
   );
   assert.match(constantsSource, /export const MERGE_METHODS:/);
+  assert.match(constantsSource, /export type MergeMethodCategory/);
+  assert.match(constantsSource, /MERGE_METHOD_CATEGORY_LABELS/);
 });
 
 test("the export page picker renders from MERGE_METHODS, not hardcoded items", () => {
@@ -50,18 +62,21 @@ test("the export page picker renders from MERGE_METHODS, not hardcoded items", (
 });
 
 test("method-specific controls exist for the new strategies", () => {
-  // Density now covers TIES, DARE-TIES and Mag-Prune; each new method gets its own knob.
+  // Density now covers TIES, DARE-TIES, Mag-Prune, DELLA, breadcrumbs, etc.
   assert.match(
     exportPageSource,
-    /\(mergeMethod === "ties" \|\|\s*mergeMethod === "dare_ties" \|\|\s*mergeMethod === "magnitude_prune"\)/,
+    /MERGE_METHODS_WITH_DENSITY\.has\(mergeMethod\)/,
   );
   assert.match(exportPageSource, /aria-label="Merge density"/);
-  assert.match(
-    exportPageSource,
-    /\(mergeMethod === "dare_ties" \|\|\s*mergeMethod === "dare_linear"\) && \(/,
-  );
+  assert.match(exportPageSource, /MERGE_METHODS_WITH_DROPOUT\.has\(mergeMethod\)/);
   assert.match(exportPageSource, /aria-label="DARE drop rate"/);
   assert.match(exportPageSource, /aria-label="CtM target rank"/);
+  assert.match(exportPageSource, /MERGE_METHODS_WITH_EPSILON\.has\(mergeMethod\)/);
+  assert.match(exportPageSource, /aria-label="DELLA epsilon"/);
+  assert.match(exportPageSource, /MERGE_METHODS_WITH_GAMMA\.has\(mergeMethod\)/);
+  assert.match(exportPageSource, /aria-label="Breadcrumbs gamma"/);
+  assert.match(exportPageSource, /MERGE_METHODS_WITH_TOPK\.has\(mergeMethod\)/);
+  assert.match(exportPageSource, /aria-label="SCE select top-k"/);
   // The old TIES-only density label must be gone: a future method using the
   // density knob would silently keep the misleading name.
   assert.doesNotMatch(exportPageSource, /aria-label="TIES density"/);
@@ -70,27 +85,29 @@ test("method-specific controls exist for the new strategies", () => {
 test("the merge request payload carries drop_rate and target_rank", () => {
   assert.match(
     exportPageSource,
-    /drop_rate:\s*\n\s*\(mergeMethod === "dare_ties" \|\| mergeMethod === "dare_linear"\) &&/,
+    /MERGE_METHODS_WITH_DROPOUT\.has\(mergeMethod\) &&/,
   );
-  assert.match(exportPageSource, /target_rank:\s*\n\s*mergeMethod === "ctm" &&/);
+  assert.match(
+    exportPageSource,
+    /MERGE_METHODS_WITH_RANK\.has\(mergeMethod\) &&/,
+  );
 });
 
 test("validation covers the new strategies in both canExport and the start gate", () => {
   // canExport: drop_rate must stay in [0, 1); target_rank (when set) must be >= 1.
   assert.match(
     exportPageSource,
-    /\(mergeMethod !== "dare_ties" && mergeMethod !== "dare_linear"\) \|\|\s*\(Number\.isFinite\(Number\(mergeDropRate\)\) &&\s*Number\(mergeDropRate\) >= 0 &&\s*Number\(mergeDropRate\) < 1\)/,
+    /!MERGE_METHODS_WITH_DROPOUT\.has\(mergeMethod\) \|\|\s*\(Number\.isFinite\(Number\(mergeDropRate\)\) &&\s*Number\(mergeDropRate\) >= 0 &&\s*Number\(mergeDropRate\) < 1\)/,
   );
   assert.match(
     exportPageSource,
-    /mergeMethod !== "ctm" \|\|\s*mergeTargetRank\.trim\(\) === "" \|\|/,
+    /!MERGE_METHODS_WITH_RANK\.has\(mergeMethod\) \|\|\s*mergeTargetRank\.trim\(\) === "" \|\|/,
   );
   // Start gate: out-of-range values stop the run instead of shipping them.
   assert.match(exportPageSource, /Number\(mergeDropRate\) >= 1/);
   assert.match(exportPageSource, /!Number\.isInteger\(Number\(mergeTargetRank\)\)/);
-  // Mag-Prune's density is validated in both gates too.
-  assert.match(exportPageSource, /mergeMethod !== "magnitude_prune"/);
-  assert.match(exportPageSource, /mergeMethod === "magnitude_prune"\) &&/);
+  // Density is validated in both gates via the shared knob set.
+  assert.match(exportPageSource, /MERGE_METHODS_WITH_DENSITY\.has\(mergeMethod\)/);
 });
 
 test("merge parameter inputs carry hover hints", () => {
@@ -148,7 +165,7 @@ test("the page-built merge payload satisfies the runtime request chain", () => {
   type ApiMerge = NonNullable<Parameters<typeof loadCheckpoint>[0]["merge_adapters"]>;
 
   const strategies: MergeMethodType[] = MERGE_METHODS.map((method) => method.value);
-  assert.deepEqual(strategies, ["linear", "ties", "dare_ties", "ctm"]);
+  assert.equal(strategies.length, 14);
   for (const method of strategies) {
     // Mirrors export-page.tsx's mergeConfig, including the explicit-undefined
     // target_rank the non-CtM strategies produce.
@@ -166,4 +183,28 @@ test("the page-built merge payload satisfies the runtime request chain", () => {
     const apiPayload: ApiMerge = pagePayload;
     assert.equal(apiPayload.method, method);
   }
+});
+
+test("the method picker groups methods by category with a per-method info card", () => {
+  // Grouped dropdown: SelectLabel category headers from MERGE_METHOD_CATEGORY_LABELS.
+  assert.match(
+    exportPageSource,
+    /MERGE_METHOD_CATEGORY_LABELS\[category\]/,
+  );
+  // Info card shows the selected method's bestFor guidance.
+  assert.match(
+    exportPageSource,
+    /MERGE_METHODS\.find\(\(method\) => method\.value === mergeMethod\)\?\.bestFor/,
+  );
+  // model_stock requires 3+ adapters — the picker surfaces the requirement.
+  assert.match(
+    exportPageSource,
+    /MERGE_METHODS_MIN_3_ADAPTERS\.has\(mergeMethod\)/,
+  );
+  // sce / model_stock derive their own weights — the weights inputs are
+  // disabled with a note instead of silently ignored.
+  assert.match(
+    exportPageSource,
+    /MERGE_METHODS_AUTO_WEIGHTS\.has\(mergeMethod\)/,
+  );
 });

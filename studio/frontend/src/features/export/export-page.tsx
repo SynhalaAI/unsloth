@@ -31,6 +31,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -84,6 +85,16 @@ import {
   MERGED_FORMATS,
   type MergedFormatOption,
   MERGE_METHODS,
+  MERGE_METHODS_AUTO_WEIGHTS,
+  MERGE_METHODS_CATEGORY_LABELS,
+  MERGE_METHODS_MIN_3_ADAPTERS,
+  MERGE_METHODS_WITH_DENSITY,
+  MERGE_METHODS_WITH_DROPOUT,
+  MERGE_METHODS_WITH_EPSILON,
+  MERGE_METHODS_WITH_GAMMA,
+  MERGE_METHODS_WITH_RANK,
+  MERGE_METHODS_WITH_TOPK,
+  type MergeMethodCategory,
   type MergeMethodType,
   QUANT_OPTIONS,
   buildQuantSizeLabels,
@@ -417,6 +428,10 @@ export function ExportPage() {
   // DARE-TIES drop rate and CtM SVD target rank: shown only for their merge methods.
   const [mergeDropRate, setMergeDropRate] = useState("0.5");
   const [mergeTargetRank, setMergeTargetRank] = useState("");
+  // DELLA / Breadcrumbs / SCE knobs.
+  const [mergeDellaEpsilon, setMergeDellaEpsilon] = useState("0.15");
+  const [mergeGamma, setMergeGamma] = useState("0.01");
+  const [mergeSelectTopk, setMergeSelectTopk] = useState("1");
   const [adapterMergeSelections, setAdapterMergeSelections] = useState<
     AdapterMergeSelection[]
   >([]);
@@ -1128,20 +1143,32 @@ export function ExportPage() {
         adapterMergeSelections.some(
           (item) => !item.path || !Number.isFinite(Number(item.weight)),
         ) ||
-        ((mergeMethod === "ties" ||
-          mergeMethod === "dare_ties" ||
-          mergeMethod === "magnitude_prune") &&
+        (MERGE_METHODS_WITH_DENSITY.has(mergeMethod) &&
           (!Number.isFinite(Number(mergeDensity)) ||
             Number(mergeDensity) <= 0 ||
             Number(mergeDensity) > 1)) ||
-        ((mergeMethod === "dare_ties" || mergeMethod === "dare_linear") &&
+        (MERGE_METHODS_WITH_DROPOUT.has(mergeMethod) &&
           (!Number.isFinite(Number(mergeDropRate)) ||
             Number(mergeDropRate) < 0 ||
             Number(mergeDropRate) >= 1)) ||
-        (mergeMethod === "ctm" &&
+        (MERGE_METHODS_WITH_RANK.has(mergeMethod) &&
           mergeTargetRank.trim() !== "" &&
           (!Number.isInteger(Number(mergeTargetRank)) ||
-            Number(mergeTargetRank) < 1)))
+            Number(mergeTargetRank) < 1)) ||
+        (MERGE_METHODS_WITH_EPSILON.has(mergeMethod) &&
+          (!Number.isFinite(Number(mergeDellaEpsilon)) ||
+            Number(mergeDellaEpsilon) <= 0 ||
+            Number(mergeDellaEpsilon) >= 1)) ||
+        (MERGE_METHODS_WITH_GAMMA.has(mergeMethod) &&
+          (!Number.isFinite(Number(mergeGamma)) ||
+            Number(mergeGamma) < 0 ||
+            Number(mergeGamma) >= 1)) ||
+        (MERGE_METHODS_WITH_TOPK.has(mergeMethod) &&
+          (!Number.isFinite(Number(mergeSelectTopk)) ||
+            Number(mergeSelectTopk) <= 0 ||
+            Number(mergeSelectTopk) > 1)) ||
+        (MERGE_METHODS_MIN_3_ADAPTERS.has(mergeMethod) &&
+          adapterMergeSelections.length < 3))
     ) {
       startRequestInFlightRef.current = false;
       setStartRequestInFlight(false);
@@ -1193,18 +1220,38 @@ export function ExportPage() {
           normalize_weights: true,
           density: mergeDensityValue,
           drop_rate:
-            (mergeMethod === "dare_ties" || mergeMethod === "dare_linear") &&
+            MERGE_METHODS_WITH_DROPOUT.has(mergeMethod) &&
             Number.isFinite(mergeDropRateValue) &&
             mergeDropRateValue >= 0 &&
             mergeDropRateValue < 1
               ? mergeDropRateValue
               : 0.5,
           target_rank:
-            mergeMethod === "ctm" &&
+            MERGE_METHODS_WITH_RANK.has(mergeMethod) &&
             Number.isInteger(Number(mergeTargetRank)) &&
             Number(mergeTargetRank) >= 1
               ? Number(mergeTargetRank)
               : undefined,
+          della_epsilon:
+            MERGE_METHODS_WITH_EPSILON.has(mergeMethod) &&
+            Number.isFinite(Number(mergeDellaEpsilon)) &&
+            Number(mergeDellaEpsilon) > 0
+              ? Number(mergeDellaEpsilon)
+              : 0.15,
+          gamma:
+            MERGE_METHODS_WITH_GAMMA.has(mergeMethod) &&
+            Number.isFinite(Number(mergeGamma)) &&
+            Number(mergeGamma) >= 0 &&
+            Number(mergeGamma) < 1
+              ? Number(mergeGamma)
+              : 0.01,
+          select_topk:
+            MERGE_METHODS_WITH_TOPK.has(mergeMethod) &&
+            Number.isFinite(Number(mergeSelectTopk)) &&
+            Number(mergeSelectTopk) > 0 &&
+            Number(mergeSelectTopk) <= 1
+              ? Number(mergeSelectTopk)
+              : 1,
         }
       : undefined;
 
@@ -1320,6 +1367,9 @@ export function ExportPage() {
     mergeDensity,
     mergeDropRate,
     mergeTargetRank,
+    mergeDellaEpsilon,
+    mergeGamma,
+    mergeSelectTopk,
     exportUnsupported,
     destination,
     saveDirectory,
@@ -2074,10 +2124,25 @@ export function ExportPage() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {MERGE_METHODS.map((method) => (
-                              <SelectItem key={method.value} value={method.value}>
-                                {method.label}
-                              </SelectItem>
+                            {(Object.entries(MERGE_METHOD_CATEGORY_LABELS) as [
+                              MergeMethodCategory,
+                              string,
+                            ][]).map(([category, categoryLabel]) => (
+                              <div key={category}>
+                                <SelectLabel className="text-xs font-medium text-muted-foreground">
+                                  {categoryLabel}
+                                </SelectLabel>
+                                {MERGE_METHODS.filter(
+                                  (method) => method.category === category,
+                                ).map((method) => (
+                                  <SelectItem
+                                    key={method.value}
+                                    value={method.value}
+                                  >
+                                    {method.label}
+                                  </SelectItem>
+                                ))}
+                              </div>
                             ))}
                           </SelectContent>
                         </Select>
@@ -2086,9 +2151,40 @@ export function ExportPage() {
                             ?.description ??
                             "How several LoRA checkpoints are blended into one model."}
                         </InfoHint>
-                        {(mergeMethod === "ties" ||
-                          mergeMethod === "dare_ties" ||
-                          mergeMethod === "magnitude_prune") && (
+                        {(() => {
+                          const selected = MERGE_METHODS.find(
+                            (method) => method.value === mergeMethod,
+                          );
+                          if (!selected) return null;
+                          return (
+                            <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                              <div>
+                                <span className="font-medium text-foreground">
+                                  Best for:{" "}
+                                </span>
+                                {selected.bestFor}
+                              </div>
+                              {MERGE_METHODS_MIN_3_ADAPTERS.has(mergeMethod) && (
+                                <div className="mt-1">
+                                  <span className="font-medium text-foreground">
+                                    Note:{" "}
+                                  </span>
+                                  requires at least 3 adapters.
+                                </div>
+                              )}
+                              {MERGE_METHODS_AUTO_WEIGHTS.has(mergeMethod) && (
+                                <div className="mt-1">
+                                  <span className="font-medium text-foreground">
+                                    Note:{" "}
+                                  </span>
+                                  per-adapter weights are derived automatically and
+                                  ignored.
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        {MERGE_METHODS_WITH_DENSITY.has(mergeMethod) && (
                           <span className="flex items-center gap-1">
                             <Input
                               type="number"
@@ -2103,12 +2199,12 @@ export function ExportPage() {
                             <InfoHint>
                               Fraction of each adapter's strongest weight changes to
                               keep (0.01–1). Lower = cleaner merge, higher = more
-                              detail preserved. Used by TIES, DARE-TIES and Mag-Prune.
+                              detail preserved. Used by TIES, DARE-TIES, Mag-Prune,
+                              DELLA and Breadcrumbs.
                             </InfoHint>
                           </span>
                         )}
-                        {(mergeMethod === "dare_ties" ||
-                          mergeMethod === "dare_linear") && (
+                        {MERGE_METHODS_WITH_DROPOUT.has(mergeMethod) && (
                           <span className="flex items-center gap-1">
                             <Input
                               type="number"
@@ -2143,6 +2239,65 @@ export function ExportPage() {
                             <InfoHint>
                               Optional SVD compression rank (≥1). Leave empty to keep
                               the full rank after merging. Used by CtM only.
+                            </InfoHint>
+                          </span>
+                        )}
+                        {MERGE_METHODS_WITH_EPSILON.has(mergeMethod) && (
+                          <span className="flex items-center gap-1">
+                            <Input
+                              type="number"
+                              min="0.01"
+                              max="0.4"
+                              step="0.05"
+                              aria-label="DELLA epsilon"
+                              value={mergeDellaEpsilon}
+                              onChange={(event) => setMergeDellaEpsilon(event.target.value)}
+                              className="w-24"
+                            />
+                            <InfoHint>
+                              Half-width of the keep-probability range around the
+                              density (0.01–0.4). Larger values = stronger contrast
+                              between strong and weak weights. Used by DELLA and
+                              DELLA-Linear.
+                            </InfoHint>
+                          </span>
+                        )}
+                        {MERGE_METHODS_WITH_GAMMA.has(mergeMethod) && (
+                          <span className="flex items-center gap-1">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="0.5"
+                              step="0.01"
+                              aria-label="Breadcrumbs gamma"
+                              value={mergeGamma}
+                              onChange={(event) => setMergeGamma(event.target.value)}
+                              className="w-24"
+                            />
+                            <InfoHint>
+                              Fraction of the largest magnitudes to drop as outliers
+                              (0–0.5). Protects the merge from corrupted or exploded
+                              adapter weights. Used by Breadcrumbs and
+                              Breadcrumbs-TIES.
+                            </InfoHint>
+                          </span>
+                        )}
+                        {MERGE_METHODS_WITH_TOPK.has(mergeMethod) && (
+                          <span className="flex items-center gap-1">
+                            <Input
+                              type="number"
+                              min="0.01"
+                              max="1"
+                              step="0.05"
+                              aria-label="SCE select top-k"
+                              value={mergeSelectTopk}
+                              onChange={(event) => setMergeSelectTopk(event.target.value)}
+                              className="w-24"
+                            />
+                            <InfoHint>
+                              Fraction of elements with the highest cross-adapter
+                              variance to keep (0.01–1). 1 = keep all. Used by SCE
+                              only.
                             </InfoHint>
                           </span>
                         )}

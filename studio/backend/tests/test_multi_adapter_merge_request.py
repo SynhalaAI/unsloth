@@ -35,10 +35,12 @@ class TestMultiAdapterMergeRequest(unittest.TestCase):
         # Keep in sync with SUPPORTED_METHODS in unsloth/multi_adapter_merge.py.
         for method in (
             "linear", "ties", "dare_ties", "dare_linear",
-            "magnitude_prune", "ctm", "cat",
+            "magnitude_prune", "ctm", "cat", "sce", "della", "della_linear",
+            "breadcrumbs", "breadcrumbs_ties", "multislerp", "model_stock",
         ):
+            paths = ["a", "b", "c"] if method == "model_stock" else ["a", "b"]
             model = self.schema(
-                adapter_paths = ["a", "b"], weights = [1.0, 1.0], method = method
+                adapter_paths = paths, weights = [1.0] * len(paths), method = method
             )
             self.assertEqual(model.method, method)
 
@@ -76,6 +78,46 @@ class TestMultiAdapterMergeRequest(unittest.TestCase):
     def test_weights_must_match_adapter_count(self):
         with self.assertRaises(Exception):
             self.schema(adapter_paths = ["a", "b"], weights = [1.0])
+
+    def test_model_stock_requires_three_adapters(self):
+        ok = self.schema(
+            adapter_paths = ["a", "b", "c"], method = "model_stock"
+        )
+        self.assertEqual(ok.method, "model_stock")
+        with self.assertRaises(Exception):
+            self.schema(adapter_paths = ["a", "b"], method = "model_stock")
+
+    def test_della_breadcrumbs_sce_knob_ranges(self):
+        # DELLA epsilon must stay in (0, 1).
+        ok = self.schema(
+            adapter_paths = ["a", "b"], method = "della", della_epsilon = 0.2
+        )
+        self.assertEqual(ok.della_epsilon, 0.2)
+        for bad in (0.0, -0.1, 1.0):
+            with self.assertRaises(Exception):
+                self.schema(
+                    adapter_paths = ["a", "b"], method = "della", della_epsilon = bad
+                )
+        # Breadcrumbs gamma must stay in [0, 1).
+        ok = self.schema(
+            adapter_paths = ["a", "b"], method = "breadcrumbs", gamma = 0.05
+        )
+        self.assertEqual(ok.gamma, 0.05)
+        for bad in (-0.01, 1.0):
+            with self.assertRaises(Exception):
+                self.schema(
+                    adapter_paths = ["a", "b"], method = "breadcrumbs", gamma = bad
+                )
+        # SCE select_topk must stay in (0, 1].
+        ok = self.schema(
+            adapter_paths = ["a", "b"], method = "sce", select_topk = 0.5
+        )
+        self.assertEqual(ok.select_topk, 0.5)
+        for bad in (0.0, -0.1, 1.5):
+            with self.assertRaises(Exception):
+                self.schema(
+                    adapter_paths = ["a", "b"], method = "sce", select_topk = bad
+                )
 
 
 if __name__ == "__main__":
