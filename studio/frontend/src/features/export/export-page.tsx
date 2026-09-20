@@ -2118,6 +2118,13 @@ export function ExportPage() {
                                 <>
                                   How several LoRA checkpoints are blended into
                                   one model.
+                                  {selectedAdapterCount < 3 && (
+                                    <span className="block mt-1">
+                                      Model Stock needs 3+ adapters (it estimates
+                                      weights from three or more checkpoints) and
+                                      appears once they are selected.
+                                    </span>
+                                  )}
                                 </>
                               );
                             }
@@ -2132,17 +2139,17 @@ export function ExportPage() {
                                 <span className="block">
                                   Best for: {selected.strengths}
                                 </span>
+                                {selectedAdapterCount < 3 && (
+                                  <span className="block mt-1">
+                                    Model Stock needs 3+ adapters (it estimates
+                                    weights from three or more checkpoints) and
+                                    appears once they are selected.
+                                  </span>
+                                )}
                               </>
                             );
                           })()}
                         </InfoHint>
-                        {selectedAdapterCount < 3 && (
-                          <InfoHint>
-                            Model Stock needs 3+ adapters (it estimates weights
-                            from three or more checkpoints) and appears once
-                            they are selected.
-                          </InfoHint>
-                        )}
                         {MERGEKIT_METHODS.has(mergeMethod) && (
                           <span className="flex items-center gap-1">
                             <Select

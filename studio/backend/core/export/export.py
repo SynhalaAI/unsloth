@@ -704,17 +704,34 @@ class ExportBackend:
                         if base_model:
                             logger.info(f"Resolved merge base from the Hub: {base_model}")
                     if not base_model:
-                        logger.error(
-                            f"Could not determine the merge base for '{checkpoint_path}': "
-                            "no adapter_config.json in the HF cache or on the Hub "
-                            "(is the checkpoint a merged model rather than an adapter?)"
-                        )
-                        return False, (
-                            f"Merge method '{_merge_method}' requires the adapter's base "
-                            f"model, but '{checkpoint_path}' has no adapter_config.json "
-                            "in the HF cache or on the Hub. Is it a merged model rather "
-                            "than a LoRA adapter?"
-                        )
+                        # Hub full-model fallback: if the checkpoint is a Hub
+                        # repo ID (contains "/", does not exist as a local
+                        # path) and no adapter_config.json was found anywhere,
+                        # the repo is a full/merged model — use it directly as
+                        # the merge base, mirroring the local full-model
+                        # fallback above.
+                        if (
+                            "/" in checkpoint_path
+                            and not checkpoint_path_obj.exists()
+                        ):
+                            base_model = checkpoint_path
+                            logger.info(
+                                f"Using the Hub model as the merge base (no "
+                                f"adapter_config.json found — treating as a "
+                                f"full model): {base_model}"
+                            )
+                        else:
+                            logger.error(
+                                f"Could not determine the merge base for '{checkpoint_path}': "
+                                "no adapter_config.json in the HF cache or on the Hub "
+                                "(is the checkpoint a merged model rather than an adapter?)"
+                            )
+                            return False, (
+                                f"Merge method '{_merge_method}' requires the adapter's base "
+                                f"model, but '{checkpoint_path}' has no adapter_config.json "
+                                "in the HF cache or on the Hub. Is it a merged model rather "
+                                "than a LoRA adapter?"
+                            )
                     _mergekit_output_dir = make_merge_output_dir()
                     _merge_device = merge_adapters.get("device") or "cpu"
                     # The page sends HF adapters as {repo_id, subfolder} dicts and
