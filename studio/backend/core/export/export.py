@@ -622,6 +622,56 @@ class ExportBackend:
 
             model_id = base_model or checkpoint_path
 
+            # Mergekit-only methods (task_arithmetic/della*/model_stock) cannot merge
+            # into an already-loaded model; they run in the mergekit child process
+            # against the base checkpoint and the merged result is loaded instead.
+            if merge_adapters and not _IS_MLX:
+                from unsloth.mergekit_bridge import (
+                    MergeKitUnavailableError,
+                    merge_adapters_via_mergekit,
+                    make_merge_output_dir,
+                    normalize_method,
+                    resolve_engine,
+                )
+                from unsloth.multi_adapter_merge import MERGEKIT_ONLY_METHODS
+
+                _merge_method = merge_adapters.get("method", "linear")
+                if normalize_method(_merge_method) in MERGEKIT_ONLY_METHODS:
+                    if not base_model:
+                        return False, (
+                            f"Merge method '{_merge_method}' requires the adapter's base "
+                            "model, but it could not be determined"
+                        )
+                    if resolve_engine(_merge_method) != "mergekit":
+                        return False, (
+                            f"Merge method '{_merge_method}' requires the mergekit engine, "
+                            "but mergekit is not installed or reachable. Install mergekit "
+                            "(or set UNSLOTH_MERGEKIT_PYTHON) or choose a built-in method "
+                            "(linear, ties, dare_ties, dare_linear, magnitude_prune, ctm, cat)."
+                        )
+                    _mergekit_output_dir = make_merge_output_dir()
+                    try:
+                        merge_adapters_via_mergekit(
+                            base_model = base_model,
+                            adapters = merge_adapters["adapter_paths"],
+                            output_dir = _mergekit_output_dir,
+                            weights = merge_adapters.get("weights"),
+                            method = _merge_method,
+                            normalize_weights = merge_adapters.get("normalize_weights", True),
+                            density = merge_adapters.get("density", 0.5),
+                            drop_rate = merge_adapters.get("drop_rate", 0.5),
+                        )
+                    except MergeKitUnavailableError:
+                        return False, (
+                            f"Merge method '{_merge_method}' requires the mergekit engine, "
+                            "but mergekit is not installed or reachable. Install mergekit "
+                            "(or set UNSLOTH_MERGEKIT_PYTHON) or choose a built-in method "
+                            "(linear, ties, dare_ties, dare_linear, magnitude_prune, ctm, cat)."
+                        )
+                    checkpoint_path = _mergekit_output_dir
+                    model_id = _mergekit_output_dir
+                    merge_adapters = None
+
             # Skip the Hub when offline so a no-internet export uses the local cache.
             local_files_only = _hf_offline()
 

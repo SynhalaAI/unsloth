@@ -1,0 +1,187 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
+
+"""Mergekit-only merge methods (task_arithmetic/della*/model_stock) must not reach the
+in-memory merger: ``merge_adapters_into_model`` raises ``Unsupported merge method`` for
+them because only the mergekit child-process engine implements those methods. The export
+checkpoint loader now routes those methods through ``merge_adapters_via_mergekit`` and
+loads the merged checkpoint back, and returns a clear error when mergekit is unavailable
+or the adapter's base model cannot be determined."""
+
+import importlib.machinery
+import sys
+import types
+from pathlib import Path
+
+_BACKEND_DIR = Path(__file__).resolve().parent.parent
+if str(_BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(_BACKEND_DIR))
+_TESTS_DIR = Path(__file__).resolve().parent
+if str(_TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TESTS_DIR))
+
+# Reuse the absolute-paths stub harness: loads core/export/export.py without torch/unsloth.
+from test_export_absolute_paths import (  # noqa: E402
+    _install_export_backend_stubs,
+    _load_module,
+)
+
+MERGEKIT_ONLY = ("task_arithmetic", "della", "della_ties", "della_linear", "model_stock")
+
+
+class _MergeKitUnavailableError(RuntimeError):
+    pass
+
+
+def _install_merge_stubs(monkeypatch, *, resolve_engine):
+    """Stub unsloth.mergekit_bridge / unsloth.multi_adapter_merge with a recording fake."""
+
+    bridge = types.ModuleType("unsloth.mergekit_bridge")
+    bridge.MergeKitUnavailableError = _MergeKitUnavailableError
+    bridge.normalize_method = lambda method: str(method).lower().replace("-", "_")
+    bridge.resolve_engine = resolve_engine
+    bridge.make_merge_output_dir = lambda: str(Path("/tmp") / "unsloth_mergekit_test")
+    calls = []
+
+    def _record_merge(**kwargs):
+        calls.append(kwargs)
+        return kwargs["output_dir"]
+
+    bridge.merge_adapters_via_mergekit = _record_merge
+    bridge.__spec__ = importlib.machinery.ModuleSpec("unsloth.mergekit_bridge", loader = None)
+    monkeypatch.setitem(sys.modules, "unsloth.mergekit_bridge", bridge)
+
+    multi = types.ModuleType("unsloth.multi_adapter_merge")
+    multi.MERGEKIT_ONLY_METHODS = MERGEKIT_ONLY
+
+    def _boom(*args, **kwargs):  # the in-memory engine must never see these methods
+        raise AssertionError("merge_adapters_into_model must not run for mergekit-only methods")
+
+    multi.merge_adapters_into_model = _boom
+    multi.__spec__ = importlib.machinery.ModuleSpec("unsloth.multi_adapter_merge", loader = None)
+    monkeypatch.setitem(sys.modules, "unsloth.multi_adapter_merge", multi)
+    return calls
+
+
+def _export_mod(monkeypatch):
+    _install_export_backend_stubs(monkeypatch)
+    mod = _load_module(
+        "test_core_export_backend_mergekit_merge", "core/export/export.py", monkeypatch
+    )
+    monkeypatch.setattr(mod, "_IS_MLX", False)
+    # The stub harness sets FastVisionModel = object, which is callable, so the loader
+    # branch must be forced to deterministic fakes instead.
+    monkeypatch.setattr(mod, "_hf_offline", lambda: True)
+    monkeypatch.setattr(mod, "_multi_gpu_device_map_kwargs", lambda: {})
+    # The stub env has no peft, so the module-level import failed; provide dummies.
+    monkeypatch.setattr(mod, "PeftModel", type("PeftModel", (), {}), raising = False)
+    monkeypatch.setattr(mod, "PeftModelForCausalLM", type("PeftModelForCausalLM", (), {}), raising = False)
+    monkeypatch.setattr(
+        mod,
+        "FastVisionModel",
+        types.SimpleNamespace(
+            from_pretrained = lambda **kwargs: (_ for _ in ()).throw(
+                AssertionError(f"unexpected model load: {kwargs}")
+            )
+        ),
+    )
+    return mod
+
+
+def _make_backend(mod, monkeypatch, tmp_path):
+    """Adapter checkpoint at tmp_path whose base resolves to 'base/model'."""
+
+    checkpoint = tmp_path / "checkpoint-704"
+    checkpoint.mkdir()
+    (checkpoint / "adapter_config.json").write_text("{}")
+    monkeypatch.setattr(mod, "get_base_model_from_lora", lambda path: "base/model")
+
+    backend = mod.ExportBackend.__new__(mod.ExportBackend)
+    backend.cleanup_memory = lambda: None
+    backend._audio_type = None
+    backend.is_vision = False
+    return backend, checkpoint
+
+
+def test_mergekit_only_methods_route_to_the_mergekit_engine(monkeypatch, tmp_path):
+    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "mergekit")
+    mod = _export_mod(monkeypatch)
+    backend, checkpoint = _make_backend(mod, monkeypatch, tmp_path)
+
+    loaded = []
+    monkeypatch.setattr(
+        mod,
+        "FastLanguageModel",
+        types.SimpleNamespace(
+            from_pretrained = lambda **kwargs: (loaded.append(kwargs) or (object(), object()))
+        ),
+    )
+
+    for method in MERGEKIT_ONLY:
+        merge = {"adapter_paths": ["a", "b"], "method": method}
+        ok, _msg = backend.load_checkpoint(str(checkpoint), merge_adapters = merge)
+        assert ok, f"{method}: {_msg}"
+
+    assert [call["method"] for call in calls] == list(MERGEKIT_ONLY)
+    for call in calls:
+        assert call["base_model"] == "base/model"
+        assert call["adapters"] == ["a", "b"]
+    # Every merge loaded the merged checkpoint back instead of the raw adapter.
+    assert all(kwargs["model_name"] == calls[0]["output_dir"] for kwargs in loaded)
+    assert len(loaded) == len(MERGEKIT_ONLY)
+
+
+def test_mergekit_only_method_without_mergekit_gets_a_clear_error(monkeypatch, tmp_path):
+    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "legacy")
+    mod = _export_mod(monkeypatch)
+    backend, checkpoint = _make_backend(mod, monkeypatch, tmp_path)
+
+    ok, msg = backend.load_checkpoint(
+        str(checkpoint), merge_adapters = {"adapter_paths": ["a", "b"], "method": "model_stock"}
+    )
+    assert not ok
+    assert "mergekit" in msg
+    assert "model_stock" in msg
+    assert calls == []
+
+
+def test_mergekit_only_method_requires_a_base_model(monkeypatch, tmp_path):
+    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "mergekit")
+    mod = _export_mod(monkeypatch)
+    backend, checkpoint = _make_backend(mod, monkeypatch, tmp_path)
+    monkeypatch.setattr(mod, "get_base_model_from_lora", lambda path: None)
+
+    ok, msg = backend.load_checkpoint(
+        str(checkpoint), merge_adapters = {"adapter_paths": ["a", "b"], "method": "model_stock"}
+    )
+    assert not ok
+    assert "base" in msg
+    assert calls == []
+
+
+def test_in_house_methods_stay_on_the_in_memory_engine(monkeypatch, tmp_path):
+    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "legacy")
+    mod = _export_mod(monkeypatch)
+    backend, checkpoint = _make_backend(mod, monkeypatch, tmp_path)
+
+    merged = []
+
+    def _fake_load(**kwargs):
+        return object(), object()
+
+    monkeypatch.setattr(
+        mod,
+        "FastLanguageModel",
+        types.SimpleNamespace(from_pretrained = _fake_load),
+    )
+    sys.modules["unsloth.multi_adapter_merge"].merge_adapters_into_model = (
+        lambda model, **kwargs: (merged.append(kwargs) or model)
+    )
+
+    ok, msg = backend.load_checkpoint(
+        str(checkpoint), merge_adapters = {"adapter_paths": ["a", "b"], "method": "ties"}
+    )
+    assert ok, msg
+    assert calls == []
+    assert [kwargs["method"] for kwargs in merged] == ["ties"]
+
