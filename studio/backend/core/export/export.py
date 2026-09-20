@@ -551,6 +551,62 @@ def _resolve_merge_base_from_cache(repo_id: str) -> Optional[str]:
     return get_base_model_from_lora(snapshot)
 
 
+def _resolve_merge_base_model(
+    checkpoint_path: str,
+    base_model: Optional[str] = None,
+    hf_token: Optional[str] = None,
+) -> Tuple[Optional[str], Optional[str]]:
+    """Determine the base model for merging adapters.
+
+    If the checkpoint is a LoRA adapter (local or remote), extracts the underlying
+    base model that the adapter modifies.
+    If the checkpoint is a full/merged model (local directory or Hub repo), the
+    checkpoint itself serves as the merge base for the adapters.
+
+    Returns:
+        Tuple of (base_model_path_or_id, error_message)
+    """
+    if base_model:
+        return base_model, None
+
+    checkpoint_path_obj = Path(checkpoint_path)
+    adapter_config = checkpoint_path_obj / "adapter_config.json"
+
+    # 1. Local LoRA adapter directory
+    if adapter_config.exists():
+        resolved = get_base_model_from_lora(checkpoint_path)
+        if not resolved:
+            return None, "Could not determine base model for adapter"
+        return resolved, None
+
+    # 2. Local full model directory (exists, but no adapter_config.json)
+    if checkpoint_path_obj.is_dir():
+        logger.info(f"Using local directory as merge base model: {checkpoint_path}")
+        return str(checkpoint_path), None
+
+    # 3. Remote/cached adapter in Hugging Face cache
+    cached_base = _resolve_merge_base_from_cache(checkpoint_path)
+    if cached_base:
+        logger.info(f"Resolved merge base from HF cache: {cached_base}")
+        return cached_base, None
+
+    # 4. Remote LoRA adapter on Hugging Face Hub
+    try:
+        from utils.models import get_base_model_from_lora_identifier
+
+        hub_base = get_base_model_from_lora_identifier(checkpoint_path, hf_token = hf_token)
+        if hub_base:
+            logger.info(f"Resolved merge base from Hub adapter config: {hub_base}")
+            return hub_base, None
+    except Exception as exc:
+        logger.debug(f"Hub check for adapter base failed: {exc}")
+
+    # 5. Remote full model (e.g. repo ID like 'SynhalaAI/Gemma4-E2B-Heretic-Sinhala')
+    # or arbitrary model identifier
+    logger.info(f"Using checkpoint identifier as merge base model: {checkpoint_path}")
+    return str(checkpoint_path), None
+
+
 class ExportBackend:
     def __init__(self):
         self.inference_backend = get_inference_backend()
@@ -658,8 +714,17 @@ class ExportBackend:
                 )
                 from unsloth.multi_adapter_merge import MERGEKIT_ONLY_METHODS
 
+                adapter_paths = merge_adapters.get("adapter_paths") or []
+                if len(adapter_paths) < 2:
+                    return False, (
+                        "Merging requires at least 2 adapters; the selected checkpoint "
+                        "is already merged into the base model"
+                    )
+
                 _merge_method = merge_adapters.get("method", "linear")
-                if resolve_engine(_merge_method) != "mergekit":
+                _engine = resolve_engine(_merge_method)
+
+                if _engine != "mergekit":
                     if normalize_method(_merge_method) in MERGEKIT_ONLY_METHODS:
                         return False, (
                             f"Merge method '{_merge_method}' requires the mergekit engine, "
@@ -670,70 +735,24 @@ class ExportBackend:
                 else:
                     if (
                         normalize_method(_merge_method) == "model_stock"
-                        and len(merge_adapters["adapter_paths"]) < 3
+                        and len(adapter_paths) < 3
                     ):
                         # mergekit's stock estimator needs at least three models.
                         return False, (
                             "Merge method 'model_stock' requires at least 3 adapters "
-                            f"(got {len(merge_adapters['adapter_paths'])})"
+                            f"(got {len(adapter_paths)})"
                         )
-                    if (
-                        not base_model
-                        and checkpoint_path_obj.is_dir()
-                        and not adapter_config.exists()
-                    ):
-                        # A local full-model selection IS the merge base itself: the
-                        # adapters fold into it. (The missing adapter_config.json is
-                        # what told us it is not an adapter.)
-                        base_model = str(checkpoint_path_obj)
-                        logger.info(f"Using the selected local model as the merge base: {base_model}")
-                    if not base_model:
-                        # A Hub adapter repo has no local adapter_config.json; read the
-                        # base from the HF-cache snapshot first (the load itself has
-                        # already pulled it), then from the remote config (the same
-                        # resolver the security gate uses).
-                        base_model = _resolve_merge_base_from_cache(checkpoint_path)
-                        if base_model:
-                            logger.info(f"Resolved merge base from the HF cache: {base_model}")
-                    if not base_model:
-                        from utils.models import get_base_model_from_lora_identifier
 
-                        base_model = get_base_model_from_lora_identifier(
-                            checkpoint_path, hf_token = token
-                        )
-                        if base_model:
-                            logger.info(f"Resolved merge base from the Hub: {base_model}")
-                    if not base_model:
-                        # Hub full-model fallback: if the checkpoint is a Hub
-                        # repo ID (contains "/", does not exist as a local
-                        # path) and no adapter_config.json was found anywhere,
-                        # the repo is a full/merged model — use it directly as
-                        # the merge base, mirroring the local full-model
-                        # fallback above.
-                        if (
-                            "/" in checkpoint_path
-                            and not checkpoint_path_obj.exists()
-                        ):
-                            base_model = checkpoint_path
-                            logger.info(
-                                f"Using the Hub model as the merge base (no "
-                                f"adapter_config.json found — treating as a "
-                                f"full model): {base_model}"
-                            )
-                        else:
-                            logger.error(
-                                f"Could not determine the merge base for '{checkpoint_path}': "
-                                "no adapter_config.json in the HF cache or on the Hub "
-                                "(is the checkpoint a merged model rather than an adapter?)"
-                            )
-                            return False, (
-                                f"Merge method '{_merge_method}' requires the adapter's base "
-                                f"model, but '{checkpoint_path}' has no adapter_config.json "
-                                "in the HF cache or on the Hub. Is it a merged model rather "
-                                "than a LoRA adapter?"
-                            )
+                    # Unified resolution of base model for mergekit
+                    merge_base, err = _resolve_merge_base_model(
+                        checkpoint_path, base_model = base_model, hf_token = token
+                    )
+                    if err or not merge_base:
+                        return False, err or "Could not determine base model for merge"
+
                     _mergekit_output_dir = make_merge_output_dir()
                     _merge_device = merge_adapters.get("device") or "cpu"
+
                     # The page sends HF adapters as {repo_id, subfolder} dicts and
                     # repo-id strings; mergekit needs real local paths, so resolve
                     # each one into its (downloaded) snapshot directory first --
@@ -742,11 +761,11 @@ class ExportBackend:
 
                     _resolved_adapters = [
                         _resolve_adapter_path(path, hf_token = token)
-                        for path in merge_adapters["adapter_paths"]
+                        for path in adapter_paths
                     ]
                     try:
                         merge_adapters_via_mergekit(
-                            base_model = base_model,
+                            base_model = merge_base,
                             adapters = _resolved_adapters,
                             output_dir = _mergekit_output_dir,
                             weights = merge_adapters.get("weights"),

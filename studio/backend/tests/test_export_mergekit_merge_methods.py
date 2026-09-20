@@ -457,16 +457,21 @@ def test_cached_snapshot_resolves_the_base_before_the_hub(monkeypatch, tmp_path)
     assert calls[0]["base_model"] == "cached/base"
 
 
-def test_merged_model_checkpoint_gets_a_clear_merge_base_error(monkeypatch, tmp_path):
-    # A merged (non-adapter) checkpoint has no adapter_config.json anywhere; the
-    # error must say so instead of the vague "could not be determined".
-    _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "mergekit")
+def test_hub_merged_model_checkpoint_is_used_as_merge_base(monkeypatch, tmp_path):
+    # A full/merged model checkpoint has no adapter_config.json anywhere; it is
+    # treated directly as the merge base model into which the adapters are merged.
+    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "mergekit")
     mod = _export_mod(monkeypatch)
     monkeypatch.setattr(mod, "_resolve_merge_base_from_cache", lambda repo_id: None)
     monkeypatch.setattr(
         sys.modules["utils.models"],
         "get_base_model_from_lora_identifier",
         lambda *a, **k: None,
+    )
+    monkeypatch.setattr(
+        mod,
+        "FastLanguageModel",
+        types.SimpleNamespace(from_pretrained = lambda **kwargs: (object(), object())),
     )
 
     backend = mod.ExportBackend.__new__(mod.ExportBackend)
@@ -478,9 +483,8 @@ def test_merged_model_checkpoint_gets_a_clear_merge_base_error(monkeypatch, tmp_
         "org/merged-model",
         merge_adapters = {"adapter_paths": ["a", "b"], "method": "della"},
     )
-    assert not ok
-    assert "org/merged-model" in msg
-    assert "merged model" in msg
+    assert ok, msg
+    assert calls[0]["base_model"] == "org/merged-model"
 
 
 def test_merge_device_reaches_the_mergekit_engine(monkeypatch, tmp_path):
