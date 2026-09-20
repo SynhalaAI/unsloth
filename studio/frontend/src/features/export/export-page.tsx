@@ -439,9 +439,11 @@ export function ExportPage() {
   const availableMergeMethods = MERGE_METHODS.filter(
     (method) => selectedAdapterCount >= (MERGE_METHOD_MIN_ADAPTERS[method.value] ?? 1),
   );
-  if (!availableMergeMethods.some((method) => method.value === mergeMethod)) {
-    setMergeMethod("linear");
-  }
+  useEffect(() => {
+    if (!availableMergeMethods.some((method) => method.value === mergeMethod)) {
+      setMergeMethod("linear");
+    }
+  }, [selectedAdapterCount, mergeMethod]);
   const [adapterCheckpointOptions, setAdapterCheckpointOptions] = useState<
     Record<string, string[]>
   >({});
