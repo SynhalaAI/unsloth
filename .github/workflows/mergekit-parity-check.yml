@@ -1,0 +1,74 @@
+name: 'Mergekit Algorithm Parity Check'
+
+# Weekly check (Mondays 09:00 UTC) for upstream changes in mergekit's
+# merge_methods directory. If changes are detected, an issue is created
+# so the team can evaluate whether our in-house implementations in
+# unsloth/multi_adapter_merge.py need to be updated.
+on:
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch:  # Allow manual trigger
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  check-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch mergekit merge_methods commits
+        id: check
+        run: |
+          REPO="arcee-ai/mergekit"
+          PATH_FILTER="mergekit/merge_methods"
+          SINCE=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
+
+          COMMITS=$(curl -s \
+            "https://api.github.com/repos/${REPO}/commits?path=${PATH_FILTER}&since=${SINCE}" \
+            | python3 -c "
+          import sys, json
+          commits = json.load(sys.stdin)
+          if not commits:
+              print('NO_CHANGES')
+          else:
+              for c in commits:
+                  sha = c['sha'][:8]
+                  msg = c['commit']['message'].split('\n')[0]
+                  date = c['commit']['author']['date']
+                  print(f'- {sha} ({date}): {msg}')
+          ")
+
+          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          echo "$COMMITS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create issue if changes detected
+        if: steps.check.outputs.commits != 'NO_CHANGES'
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea  # v7.0.1
+        with:
+          script: |
+            const commits = `${{ steps.check.outputs.commits }}`;
+            if (commits === 'NO_CHANGES') return;
+
+            const body = [
+              '## Upstream mergekit changes detected',
+              '',
+              'The following commits were pushed to `mergekit/merge_methods/` in the last 7 days:',
+              '',
+              commits,
+              '',
+              '### Action required',
+              'Review the changes above and evaluate whether the in-house implementations in',
+              '`unsloth/multi_adapter_merge.py` need to be updated to maintain algorithm parity.',
+              '',
+              'Reference: https://github.com/arcee-ai/mergekit/tree/main/mergekit/merge_methods',
+            ].join('\n');
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '[mergekit parity] Upstream merge_methods changes detected',
+              body: body,
+              labels: ['merge-parity', 'upstream-sync'],
+            });

@@ -27,6 +27,36 @@ and with work from other contributors.
 - Before finishing, inspect the final diff, remove unrelated changes, and report
   that no unrelated diff remains.
 
+## Adapter merging methods — reference parity rule
+
+The in-house adapter merging implementations in `unsloth/multi_adapter_merge.py`
+do **not** use mergekit as a dependency. All methods are re-implemented in pure
+PyTorch, but their algorithms **must remain faithful to the published references**.
+
+### Canonical references
+
+| Method | Reference |
+|---|---|
+| `linear` | [mergekit `linear.py`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/merge_methods/linear.py) |
+| `ties` | [TIES-Merging paper (Yadav et al., 2023)](https://arxiv.org/abs/2306.01708) |
+| `dare_ties` | [DARE paper (Yu et al., 2024)](https://arxiv.org/abs/2311.03099) + TIES |
+| `dare_linear` | [DARE paper](https://arxiv.org/abs/2311.03099) + linear weighted sum |
+| `magnitude_prune` | [PEFT `merge_utils.py`](https://github.com/huggingface/peft/blob/main/src/peft/utils/merge_utils.py) |
+| `ctm` | Unsloth-specific (truncated-SVD compression); no external reference |
+| `cat` | [PEFT `add_weighted_adapter` `combination_type="cat"`](https://github.com/huggingface/peft/blob/main/src/peft/tuners/lora/model.py) |
+
+### Rules for merging-related changes
+
+1. **Never** modify merge-method math (trim, sign election, rescale, pruning,
+   concatenation) without cross-checking against the canonical reference above.
+2. If an upstream fix (mergekit, PEFT, or the original paper) changes an
+   algorithm, update the in-house implementation **and** its tests in the same
+   PR, and note the sync in the commit message.
+3. New merge methods must cite their reference implementation or paper in the
+   docstring.
+4. The weekly `mergekit-parity-check` GitHub Actions workflow monitors
+   `mergekit/merge_methods/` for upstream changes; act on issues it creates.
+
 ## When uncertain
 
 If implementing the feature requires a large core rewrite, broad formatting changes,
