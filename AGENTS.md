@@ -38,7 +38,7 @@ PyTorch, but their algorithms **must remain faithful to the published references
 | Method | Reference |
 |---|---|
 | `linear` | [mergekit `linear.py`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/merge_methods/linear.py) |
-| `ties` | [TIES-Merging paper (Yadav et al., 2023)](https://arxiv.org/abs/2306.01708) |
+| `ties` | [mergekit `generalized_task_arithmetic.py`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/merge_methods/generalized_task_arithmetic.py) (``sum`` consensus, weight divisor) |
 | `dare_ties` | [DARE paper (Yu et al., 2024)](https://arxiv.org/abs/2311.03099) + TIES |
 | `dare_linear` | [DARE paper](https://arxiv.org/abs/2311.03099) + linear weighted sum |
 | `magnitude_prune` | [PEFT `merge_utils.py`](https://github.com/huggingface/peft/blob/main/src/peft/utils/merge_utils.py) |

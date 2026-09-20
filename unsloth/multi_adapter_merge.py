@@ -363,13 +363,15 @@ def _ties_merge_key(
 ) -> torch.Tensor:
     """TIES-merge ONE module's deltas (the per-key math of ``_ties_merge``).
 
-    Steps:
+    Steps (aligned with mergekit's ``generalized_task_arithmetic`` TIES):
       1. **Trim**: zero out the bottom (1 − density) of each adapter's delta
          by magnitude (top-k thresholding).
-      2. **Elect sign**: per element, majority-vote across adapters to pick the
-         dominant sign.
+      2. **Elect sign**: per element, elect the dominant sign from the
+         *weighted sum of deltas* — ``sign(Σ wᵢ·δᵢ)`` — so magnitude and
+         weight jointly influence the vote (mergekit ``sum`` consensus).
       3. **Disjoint merge**: for each element, average only the adapters whose
-         (trimmed) delta agrees with the elected sign.
+         (trimmed) delta agrees with the elected sign, normalizing by the
+         *sum of the aligned weights* (``Σ wᵢ``), not the count.
     """
     if len(per_adapter_deltas) == 1:
         # Single adapter: skip TIES overhead; just scale.
@@ -386,27 +388,29 @@ def _ties_merge_key(
         mask = flat.abs() >= threshold
         trimmed.append((flat * mask.float()).view(delta.shape))
 
-    # Step 2: Elect sign — majority vote (weighted).
-    # +1 for positive, −1 for negative, 0 for zero.
-    sign_votes = torch.zeros(shape, dtype=torch.float32)
+    # Step 2: Elect sign — mergekit ``sum`` consensus: the sign of the
+    # weighted sum of the (trimmed) deltas. Magnitude and weight jointly
+    # influence the election.
+    weighted_sum = torch.zeros(shape, dtype=torch.float32)
     for t, w in zip(trimmed, per_adapter_weights):
-        sign_votes += w * t.sign()
-    elected_sign = sign_votes.sign()
+        weighted_sum += w * t
+    elected_sign = weighted_sum.sign()
     # Where elected sign is 0 (perfect tie), default to positive.
     elected_sign[elected_sign == 0] = 1.0
 
-    # Step 3: Disjoint merge — average only aligned contributions.
+    # Step 3: Disjoint merge — average aligned contributions, normalized by
+    # the sum of the aligned weights (mergekit divisor), not the count.
     acc = torch.zeros(shape, dtype=torch.float32)
-    count = torch.zeros(shape, dtype=torch.float32)
+    weight_sum = torch.zeros(shape, dtype=torch.float32)
     for t, w in zip(trimmed, per_adapter_weights):
         aligned = (t.sign() == elected_sign) & (t != 0)
         acc += (t * w) * aligned.float()
-        count += aligned.float()
+        weight_sum += w * aligned.float()
 
-    count = count.clamp(min=1.0)
-    merged = acc / count
+    weight_sum = weight_sum.clamp(min=1e-8)
+    merged = acc / weight_sum
     # Cleanup
-    del trimmed, sign_votes, elected_sign, acc, count
+    del trimmed, weighted_sum, elected_sign, acc, weight_sum
     return merged
 
 

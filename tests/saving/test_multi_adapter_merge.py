@@ -439,6 +439,44 @@ class TestTIESMergeKey:
         per_key = _ties_merge_key([d1[key]], [0.7], density=0.5)
         assert torch.allclose(per_key, d1[key] * 0.7, atol=1e-6)
 
+    def test_ties_matches_mergekit_reference(self, tmp_path):
+        """TIES per-key math must exactly reproduce mergekit's
+        ``generalized_task_arithmetic`` TIES (sum consensus, weight divisor).
+
+        Reference: mergekit/merge_methods/generalized_task_arithmetic.py
+        """
+        d1, d2 = self._two_deltas(tmp_path)
+        key = next(iter(d1))
+        w = [0.6, 0.4]
+        density = 0.5
+
+        ours = _ties_merge_key([d1[key], d2[key]], w, density=density)
+
+        # mergekit reference implementation (pure torch re-derivation)
+        def mk_magnitude(t, dens):
+            k = int(dens * t.numel())
+            mask = torch.zeros(t.numel(), dtype=t.dtype)
+            topk = torch.argsort(t.abs().reshape(-1), descending=True)[:k]
+            mask[topk] = 1
+            return (t.reshape(-1) * mask).reshape_as(t)
+
+        deltas = torch.stack([
+            mk_magnitude(d1[key], density) * w[0],
+            mk_magnitude(d2[key], density) * w[1],
+        ])
+        majority_sign = (deltas.sum(dim=0) >= 0).float() * 2 - 1
+        mask = deltas.sign() == majority_sign
+        weights_t = torch.tensor(w).view(2, 1, 1)
+        mixed = (deltas * mask).sum(dim=0)
+        divisor = (weights_t * mask).sum(dim=0)
+        divisor[divisor == 0] = 1
+        ref = mixed / divisor
+
+        assert torch.allclose(ours, ref, atol=1e-5), (
+            f"TIES diverged from mergekit reference on {key}: "
+            f"max diff {(ours - ref).abs().max().item()}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # Validation tests
