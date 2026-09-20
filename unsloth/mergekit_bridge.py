@@ -522,18 +522,43 @@ try:
 except Exception:
     pass
 
+try:
+    from pydantic_core import core_schema
+
+    def _any_pydantic_schema(cls, *args, **kwargs):
+        return core_schema.any_schema()
+
+    if "torch" in sys.modules:
+        setattr(torch.Tensor, "__get_pydantic_core_schema__", classmethod(_any_pydantic_schema))
+        setattr(torch.dtype, "__get_pydantic_core_schema__", classmethod(_any_pydantic_schema))
+except Exception:
+    pass
+
 import yaml
 from mergekit.config import MergeConfiguration
 from mergekit.merge import MergeOptions, run_merge
 
 # In pydantic>=2.10, ConfiguredModuleArchitecture references torch types and
-# requires model_rebuild() once torch is imported.
+# requires arbitrary_types_allowed and model_rebuild() once torch is imported.
 for _mod_name in ("mergekit.architecture.base", "mergekit.plan", "mergekit.architecture"):
     try:
-        _mod = __import__(_mod_name, fromlist=["ConfiguredModuleArchitecture"])
-        _cls = getattr(_mod, "ConfiguredModuleArchitecture", None)
-        if _cls is not None and hasattr(_cls, "model_rebuild"):
-            _cls.model_rebuild()
+        _mod = __import__(_mod_name, fromlist=["ConfiguredModuleArchitecture", "ConfiguredModelArchitecture"])
+        for _name in ("ConfiguredModuleArchitecture", "ConfiguredModelArchitecture"):
+            _cls = getattr(_mod, _name, None)
+            if _cls is not None:
+                if hasattr(_cls, "model_config"):
+                    if isinstance(_cls.model_config, dict):
+                        _cls.model_config["arbitrary_types_allowed"] = True
+                    else:
+                        try:
+                            setattr(_cls.model_config, "arbitrary_types_allowed", True)
+                        except Exception:
+                            pass
+                if hasattr(_cls, "model_rebuild"):
+                    try:
+                        _cls.model_rebuild(force=True)
+                    except Exception:
+                        pass
     except Exception:
         pass
 
