@@ -65,6 +65,11 @@ def _install_merge_stubs(monkeypatch, *, resolve_engine):
 
 def _export_mod(monkeypatch):
     _install_export_backend_stubs(monkeypatch)
+    # The mergekit branch imports the identifier resolver from utils.models at call
+    # time; default it to "unknown base" so tests opt into a resolution explicitly.
+    sys.modules["utils.models"].get_base_model_from_lora_identifier = (
+        lambda *args, **kwargs: None
+    )
     mod = _load_module(
         "test_core_export_backend_mergekit_merge", "core/export/export.py", monkeypatch
     )
@@ -233,6 +238,44 @@ def test_legacy_only_methods_stay_on_the_in_memory_engine(monkeypatch, tmp_path)
     assert ok, msg
     assert calls == []
     assert [kwargs["method"] for kwargs in merged] == ["ctm"]
+
+
+def test_hub_adapter_repo_resolves_base_from_remote_config(monkeypatch, tmp_path):
+    # A Hub repo id has no local adapter_config.json, so the mergekit branch must
+    # fall back to the identifier resolver (the security gate's remote reader) --
+    # otherwise every Hub adapter + mergekit method failed with "base model could
+    # not be determined".
+    calls = _install_merge_stubs(monkeypatch, resolve_engine = lambda method: "mergekit")
+    mod = _export_mod(monkeypatch)
+
+    seen = {}
+    monkeypatch.setattr(
+        sys.modules["utils.models"],
+        "get_base_model_from_lora_identifier",
+        lambda identifier, hf_token = None: seen.setdefault(
+            "args", (identifier, hf_token)
+        )
+        and None
+        or "base/model",
+    )
+    monkeypatch.setattr(
+        mod,
+        "FastLanguageModel",
+        types.SimpleNamespace(from_pretrained = lambda **kwargs: (object(), object())),
+    )
+
+    backend = mod.ExportBackend.__new__(mod.ExportBackend)
+    backend.cleanup_memory = lambda: None
+    backend._audio_type = None
+    backend.is_vision = False
+
+    ok, msg = backend.load_checkpoint(
+        "org/adapter-repo",
+        merge_adapters = {"adapter_paths": ["a", "b"], "method": "della_linear"},
+    )
+    assert ok, msg
+    assert seen["args"] == ("org/adapter-repo", None)
+    assert calls[0]["base_model"] == "base/model"
 
 
 def test_merge_device_reaches_the_mergekit_engine(monkeypatch, tmp_path):

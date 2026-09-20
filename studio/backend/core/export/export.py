@@ -648,6 +648,15 @@ class ExportBackend:
                         )
                 else:
                     if not base_model:
+                        # A Hub adapter repo has no local adapter_config.json; read the
+                        # base straight from the remote config (metadata only, the same
+                        # resolver the security gate uses).
+                        from utils.models import get_base_model_from_lora_identifier
+
+                        base_model = get_base_model_from_lora_identifier(
+                            checkpoint_path, hf_token = token
+                        )
+                    if not base_model:
                         return False, (
                             f"Merge method '{_merge_method}' requires the adapter's base "
                             "model, but it could not be determined"

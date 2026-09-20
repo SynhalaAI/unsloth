@@ -363,7 +363,6 @@ export const MERGE_METHODS: { value: MergeMethodType; label: string; description
   { value: "magnitude_prune", label: "Mag-Prune", description: "Keeps the top-density magnitudes per adapter (a density is required), then takes the weighted sum." },
   { value: "ctm", label: "CtM", description: "Compressed Target Merge - applies low-rank SVD compression after merging, optionally to a target rank." },
   { value: "cat", label: "Cat", description: "Concatenates the adapter factors into a rank-extended adapter - no averaging and no interference; matches Linear once folded into the base weights." },
-  { value: "cat", label: "Cat", description: "Concatenates the adapter factors into a rank-extended adapter - no averaging and no interference; matches Linear once folded into the base weights." },
 ];
 
 /**
@@ -388,7 +387,6 @@ export type MergeDeviceType = "cpu" | "cuda";
 export const MERGE_DEVICES: { value: MergeDeviceType; label: string }[] = [
   { value: "cpu", label: "CPU" },
   { value: "cuda", label: "GPU" },
-];
 ];
 
 export const GUIDE_STEPS = [
