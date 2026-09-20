@@ -2478,6 +2478,7 @@ async def stream_training_progress(
 
             elapsed_seconds = getattr(progress, "elapsed_seconds", None) if progress else None
             eta_seconds = getattr(progress, "eta_seconds", None) if progress else None
+            session_start_step = getattr(progress, "session_start_step", None) if progress else None
             grad_norm = grad_norm_override
             if grad_norm is None and progress:
                 grad_norm = getattr(progress, "grad_norm", None)
@@ -2498,6 +2499,7 @@ async def stream_training_progress(
                 epoch = epoch,
                 elapsed_seconds = elapsed_seconds,
                 eta_seconds = eta_seconds,
+                session_start_step = session_start_step,
                 grad_norm = grad_norm,
                 num_tokens = num_tokens,
                 eval_loss = eval_loss,
