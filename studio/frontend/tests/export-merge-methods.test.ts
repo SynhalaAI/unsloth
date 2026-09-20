@@ -187,14 +187,20 @@ test("the page-built merge payload satisfies the runtime request chain", () => {
 });
 
 test("the method picker groups methods by category with a per-method info card", () => {
-  // Grouped dropdown: SelectLabel category headers, rendered in a fixed order.
+  // Grouped dropdown: SelectLabel category headers must sit inside SelectGroup
+  // (Radix throws "SelectLabel must be used within SelectGroup" otherwise).
   assert.match(
     exportPageSource,
-    /MERGE_METHOD_CATEGORY_ORDER\.map\(\(category\) => \(/,
+    /MERGE_METHOD_CATEGORY_ORDER\.map\(\(category\) => \(\s*<SelectGroup key=\{category\}>/,
   );
   assert.match(
     exportPageSource,
-    /MERGE_METHOD_CATEGORY_LABELS\[category\]/,
+    /<SelectLabel[^>]*>\s*\{MERGE_METHOD_CATEGORY_LABELS\[category\]\}/,
+  );
+  assert.match(exportPageSource, /<\/SelectGroup>/);
+  assert.match(
+    exportPageSource,
+    /import \{\s*Select,\s*SelectContent,\s*SelectGroup,\s*SelectItem,\s*SelectLabel,\s*SelectTrigger,\s*SelectValue,\s*\} from "@\/components\/ui\/select";/,
   );
   // Info card shows the selected method's bestFor guidance.
   assert.match(

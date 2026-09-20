@@ -30,6 +30,7 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectLabel,
   SelectTrigger,
@@ -2137,7 +2138,7 @@ export function ExportPage() {
                           </SelectTrigger>
                           <SelectContent>
                             {MERGE_METHOD_CATEGORY_ORDER.map((category) => (
-                              <div key={category}>
+                              <SelectGroup key={category}>
                                 <SelectLabel className="text-xs font-medium text-muted-foreground">
                                   {MERGE_METHOD_CATEGORY_LABELS[category]}
                                 </SelectLabel>
@@ -2151,7 +2152,7 @@ export function ExportPage() {
                                     {method.label}
                                   </SelectItem>
                                 ))}
-                              </div>
+                              </SelectGroup>
                             ))}
                           </SelectContent>
                         </Select>
