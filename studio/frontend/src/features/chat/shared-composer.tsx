@@ -2080,7 +2080,7 @@ export function SharedComposer({
         onSelect={() => setRagEnabled(!ragEnabled)}
       >
         <HugeiconsIcon icon={FileDatabaseIcon} strokeWidth={2} />
-        Chat with Files
+        Chat with files
         {ragEnabled && !ragDisabled ? (
           <HugeiconsIcon icon={Tick02Icon} strokeWidth={2} className="ml-auto" />
         ) : null}
@@ -2102,7 +2102,7 @@ export function SharedComposer({
     skills: (
       <DropdownMenuItem onSelect={() => setSkillsOpen(true)}>
         <HugeiconsIcon icon={Scroll01Icon} strokeWidth={2} />
-        Agent Skills
+        Skills
       </DropdownMenuItem>
     ),
     savedPrompts: (
