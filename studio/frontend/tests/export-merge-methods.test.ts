@@ -234,3 +234,13 @@ test("the method picker groups methods by category with a per-method info card",
     /MERGE_METHODS_AUTO_WEIGHTS\.has\(mergeMethod\)/,
   );
 });
+
+test("auto-weight methods (sce, model_stock) disable the manual weight input", () => {
+  // SCE / Model Stock derive per-adapter weights from the deltas themselves,
+  // so a typed weight would be silently ignored — the per-adapter weight
+  // input must be disabled, not just documented in the info card.
+  assert.match(
+    exportPageSource,
+    /aria-label=\{`Weight for adapter \$\{index \+ 1\}`\}\s*disabled=\{MERGE_METHODS_AUTO_WEIGHTS\.has\(mergeMethod\)\}/,
+  );
+});

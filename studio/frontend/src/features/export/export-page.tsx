@@ -2450,6 +2450,12 @@ export function ExportPage() {
                               max="10"
                               step="0.1"
                               aria-label={`Weight for adapter ${index + 1}`}
+                              disabled={MERGE_METHODS_AUTO_WEIGHTS.has(mergeMethod)}
+                              title={
+                                MERGE_METHODS_AUTO_WEIGHTS.has(mergeMethod)
+                                  ? "This method derives per-adapter weights automatically — manual weights are ignored."
+                                  : undefined
+                              }
                               value={selection.weight}
                               onChange={(event) =>
                                 setAdapterMergeSelections((current) =>
