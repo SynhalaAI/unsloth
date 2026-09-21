@@ -2207,43 +2207,47 @@ export function ExportPage() {
                           </SelectContent>
                         </Select>
                         <InfoHint>
-                          {MERGE_METHODS.find((method) => method.value === mergeMethod)
-                            ?.description ??
-                            "How several LoRA checkpoints are blended into one model."}
-                        </InfoHint>
-                        {(() => {
-                          const selected = MERGE_METHODS.find(
-                            (method) => method.value === mergeMethod,
-                          );
-                          if (!selected) return null;
-                          return (
-                            <div className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                              <div>
-                                <span className="font-medium text-foreground">
-                                  Best for:{" "}
+                          {(() => {
+                            const selected = MERGE_METHODS.find(
+                              (method) => method.value === mergeMethod,
+                            );
+                            if (!selected) {
+                              return (
+                                "How several LoRA checkpoints are blended into one model."
+                              );
+                            }
+                            return (
+                              <span className="block space-y-1 text-left">
+                                <span className="block">
+                                  {selected.description}
                                 </span>
-                                {selected.bestFor}
-                              </div>
-                              {MERGE_METHODS_MIN_3_ADAPTERS.has(mergeMethod) && (
-                                <div className="mt-1">
+                                <span className="block">
                                   <span className="font-medium text-foreground">
-                                    Note:{" "}
+                                    Best for:{" "}
                                   </span>
-                                  requires at least 3 adapters.
-                                </div>
-                              )}
-                              {MERGE_METHODS_AUTO_WEIGHTS.has(mergeMethod) && (
-                                <div className="mt-1">
-                                  <span className="font-medium text-foreground">
-                                    Note:{" "}
+                                  {selected.bestFor}
+                                </span>
+                                {MERGE_METHODS_MIN_3_ADAPTERS.has(mergeMethod) && (
+                                  <span className="block">
+                                    <span className="font-medium text-foreground">
+                                      Note:{" "}
+                                    </span>
+                                    requires at least 3 adapters.
                                   </span>
-                                  per-adapter weights are derived automatically and
-                                  ignored.
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
+                                )}
+                                {MERGE_METHODS_AUTO_WEIGHTS.has(mergeMethod) && (
+                                  <span className="block">
+                                    <span className="font-medium text-foreground">
+                                      Note:{" "}
+                                    </span>
+                                    per-adapter weights are derived automatically
+                                    and ignored.
+                                  </span>
+                                )}
+                              </span>
+                            );
+                          })()}
+                        </InfoHint>
                         {MERGE_METHODS_WITH_DENSITY.has(mergeMethod) && (
                           <span className="flex items-center gap-1">
                             <Input

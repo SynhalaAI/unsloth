@@ -115,11 +115,14 @@ test("merge parameter inputs carry hover hints", () => {
   // The number inputs are bare (no visible labels), so each one gets the UI's
   // standard InfoHint affordance explaining what value belongs in it.
   assert.match(exportPageSource, /import \{ InfoHint \} from "@\/components\/ui\/info-hint";/);
-  // The method select explains itself from the shared MERGE_METHODS description.
+  // The method select explains itself from the shared MERGE_METHODS metadata,
+  // rendered inside the hover hint (never an inline card that resizes the
+  // row when the method — and its text length — changes).
   assert.match(
     exportPageSource,
-    /<InfoHint>\s*\{MERGE_METHODS\.find\(\(method\) => method\.value === mergeMethod\)\s*\?\.description/,
+    /<InfoHint>\s*\{\(\(\) => \{\s*const selected = MERGE_METHODS\.find\(\s*\(method\) => method\.value === mergeMethod,\s*\);/,
   );
+  assert.match(exportPageSource, /selected\.description/);
   for (const hintText of [
     "Fraction of each adapter's strongest weight changes to",
     "Fraction of weight changes randomly dropped before",
@@ -186,7 +189,7 @@ test("the page-built merge payload satisfies the runtime request chain", () => {
   }
 });
 
-test("the method picker groups methods by category with a per-method info card", () => {
+test("the method picker groups methods by category with a per-method hover hint", () => {
   // Two-step picker: the category dropdown lists every group order entry,
   // and the method dropdown renders the filtered list for that category.
   assert.match(
@@ -216,7 +219,7 @@ test("the method picker groups methods by category with a per-method info card",
     exportPageSource,
     /const handleMergeMethodChange[\s\S]*?setMergeCategory\(category\)/,
   );
-  // Info card shows the selected method's bestFor guidance.
+  // The method hover hint shows the selected method's bestFor guidance.
   assert.match(
     exportPageSource,
     /MERGE_METHODS\.find\(\s*\(method\) => method\.value === mergeMethod,\s*\)/,
@@ -238,7 +241,7 @@ test("the method picker groups methods by category with a per-method info card",
 test("auto-weight methods (sce, model_stock) disable the manual weight input", () => {
   // SCE / Model Stock derive per-adapter weights from the deltas themselves,
   // so a typed weight would be silently ignored — the per-adapter weight
-  // input must be disabled, not just documented in the info card.
+  // input must be disabled, not just documented in the hover hint.
   assert.match(
     exportPageSource,
     /aria-label=\{`Weight for adapter \$\{index \+ 1\}`\}\s*disabled=\{MERGE_METHODS_AUTO_WEIGHTS\.has\(mergeMethod\)\}/,
