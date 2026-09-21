@@ -197,6 +197,7 @@ export const fr = {
       unpinChats: "Détacher les discussions",
       archiveChats: "Archiver les discussions",
       markUnread: "Marquer comme non lu",
+      markRead: "Marquer comme lu",
       deleteChats: "Supprimer les discussions",
       deleteTitle: "Supprimer les discussions",
       deleteDescription: "Supprimer {count} discussions ? Cette action est irréversible.",
@@ -215,11 +216,26 @@ export const fr = {
       priority: "Priorité",
       lastUpdated: "Dernière mise à jour",
       manualOrder: "Ordre manuel",
-      moveUp: "Monter",
-      moveDown: "Descendre",
+      priorityHint: "Actifs et non lus en premier",
+      lastUpdatedHint: "Les plus récents en premier",
+      manualOrderHint: "Faites glisser les lignes pour les réorganiser",
+      switchedToManual: "Tri manuel : faites glisser les lignes pour les réorganiser",
       organizeChats: "Organiser les discussions",
       organizeProjects: "Organiser les projets",
       sortPinnedChats: "Trier les discussions épinglées",
+      dragDrop: "Glisser-déposer",
+      dragHints: "Afficher une indication pendant le glissement",
+      reorderSwitchesSort: "Réordonner passe en ordre manuel",
+      dragOpensFolders: "Ouvrir les dossiers sous le pointeur",
+      moveUp: "Monter",
+      moveDown: "Descendre",
+    },
+    drag: {
+      reorder: "Réordonner",
+      pin: "Épingler",
+      unpin: "Désépingler",
+      moveTo: "Déplacer vers {name}",
+      moveToRecents: "Déplacer vers Récents",
     },
     dialog: {
       deleteChat: {
@@ -1517,9 +1533,9 @@ export const fr = {
           "Ignore les demandes d'autorisation. À n'utiliser que dans des environnements de confiance.",
       },
       remote: {
-        title: "Se connecter à un Unsloth Studio distant",
+        title: "Se connecter à un Unsloth distant",
         description:
-          "Faites pointer unsloth start vers un Unsloth Studio exécuté ailleurs en définissant ces variables avant le lancement (ou passez --api-key directement) :",
+          "Faites pointer unsloth start vers un Unsloth exécuté ailleurs en définissant ces variables avant le lancement (ou passez --api-key directement) :",
       },
       passthrough: {
         title: "Transmettre des arguments à l'agent",
@@ -1547,16 +1563,16 @@ export const fr = {
       rememberParamsPerModelHint:
         "Lorsque cette option est désactivée, tous les modèles utilisent les mêmes réglages.",
       autoCompactHint:
-        "Utilise la longueur de contexte définie, pas la VRAM disponible.",
+        "Uniquement les chats GGUF locaux. Les échanges évincés sont indexés pour que le modèle puisse les retrouver, et une réinitialisation cite mot pour mot les instructions permanentes qui tiennent, en gardant les plus anciennes et les plus récentes plutôt que celles du milieu. L’archivage nécessite un chat enregistré et l’index vectoriel ; sans eux, les anciens échanges sont supprimés. Utilise la longueur de contexte définie, pas la VRAM disponible.",
       pastedTextShortDescription:
         "Le texte collé de {count} caractères ou plus devient une pièce jointe .txt. Le texte plus court reste dans le champ de message.",
       pastedTextOffDescription:
         "Tout le texte collé reste dans le champ de message, quelle que soit sa longueur.",
       compactionDescriptionInherit: "Suit la politique de contexte du serveur.",
       compactionDescriptionCheckpoint:
-        "Conserve le dernier échange et les instructions permanentes.",
+        "Conserve le dernier échange et les instructions permanentes qui tiennent, et archive le reste pour pouvoir le retrouver.",
       compactionDescriptionRolling:
-        "Supprime les échanges les plus anciens pour conserver les plus récents et la marge choisie.",
+        "Archive les échanges les plus anciens pour conserver les plus récents et la marge choisie.",
       projectsSection: "Afficher la section Projets",
       projectsSectionDescription:
         "Regroupe les discussions de projet sous un titre Projets. Désactivez cette option pour les lister dans Récents.",
@@ -1603,22 +1619,22 @@ export const fr = {
         "Restaure le dernier prompt, la température et les autres réglages utilisés pour chaque modèle.",
       autoCompact: "Compacter automatiquement les longues discussions",
       autoCompactDescription:
-        "Supprime les anciens échanges lorsqu’une discussion GGUF locale atteint sa limite de contexte.",
+        "Les anciens échanges vont dans une archive consultable quand un chat sature son contexte.",
       compactionStyle: "Lorsque le contexte est plein",
       compactionStyleDescription:
-        "La valeur par défaut du serveur conserve UNSLOTH_CONTEXT_POLICY. Réinitialiser la discussion garde le dernier tour et les instructions permanentes. Une fenêtre glissante supprime les tours les plus anciens et peut conserver davantage d’historique récent.",
+        "La valeur par défaut du serveur conserve UNSLOTH_CONTEXT_POLICY. Réinitialiser la discussion garde le dernier tour et les instructions permanentes qui tiennent. Une fenêtre glissante supprime les tours les plus anciens et peut conserver davantage d’historique récent.",
       compactionStyleInherit: "Utiliser la valeur du serveur",
       compactionStyleCheckpoint: "Réinitialiser la discussion",
       compactionStyleRollingDefault:
-        "Supprimer les anciens tours (~25 % d’espace supplémentaire)",
+        "Archiver les anciens tours (~25 % d’espace supplémentaire)",
       compactionStyleRolling10:
-        "Supprimer les anciens tours (~10 % d’espace supplémentaire)",
+        "Archiver les anciens tours (~10 % d’espace supplémentaire)",
       compactionStyleRolling5:
-        "Supprimer les anciens tours (~5 % d’espace supplémentaire)",
+        "Archiver les anciens tours (~5 % d’espace supplémentaire)",
       compactionStyleRollingNone:
-        "Supprimer les anciens tours (sans réduction supplémentaire)",
+        "Archiver les anciens tours (sans réduction supplémentaire)",
       autoCompactKeywords:
-        "compaction automatique contexte fenêtre tronquer glissante point de contrôle marge compaction rolling checkpoint headroom",
+        "compaction automatique contexte fenêtre tronquer glissante point de contrôle marge archive récupération recherche rolling checkpoint headroom retrieval rag",
       thinking: {
         collapseByDefault: "Replier la réflexion par défaut",
         collapseByDefaultDescription:
@@ -1635,6 +1651,9 @@ export const fr = {
         collapseByDefault: "Replier l’activité des outils par défaut",
         collapseByDefaultDescription:
           "Garde les entrées et sorties des outils repliées pendant leur exécution. Dépliez une ligne d’outil pour l’examiner.",
+        foldIntoThinking: "Replier les appels d'outils dans la Réflexion",
+        foldIntoThinkingDescription:
+          "Masque les appels d'outils d'un tour jusqu'à l'ouverture de son bloc de Réflexion.",
       },
       webSearch: {
         title: "Recherche web",

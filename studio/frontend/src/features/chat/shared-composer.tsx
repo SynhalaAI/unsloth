@@ -82,7 +82,6 @@ import type { ModelLifecycleLease } from "./utils/model-lifecycle-gate";
 import { useAui } from "@assistant-ui/react";
 import {
   ArrowUpIcon,
-  BookOpenIcon,
   ChevronDownIcon,
   Columns2Icon,
   GlobeIcon,
@@ -104,6 +103,7 @@ import {
   Image03Icon,
   McpServerIcon,
   PencilRulerIcon,
+  Scroll01Icon,
 } from "@hugeicons/core-free-icons";
 import { useNavigate } from "@tanstack/react-router";
 import { useChatActive } from "./runtime-provider";
@@ -2101,7 +2101,7 @@ export function SharedComposer({
     ),
     skills: (
       <DropdownMenuItem onSelect={() => setSkillsOpen(true)}>
-        <BookOpenIcon />
+        <HugeiconsIcon icon={Scroll01Icon} strokeWidth={2} />
         Agent Skills
       </DropdownMenuItem>
     ),

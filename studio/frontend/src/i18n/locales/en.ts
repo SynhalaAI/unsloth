@@ -198,6 +198,7 @@ export const en = {
       unpinChats: "Unpin chats",
       archiveChats: "Archive chats",
       markUnread: "Mark as unread",
+      markRead: "Mark as read",
       deleteChats: "Delete chats",
       deleteTitle: "Delete chats",
       deleteDescription: "Delete {count} chats? This cannot be undone.",
@@ -217,11 +218,26 @@ export const en = {
       priority: "Priority",
       lastUpdated: "Last updated",
       manualOrder: "Manual order",
-      moveUp: "Move up",
-      moveDown: "Move down",
+      priorityHint: "Active and unread first",
+      lastUpdatedHint: "Newest first",
+      manualOrderHint: "Drag rows to reorder",
+      switchedToManual: "Sorted manually: drag rows to reorder",
       organizeChats: "Organize chats",
       organizeProjects: "Organize projects",
       sortPinnedChats: "Sort pinned chats",
+      dragDrop: "Drag and drop",
+      dragHints: "Show a hint while dragging",
+      reorderSwitchesSort: "Reordering sets Manual order",
+      dragOpensFolders: "Open folders while hovering",
+      moveUp: "Move up",
+      moveDown: "Move down",
+    },
+    drag: {
+      reorder: "Reorder",
+      pin: "Pin",
+      unpin: "Unpin",
+      moveTo: "Move to {name}",
+      moveToRecents: "Move to Recents",
     },
     dialog: {
       deleteChat: {
@@ -1482,9 +1498,9 @@ export const en = {
         yolo: "Skip approval prompts. Use only in trusted environments.",
       },
       remote: {
-        title: "Connect to a remote Unsloth Studio",
+        title: "Connect to a remote Unsloth",
         description:
-          "Point unsloth start at an Unsloth Studio running elsewhere by setting these before launching (or pass --api-key directly):",
+          "Point unsloth start at an Unsloth instance running elsewhere by setting these before launching (or pass --api-key directly):",
       },
       passthrough: {
         title: "Passing agent arguments",
@@ -1511,15 +1527,15 @@ export const en = {
         "Override this setting from each chat's attachment menu.",
       rememberParamsPerModelHint:
         "When off, use the same settings for every model.",
-      autoCompactHint: "Uses the context length you set, not available VRAM.",
+      autoCompactHint: "Local GGUF chats only. Evicted turns are indexed so the model can search them back in, and a reset quotes back the standing instructions that fit, word for word, keeping the oldest and newest over the middle. Archiving needs a saved chat and the vector index; without them older turns are dropped. Uses the context length you set, not available VRAM.",
       pastedTextShortDescription:
         "Pastes of {count} characters or more become .txt attachments.",
       pastedTextOffDescription: "Pasted text always stays in the message box.",
       compactionDescriptionInherit: "Follow the server's context policy.",
       compactionDescriptionCheckpoint:
-        "Keep the latest turn and standing instructions.",
+        "Keep the latest turn and the standing instructions that fit, and archive the rest for retrieval.",
       compactionDescriptionRolling:
-        "Drop the oldest turns to keep recent history and the selected amount of extra room.",
+        "Archive the oldest turns to keep recent history and the selected amount of extra room.",
       projectsSection: "Show projects section",
       projectsSectionDescription:
         "Group project chats under Projects. When off, show them in Recents.",
@@ -1565,18 +1581,18 @@ export const en = {
         "Restore each model's last-used prompt, temperature, and other settings.",
       autoCompact: "Auto-compact long chats",
       autoCompactDescription:
-        "Remove older turns when a local GGUF chat reaches its context limit.",
+        "Older turns move to a searchable archive when a chat fills its context.",
       compactionStyle: "When context fills",
       compactionStyleDescription:
-        "Use server default keeps UNSLOTH_CONTEXT_POLICY. Reset conversation keeps the latest turn and standing instructions. A sliding window drops oldest turns and can keep more recent history.",
+        "Use server default keeps UNSLOTH_CONTEXT_POLICY. Reset conversation keeps the latest turn and the standing instructions that fit. A sliding window drops oldest turns and can keep more recent history.",
       compactionStyleInherit: "Use server default",
       compactionStyleCheckpoint: "Reset conversation",
-      compactionStyleRollingDefault: "Drop oldest turns (~25% extra room)",
-      compactionStyleRolling10: "Drop oldest turns (~10% extra room)",
-      compactionStyleRolling5: "Drop oldest turns (~5% extra room)",
-      compactionStyleRollingNone: "Drop oldest turns (no extra trim)",
+      compactionStyleRollingDefault: "Archive oldest turns (~25% extra room)",
+      compactionStyleRolling10: "Archive oldest turns (~10% extra room)",
+      compactionStyleRolling5: "Archive oldest turns (~5% extra room)",
+      compactionStyleRollingNone: "Archive oldest turns (no extra trim)",
       autoCompactKeywords:
-        "compaction compact auto-compact context window truncate rolling checkpoint headroom",
+        "compaction compact auto-compact context window truncate rolling checkpoint headroom archive retrieval recall rag search",
       thinking: {
         collapseByDefault: "Collapse Thinking by default",
         collapseByDefaultDescription:
@@ -1593,6 +1609,9 @@ export const en = {
         collapseByDefault: "Collapse tool activity by default",
         collapseByDefaultDescription:
           "Keep tool details collapsed. Expand a row to inspect it.",
+        foldIntoThinking: "Fold tool calls into Thinking",
+        foldIntoThinkingDescription:
+          "Hide a turn's tool calls until its Thinking block is opened.",
       },
       webSearch: {
         title: "Web search",

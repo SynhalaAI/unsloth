@@ -197,6 +197,7 @@ export const de = {
       unpinChats: "Chats lösen",
       archiveChats: "Chats archivieren",
       markUnread: "Als ungelesen markieren",
+      markRead: "Als gelesen markieren",
       deleteChats: "Chats löschen",
       deleteTitle: "Chats löschen",
       deleteDescription: "{count} Chats löschen? Das lässt sich nicht rückgängig machen.",
@@ -215,11 +216,26 @@ export const de = {
       priority: "Priorität",
       lastUpdated: "Zuletzt aktualisiert",
       manualOrder: "Manuelle Reihenfolge",
-      moveUp: "Nach oben",
-      moveDown: "Nach unten",
+      priorityHint: "Aktive und ungelesene zuerst",
+      lastUpdatedHint: "Neueste zuerst",
+      manualOrderHint: "Zeilen zum Umordnen ziehen",
+      switchedToManual: "Manuell sortiert: Zeilen zum Umordnen ziehen",
       organizeChats: "Chats organisieren",
       organizeProjects: "Projekte organisieren",
       sortPinnedChats: "Angeheftete Chats sortieren",
+      dragDrop: "Ziehen und Ablegen",
+      dragHints: "Hinweis beim Ziehen anzeigen",
+      reorderSwitchesSort: "Umordnen wechselt zu manueller Reihenfolge",
+      dragOpensFolders: "Ordner unter dem Zeiger öffnen",
+      moveUp: "Nach oben",
+      moveDown: "Nach unten",
+    },
+    drag: {
+      reorder: "Umordnen",
+      pin: "Anheften",
+      unpin: "Lösen",
+      moveTo: "Verschieben nach {name}",
+      moveToRecents: "Zu Zuletzt verschieben",
     },
     dialog: {
       deleteChat: {
@@ -1520,9 +1536,9 @@ export const de = {
           "Überspringt Bestätigungsabfragen. Nur in vertrauenswürdigen Umgebungen verwenden.",
       },
       remote: {
-        title: "Mit einem entfernten Unsloth Studio verbinden",
+        title: "Mit einem entfernten Unsloth verbinden",
         description:
-          "Richten Sie unsloth start auf ein anderswo laufendes Unsloth Studio aus, indem Sie diese Variablen vor dem Aufruf setzen (oder --api-key direkt übergeben):",
+          "Richten Sie unsloth start auf ein anderswo laufendes Unsloth aus, indem Sie diese Variablen vor dem Aufruf setzen (oder --api-key direkt übergeben):",
       },
       passthrough: {
         title: "Argumente an den Agenten übergeben",
@@ -1550,16 +1566,16 @@ export const de = {
       rememberParamsPerModelHint:
         "Wenn deaktiviert, verwenden alle Modelle dieselben Einstellungen.",
       autoCompactHint:
-        "Verwendet die eingestellte Kontextlänge, nicht den verfügbaren VRAM.",
+        "Nur lokale GGUF-Chats. Verdrängte Runden werden indexiert, sodass das Modell sie zurückholen kann, und ein Reset zitiert die dauerhaft geltenden Anweisungen, die hineinpassen, wortgetreu und mit Vorrang für die ältesten und neuesten vor allem dazwischen. Archivieren setzt einen gespeicherten Chat und den Vektorindex voraus; ohne sie werden ältere Runden verworfen. Verwendet die eingestellte Kontextlänge, nicht den verfügbaren VRAM.",
       pastedTextShortDescription:
         "Eingefügter Text ab {count} Zeichen wird als .txt-Datei angehängt. Kürzerer Text bleibt im Nachrichtenfeld.",
       pastedTextOffDescription:
         "Eingefügter Text bleibt unabhängig von seiner Länge im Nachrichtenfeld.",
       compactionDescriptionInherit: "Folgt der Kontextrichtlinie des Servers.",
       compactionDescriptionCheckpoint:
-        "Behält den letzten Austausch und die dauerhaft geltenden Anweisungen bei.",
+        "Behält den letzten Austausch und so viele der dauerhaft geltenden Anweisungen bei, wie hineinpassen, und archiviert den Rest zum Nachschlagen.",
       compactionDescriptionRolling:
-        "Entfernt die ältesten Gesprächsrunden und behält neuere Inhalte mit dem gewählten zusätzlichen Freiraum.",
+        "Archiviert die ältesten Gesprächsrunden und behält neuere Inhalte mit dem gewählten zusätzlichen Freiraum.",
       projectsSection: "Projektbereich anzeigen",
       projectsSectionDescription:
         "Gruppiert Projekt-Chats unter einer Überschrift für Projekte. Deaktiviere dies, um sie stattdessen unter den zuletzt verwendeten Chats aufzulisten.",
@@ -1606,22 +1622,22 @@ export const de = {
         "Stellt den zuletzt verwendeten Prompt, die Temperatur und weitere Einstellungen pro Modell wieder her.",
       autoCompact: "Lange Chats automatisch komprimieren",
       autoCompactDescription:
-        "Entfernt ältere Gesprächsrunden, wenn ein lokaler GGUF-Chat sein Kontextlimit erreicht.",
+        "Ältere Runden wandern in ein durchsuchbares Archiv, wenn ein Chat voll läuft.",
       compactionStyle: "Wenn der Kontext voll ist",
       compactionStyleDescription:
-        "Die Servervorgabe behält UNSLOTH_CONTEXT_POLICY bei. Gespräch zurücksetzen behält die letzte Runde und dauerhafte Anweisungen. Ein gleitendes Fenster verwirft die ältesten Runden und kann mehr aktuellen Verlauf behalten.",
+        "Die Servervorgabe behält UNSLOTH_CONTEXT_POLICY bei. Gespräch zurücksetzen behält die letzte Runde und so viele dauerhafte Anweisungen, wie hineinpassen. Ein gleitendes Fenster verwirft die ältesten Runden und kann mehr aktuellen Verlauf behalten.",
       compactionStyleInherit: "Servervorgabe verwenden",
       compactionStyleCheckpoint: "Gespräch zurücksetzen",
       compactionStyleRollingDefault:
-        "Älteste Runden verwerfen (~25 % zusätzlicher Platz)",
+        "Älteste Runden archivieren (~25 % zusätzlicher Platz)",
       compactionStyleRolling10:
-        "Älteste Runden verwerfen (~10 % zusätzlicher Platz)",
+        "Älteste Runden archivieren (~10 % zusätzlicher Platz)",
       compactionStyleRolling5:
-        "Älteste Runden verwerfen (~5 % zusätzlicher Platz)",
+        "Älteste Runden archivieren (~5 % zusätzlicher Platz)",
       compactionStyleRollingNone:
-        "Älteste Runden verwerfen (keine zusätzliche Kürzung)",
+        "Älteste Runden archivieren (keine zusätzliche Kürzung)",
       autoCompactKeywords:
-        "Komprimierung automatisch Kontext Fenster kürzen gleitend Prüfpunkt Reserve compaction rolling checkpoint headroom",
+        "Komprimierung automatisch Kontext Fenster kürzen gleitend Prüfpunkt Reserve Archiv Abruf Suche compaction rolling checkpoint headroom archive retrieval rag",
       thinking: {
         collapseByDefault: "Denken standardmäßig einklappen",
         collapseByDefaultDescription:
@@ -1638,6 +1654,9 @@ export const de = {
         collapseByDefault: "Tool-Aktivität standardmäßig einklappen",
         collapseByDefaultDescription:
           "Tool-Eingaben und -Ausgaben bleiben während der Ausführung eingeklappt. Zum Prüfen eine Tool-Zeile ausklappen.",
+        foldIntoThinking: "Tool-Aufrufe ins Denken einklappen",
+        foldIntoThinkingDescription:
+          "Tool-Aufrufe eines Zuges ausblenden, bis der Denken-Block geöffnet wird.",
       },
       webSearch: {
         title: "Websuche",
