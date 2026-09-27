@@ -64,6 +64,7 @@ const initialState: TrainingRuntimeState = {
   startRequestId: null,
   startError: null,
   startModelName: null,
+  modelDownloadRepoId: null,
   startDatasetName: null,
   startHfToken: null,
   startProjectName: null,
@@ -287,7 +288,7 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
           return state;
         }
         acquired = true;
-        return { isStarting: true, startRequestId };
+        return { isStarting: true, startRequestId, modelDownloadRepoId: null };
       });
       return acquired;
     },
@@ -348,6 +349,7 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
           warnings: [],
           startError: null,
           phase: "configuring",
+          modelDownloadRepoId: null,
           isStarting: false,
           startRequestId,
           sseConnected: false,
@@ -512,6 +514,7 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
             canApplyDetailMetrics && detailEpoch !== null
               ? Math.max(detailEpoch, runtimeState.currentEpoch)
               : runtimeState.currentEpoch,
+          modelDownloadRepoId: payload.details?.model_download_repo_id ?? null,
           outputDir:
             payload.details?.output_dir !== undefined
               ? payload.details.output_dir
@@ -724,6 +727,7 @@ if (typeof window !== "undefined") {
     useTrainingRuntimeStore.setState({
       startHfToken: null,
       startModelName: null,
+      modelDownloadRepoId: null,
       startDatasetName: null,
       startProjectName: null,
     });

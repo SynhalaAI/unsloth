@@ -15,7 +15,6 @@ import type {
 import { toast } from "sonner";
 import { externalModelLabel } from "./lib/external-model-label";
 import { useChatRuntimeStore } from "./stores/chat-runtime-store";
-import { modelAcceptsAudioInput } from "./types/runtime";
 
 // crypto.randomUUID is undefined in non-secure contexts (HTTP over a LAN IP).
 function newAttachmentId(): string {
@@ -25,8 +24,7 @@ function newAttachmentId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-// Audio shares the "Add photos & files" picker. Like VisionImageAdapter, unsupported models are
-// rejected at add() time with a toast.
+// A loaded model without audio rejects at add(); with none loaded, the send path checks it later.
 export class AudioAttachmentAdapter implements AttachmentAdapter {
   // MIME is unreliable for some containers (m4a), so also match by extension. No .webm extension:
   // it would claim video/webm files; real audio webm (MediaRecorder) always reports the audio/webm
@@ -41,12 +39,7 @@ export class AudioAttachmentAdapter implements AttachmentAdapter {
     const activeModel = state.models.find((m) => m.id === checkpoint);
     const modelLoaded = !!checkpoint && !state.modelLoading;
     let unavailableReason: string | null = null;
-    if (!modelLoaded) {
-      // Mirror the image gate: flag a failed load vs "no model picked".
-      unavailableReason = state.lastModelLoadError
-        ? "The last model failed to load. Check the server logs, then load a model before adding audio files."
-        : "Load a model before adding audio files.";
-    } else if (!modelAcceptsAudioInput(activeModel)) {
+    if (modelLoaded && !activeModel?.hasAudioInput) {
       // A connected provider's model has no row in `models`, so without the parse this named it by its
       // raw `external::` id (#8405).
       const label =
@@ -87,10 +80,7 @@ export class AudioAttachmentAdapter implements AttachmentAdapter {
     try {
       const base64 = await fileToBase64(attachment.file);
       // Backend takes raw base64; format only satisfies the part type.
-      const format: "wav" | "mp3" =
-        attachment.contentType === "audio/mpeg"
-          ? "mp3"
-          : "wav";
+      const format = attachment.contentType === "audio/mpeg" ? "mp3" : "wav";
       return {
         id: attachment.id,
         type: "file",

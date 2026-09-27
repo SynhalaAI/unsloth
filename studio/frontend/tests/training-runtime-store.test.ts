@@ -631,39 +631,30 @@ test("metrics are scoped to the current run", () => {
   assert.deepEqual(current.lossHistory, [{ step: 8, value: 2 }]);
 });
 
-test("OCR metric histories merge into the live runtime when present", () => {
-  useTrainingRuntimeStore.getState().resetRuntime();
-  useTrainingRuntimeStore.getState().setStartPending("job-ocr", "Starting");
-
-  useTrainingRuntimeStore.getState().applyStatus({
-    job_id: "job-ocr",
-    phase: "training",
+test("resolved download repo follows status and clears between loads and jobs", () => {
+  const runtime = useTrainingRuntimeStore.getState();
+  runtime.resetRuntime();
+  runtime.setStartResources("org/requested", null);
+  const status = {
+    job_id: "resolved-job",
+    phase: "loading_model" as const,
     is_training_running: true,
     eval_enabled: false,
-    message: "Training",
+    message: "Loading model...",
     error: null,
-    details: {
-      step: 4,
-      total_steps: 10,
-    },
-    metric_history: {
-      steps: [2, 4],
-      loss: [1.2, 1.0],
-      lr: [0.001, 0.0008],
-      cer: [0.18, 0.12],
-      cer_steps: [2, 4],
-      wer: [0.28, 0.22],
-      wer_steps: [2, 4],
-    },
-  });
-
-  const current = useTrainingRuntimeStore.getState();
-  assert.deepEqual(current.cerHistory, [
-    { step: 2, value: 0.18 },
-    { step: 4, value: 0.12 },
-  ]);
-  assert.deepEqual(current.werHistory, [
-    { step: 2, value: 0.28 },
-    { step: 4, value: 0.22 },
-  ]);
+    details: { model_download_repo_id: "org/resolved-unsloth-bnb-4bit" },
+  };
+  runtime.applyStatus(status);
+  assert.equal(
+    useTrainingRuntimeStore.getState().modelDownloadRepoId,
+    "org/resolved-unsloth-bnb-4bit",
+  );
+  runtime.applyStatus({ ...status, details: { model_download_repo_id: null } });
+  assert.equal(useTrainingRuntimeStore.getState().modelDownloadRepoId, null);
+  runtime.applyStatus(status);
+  runtime.applyStatus({ ...status, job_id: "next-job", details: null });
+  assert.equal(useTrainingRuntimeStore.getState().modelDownloadRepoId, null);
+  runtime.applyStatus(status);
+  runtime.resetRuntime();
+  assert.equal(useTrainingRuntimeStore.getState().modelDownloadRepoId, null);
 });
