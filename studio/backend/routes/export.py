@@ -132,9 +132,17 @@ async def analyze_merge(
         logger.warning(f"Adapter not found for merge analysis: {e}")
         raise HTTPException(status_code = 400, detail = "An adapter folder could not be read.")
     except ImportError as e:
+        # Name the real cause. A missing `unsloth` package and a missing
+        # PyTorch wheel both land here, and blaming PyTorch sends the user to
+        # the wrong fix for either one.
+        logger.warning(f"Merge analysis needs the Unsloth runtime: {e}")
         raise HTTPException(
             status_code = 400,
-            detail = f"PyTorch is not installed, so the adapters cannot be read: {e}",
+            detail = (
+                "The adapter files could not be read because the Unsloth runtime is "
+                f"unavailable ({e}). Install Unsloth with PyTorch in the backend "
+                "environment, then retry."
+            ),
         )
     except Exception as e:
         logger.error(f"Error analyzing adapter merge: {e}", exc_info = True)

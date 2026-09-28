@@ -10,6 +10,7 @@ lazily, which this suite also pins: a module-scope import would break the API
 process on a host without a GPU.
 """
 
+import builtins
 import importlib.util
 import json
 import sys
@@ -306,6 +307,51 @@ class TestAnalyzeAdapters:
         with pytest.raises(ValueError):
             analyze([str(first), str(second)])
 
+class TestTheCoreImport:
+    """The core must resolve without the ``unsloth`` package.
+
+    ``import unsloth`` runs ``_gpu_init`` and refuses to import without an
+    accelerator, and the analysis is a CPU-only preflight that never loads a
+    model - so routing it through the package would take the feature away on
+    exactly the hosts that want to check a merge before touching a GPU, and
+    would additionally require the package to be installed at all.
+    """
+
+    _HELPERS = (
+        "_resolve_adapter_path",
+        "_load_adapter_config",
+        "_validate_adapters",
+        "_adapter_display_name",
+        "_load_adapter_state_dict",
+        "_group_lora_factors",
+        "_adapter_scaling",
+    )
+
+    def test_it_loads_the_core_even_when_the_package_cannot_be_imported(self, metrics, monkeypatch):
+        monkeypatch.setattr(metrics, "_core_module", None)
+        real_import = builtins.__import__
+
+        def refuse_unsloth(name, *args, **kwargs):
+            if name == "unsloth" or name.startswith("unsloth."):
+                raise ModuleNotFoundError("No module named \'unsloth\'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", refuse_unsloth)
+
+        core = metrics._core()
+
+        assert Path(core.__file__).parent == metrics._REPO_ROOT / "unsloth"
+        for helper in self._HELPERS:
+            assert hasattr(core, helper), helper
+
+    def test_it_loads_the_core_once(self, metrics, monkeypatch):
+        monkeypatch.setattr(metrics, "_core_module", None)
+        assert metrics._core() is metrics._core()
+
+    def test_the_repository_root_points_at_the_checkout(self, metrics):
+        assert (metrics._REPO_ROOT / "unsloth" / "multi_adapter_merge.py").is_file()
+
+
 class TestAnalyzeRoute:
     """The endpoint contract: a report, or a 400 the user can act on."""
 
@@ -373,6 +419,28 @@ class TestAnalyzeRoute:
         # contract under test is that it is a 400 the user can act on.
         assert response.status_code == 400
         assert "missing" in response.json()["detail"]
+
+    def test_the_route_names_the_real_cause_when_the_runtime_is_missing(
+        self, monkeypatch, tmp_path, route_module, export_routes
+    ):
+        # A missing `unsloth` package and a missing PyTorch wheel both raise
+        # ImportError. Blaming PyTorch sends the user to the wrong fix for the
+        # first, so the detail has to name what actually failed.
+        def refuse(*args, **kwargs):
+            raise ModuleNotFoundError("No module named \'unsloth\'")
+
+        monkeypatch.setattr(route_module, "analyze_adapters", refuse)
+        _routes, client = self._client(monkeypatch, tmp_path, export_routes)
+
+        response = client.post(
+            "/api/export/merge/analyze",
+            json = {"adapter_paths": ["a", "b"]},
+        )
+
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert "No module named" in detail
+        assert "PyTorch is not installed" not in detail
 
     def test_the_route_surfaces_mismatched_base_models(self, monkeypatch, tmp_path, route_module, export_routes):
         factors = {"model.layers.0.mlp.up_proj": _factors(4, 4, 2, seed = 24)}

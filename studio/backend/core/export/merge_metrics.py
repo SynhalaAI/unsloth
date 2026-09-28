@@ -33,7 +33,17 @@ merge arithmetic is reimplemented here, this module only measures inputs.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
+
+# studio/backend/core/export/merge_metrics.py -> the repository root, which is
+# where the source checkout keeps unsloth/multi_adapter_merge.py.
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+
+# Standalone module name for the by-path load, kept out of the ``unsloth``
+# namespace so it cannot shadow or be shadowed by the real package.
+_CORE_MODULE_NAME = "studio_merge_metrics_core"
+_core_module = None
 
 # Sign scanning is the one metric that must materialise a delta, so it is
 # bounded: 64M positions costs a few seconds of CPU and gives a stable rate.
@@ -64,17 +74,37 @@ _WORST_MODULE_COUNT = 3
 
 
 def _core():
-    """The merge core, imported lazily.
+    """The merge core, imported lazily, once.
 
-    ``unsloth/__init__`` requires an accelerator, and importing it at module
-    scope would break the API process on a host without one. Every helper used
-    here is pure torch over the adapter files, so a failed import surfaces as a
-    clear error to the caller (the page already hides the button when export is
-    unsupported).
+    ``unsloth/__init__`` pulls in ``_gpu_init`` and refuses to import without an
+    accelerator, but ``multi_adapter_merge`` itself is only torch plus stdlib. The
+    analysis is deliberately a CPU-only preflight - it never loads a model - so
+    routing it through the package would make it unavailable on exactly the hosts
+    where a merge wants checking before touching a GPU, and would need the
+    package installed at all. Load the module straight from the source checkout
+    when it is there, and fall back to the package import for a wheel install,
+    where only site-packages exists.
     """
-    from unsloth import multi_adapter_merge as core
+    global _core_module
+    if _core_module is not None:
+        return _core_module
 
-    return core
+    path = _REPO_ROOT / "unsloth" / "multi_adapter_merge.py"
+    if path.is_file():
+        import importlib.util
+        import sys
+
+        # Registered before exec: the module uses postponed annotations, and its
+        # dataclasses resolve those through sys.modules[cls.__module__].
+        spec = importlib.util.spec_from_file_location(_CORE_MODULE_NAME, path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[_CORE_MODULE_NAME] = module
+        spec.loader.exec_module(module)
+    else:
+        from unsloth import multi_adapter_merge as module
+
+    _core_module = module
+    return module
 
 def _factor_norm_sq(A, B) -> float:
     """||scaling * (B @ A)||^2 from the factors alone: ||B A||^2 = <B^T B, A A^T>."""
