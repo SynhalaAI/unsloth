@@ -504,8 +504,6 @@ export function ExportRunPanel(props: ExportRunPanelProps) {
           </div>
         )}
       </div>
-        )}
-      </div>
 
       {/* Progress */}
       {showProgress && (
