@@ -116,12 +116,6 @@ import {
 } from "./export-navigation-cache";
 import { useExportSizeEstimate } from "./hooks/use-export-size-estimate";
 import {
-  type GgufShardMode,
-  ggufShardSaveDirectory,
-  isValidGgufShardSize,
-  normalizeGgufShardSize,
-} from "./lib/gguf-shard-size";
-import {
   isExportPanelActive,
   useExportRuntimeStore,
 } from "./stores/export-runtime-store";
@@ -569,8 +563,6 @@ export function ExportPage() {
   const [hfUsername, setHfUsername] = useState("");
   const [modelName, setModelName] = useState("");
   const [privateRepo, setPrivateRepo] = useState(false);
-  const [ggufShardMode, setGgufShardMode] = useState<GgufShardMode>("single");
-  const [ggufShardSize, setGgufShardSize] = useState("4GB");
 
   // Export run state lives in the global runtime store so it keeps streaming in the background.
   const runExport = useExportRuntimeStore((s) => s.runExport);
@@ -938,7 +930,7 @@ export function ExportPage() {
   const estimatedSize = getEstimatedSize(exportMethod, quantLevels, fp16Bytes);
   const selectedExportSource =
     sourceMode === "checkpoint" ? checkpoint : selectedSourceModel;
-  const baseDefaultSaveDirectory = useMemo(() => {
+  const defaultSaveDirectory = useMemo(() => {
     const relative = buildRelativeSaveDirectory(
       exportMethod,
       sourceMode,
@@ -978,25 +970,7 @@ export function ExportPage() {
     ggufTarget === "lora" &&
     effectiveIsAdapter &&
     !isMacHost;
-  const supportsGgufSharding =
-    exportMethod === "gguf" &&
-    !ggufAsLora &&
-    quantLevels.some((quant) => quant === "f16" || quant === "bf16");
-  const normalizedGgufShardSize =
-    supportsGgufSharding && ggufShardMode === "split"
-      ? normalizeGgufShardSize(ggufShardSize)
-      : supportsGgufSharding
-        ? "0"
-        : null;
-  const defaultSaveDirectory = ggufShardSaveDirectory(
-    baseDefaultSaveDirectory,
-    normalizedGgufShardSize,
-  );
   const saveDirectory = customSaveDirectory?.trim() || defaultSaveDirectory;
-  const ggufShardSizeValid =
-    !supportsGgufSharding ||
-    ggufShardMode === "single" ||
-    isValidGgufShardSize(ggufShardSize);
 
   // Restrict a Hub merged export to a single format; multi-format stays available for local export.
   const hubMultiFormat =
@@ -1009,7 +983,6 @@ export function ExportPage() {
     exportMethod &&
     !exportUnsupported &&
     !hubMultiFormat &&
-    ggufShardSizeValid &&
     (exportMethod !== "gguf" || ggufAsLora || quantLevels.length > 0) &&
     (exportMethod !== "merged" || selectedFormats.length > 0)
     &&
@@ -1341,11 +1314,6 @@ export function ExportPage() {
       setStartRequestInFlight(false);
       return;
     }
-    if (!ggufShardSizeValid) {
-      startRequestInFlightRef.current = false;
-      setStartRequestInFlight(false);
-      return;
-    }
     // A Hub merged push writes each format to the repo root; several would collide (mirrors canExport).
     if (hubMultiFormat) {
       startRequestInFlightRef.current = false;
@@ -1472,7 +1440,6 @@ export function ExportPage() {
       isAdapter: adapterExport,
       quantLevels,
       useImatrix: effectiveImatrix,
-      ggufShardSize: normalizedGgufShardSize,
       mergedSelections: selectedFormats.map((v) => ({
         ...mergedFormatPayload(v),
         label: MERGED_FORMATS.find((f) => f.value === v)?.label ?? v,
@@ -1491,7 +1458,6 @@ export function ExportPage() {
         methodLabel,
         method: effectiveMethod,
         quantLevels,
-        ggufShardSize: normalizedGgufShardSize,
         mergedFormats: exportMethod === "merged" ? selectedFormats : [],
         destination,
       },
@@ -1508,8 +1474,6 @@ export function ExportPage() {
     isAdapter,
     quantLevels,
     effectiveImatrix,
-    normalizedGgufShardSize,
-    ggufShardSizeValid,
     selectedFormats,
     hubMultiFormat,
     ggufAsLora,
@@ -2832,11 +2796,6 @@ export function ExportPage() {
                   onHfTokenChange={setHfToken}
                   privateRepo={privateRepo}
                   onPrivateRepoChange={setPrivateRepo}
-                  supportsGgufSharding={supportsGgufSharding}
-                  ggufShardMode={ggufShardMode}
-                  onGgufShardModeChange={setGgufShardMode}
-                  ggufShardSize={ggufShardSize}
-                  onGgufShardSizeChange={setGgufShardSize}
                   onStart={handleStart}
                   startRequestInFlight={startRequestInFlight}
                   onClose={handleClosePanel}

@@ -6,7 +6,7 @@ import {
   AlertCircleIcon,
   CheckmarkCircle02Icon,
   InformationCircleIcon,
-  Warning02Icon,
+  UserWarning02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 
@@ -37,7 +37,7 @@ const INTERFERENCE_STYLE: Record<
     accent: "text-emerald-600 dark:text-emerald-500",
   },
   moderate: {
-    icon: Warning02Icon,
+    icon: UserWarning02Icon,
     text: "Moderate interference",
     accent: "text-amber-600 dark:text-amber-500",
   },
