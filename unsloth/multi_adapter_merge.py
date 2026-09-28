@@ -376,37 +376,13 @@ def _reconstruct_deltas(
 # Merge strategies
 # ---------------------------------------------------------------------------
 
-def _linear_merge(
-    all_deltas: List[Dict[str, torch.Tensor]],
-    weights: List[float],
-) -> Dict[str, torch.Tensor]:
-    """Merge adapter deltas via weighted sum: ΔW = Σ(w_i × ΔW_i)."""
-    merged: Dict[str, torch.Tensor] = {}
-    all_keys: set = set()
-    for d in all_deltas:
-        all_keys.update(d.keys())
-
-    for key in all_keys:
-        acc = None
-        for delta_dict, w in zip(all_deltas, weights):
-            if key not in delta_dict:
-                continue  # this adapter didn't touch this module — zero delta
-            contrib = delta_dict[key] * w
-            if acc is None:
-                acc = contrib
-            else:
-                acc = acc + contrib
-        if acc is not None:
-            merged[key] = acc
-    return merged
-
 
 def _ties_merge_key(
     per_adapter_deltas: List[torch.Tensor],
     per_adapter_weights: List[float],
     density: float = 0.5,
 ) -> torch.Tensor:
-    """TIES-merge ONE module's deltas (the per-key math of ``_ties_merge``).
+    """TIES-merge ONE module's deltas (streaming per-module math).
 
     Steps (aligned with mergekit's ``generalized_task_arithmetic`` TIES):
       1. **Trim**: zero out the bottom (1 − density) of each adapter's delta
@@ -458,39 +434,6 @@ def _ties_merge_key(
     del trimmed, weighted_sum, elected_sign, acc, weight_sum
     return merged
 
-
-def _ties_merge(
-    all_deltas: List[Dict[str, torch.Tensor]],
-    weights: List[float],
-    density: float = 0.5,
-) -> Dict[str, torch.Tensor]:
-    """Merge adapter deltas via TIES-Merging, key by key.
-
-    The per-module math lives in ``_ties_merge_key`` so the streaming path in
-    ``merge_adapters_into_model`` can reuse it without materialising every
-    adapter's full-rank deltas at once.
-    """
-    merged: Dict[str, torch.Tensor] = {}
-    all_keys: set = set()
-    for d in all_deltas:
-        all_keys.update(d.keys())
-
-    for key in all_keys:
-        # Collect deltas for this key, treating absent adapters as zero.
-        per_adapter_deltas = []
-        per_adapter_weights = []
-        for delta_dict, w in zip(all_deltas, weights):
-            if key in delta_dict:
-                per_adapter_deltas.append(delta_dict[key])
-                per_adapter_weights.append(w)
-            # absent adapter → skip (treated as zero in the disjoint average)
-
-        if not per_adapter_deltas:
-            continue
-
-        merged[key] = _ties_merge_key(per_adapter_deltas, per_adapter_weights, density)
-
-    return merged
 
 
 def _dare_ties_merge_key(
@@ -655,111 +598,8 @@ def _ctm_merge_key(
     return merged_delta
 
 
-def _dare_ties_merge(
-    all_deltas: List[Dict[str, torch.Tensor]],
-    weights: List[float],
-    density: float = 0.5,
-    drop_rate: float = 0.5,
-    seed: Optional[int] = None,
-) -> Dict[str, torch.Tensor]:
-    """Merge adapter deltas via DARE-TIES, key by key."""
-    merged: Dict[str, torch.Tensor] = {}
-    all_keys: set = set()
-    for d in all_deltas:
-        all_keys.update(d.keys())
-
-    for key in all_keys:
-        per_adapter_deltas = []
-        per_adapter_weights = []
-        for delta_dict, w in zip(all_deltas, weights):
-            if key in delta_dict:
-                per_adapter_deltas.append(delta_dict[key])
-                per_adapter_weights.append(w)
-
-        if not per_adapter_deltas:
-            continue
-
-        merged[key] = _dare_ties_merge_key(
-            per_adapter_deltas, per_adapter_weights, density=density, drop_rate=drop_rate, seed=seed
-        )
-
-    return merged
 
 
-def _ctm_merge(
-    all_deltas: List[Dict[str, torch.Tensor]],
-    weights: List[float],
-    target_rank: Optional[int] = None,
-) -> Dict[str, torch.Tensor]:
-    """Merge adapter deltas via CtM (SVD compression), key by key."""
-    merged: Dict[str, torch.Tensor] = {}
-    all_keys: set = set()
-    for d in all_deltas:
-        all_keys.update(d.keys())
-
-    for key in all_keys:
-        per_adapter_deltas = []
-        per_adapter_weights = []
-        for delta_dict, w in zip(all_deltas, weights):
-            if key in delta_dict:
-                per_adapter_deltas.append(delta_dict[key])
-                per_adapter_weights.append(w)
-
-        if not per_adapter_deltas:
-            continue
-
-        merged[key] = _ctm_merge_key(
-            per_adapter_deltas, per_adapter_weights, target_rank=target_rank
-        )
-
-    return merged
-
-
-def _dare_linear_merge(
-    all_deltas: List[Dict[str, torch.Tensor]],
-    weights: List[float],
-    drop_rate: float = 0.5,
-    seed: Optional[int] = None,
-) -> Dict[str, torch.Tensor]:
-    """Merge adapter deltas via DARE + Linear (no sign election), key by key."""
-    merged: Dict[str, torch.Tensor] = {}
-    all_keys: set = set()
-    for d in all_deltas:
-        all_keys.update(d.keys())
-
-    for key in all_keys:
-        per_adapter_deltas = []
-        per_adapter_weights = []
-        for delta_dict, w in zip(all_deltas, weights):
-            if key in delta_dict:
-                per_adapter_deltas.append(delta_dict[key])
-                per_adapter_weights.append(w)
-
-        if not per_adapter_deltas:
-            continue
-
-        merged[key] = _dare_linear_merge_key(
-            per_adapter_deltas, per_adapter_weights, drop_rate=drop_rate, seed=seed
-        )
-
-    return merged
-
-
-def _magnitude_prune_merge(
-    all_deltas: List[Dict[str, torch.Tensor]],
-    weights: List[float],
-    density: float = 0.5,
-) -> Dict[str, torch.Tensor]:
-    """Merge adapter deltas via magnitude pruning + weighted sum, key by key."""
-    merged: Dict[str, torch.Tensor] = {}
-    all_keys: set = set()
-    for d in all_deltas:
-        all_keys.update(d.keys())
-
-    for key in all_keys:
-        per_adapter_deltas = []
-        per_adapter_weights = []
-    return merged
 
 
 # ---------------------------------------------------------------------------
@@ -1005,7 +845,10 @@ def _multislerp_merge_key(
     mean_norm = torch.norm(mean)
     if mean_norm < eps:
         # Antipodal / balancing weights — fall back to linear interpolation.
-        return (tensors * weights.view(-1, 1, 1)).sum(0)
+        # Match mergekit multislerp.py: reshape weights to broadcast over all
+        # trailing tensor dimensions regardless of tensor rank (1D, 2D, etc.).
+        view_shape = (-1,) + (1,) * (tensors.dim() - 1)
+        return (tensors * weights.view(*view_shape)).sum(0)
     mean = mean / mean_norm
 
     dots = (unit * mean).sum(-1, keepdim=True)

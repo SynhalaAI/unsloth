@@ -94,6 +94,72 @@ class MultiAdapterMergeRequest(BaseModel):
         return value
 
 
+class MergeAnalyzeRequest(BaseModel):
+    """Request for measuring interference between adapters, without merging.
+
+    Same ``adapter_paths`` shapes as :class:`MultiAdapterMergeRequest`, and the
+    same weight semantics: the metrics describe the merge the user configured,
+    so the weights are the ones that will be used.
+    """
+
+    adapter_paths: List[Union[str, Dict[str, str]]] = Field(..., min_length = 2)
+    weights: Optional[List[float]] = None
+    normalize_weights: bool = True
+    max_sign_elements: int = Field(
+        64_000_000,
+        ge = 0,
+        description = "Cap on weight positions compared for the sign-conflict rate. "
+        "Cosine and norm ratios are exact regardless; only the sign rate is sampled.",
+    )
+
+    @field_validator("weights")
+    @classmethod
+    def _check_analyze_weights(cls, value, info):
+        if value is not None and len(value) != len(info.data.get("adapter_paths", [])):
+            raise ValueError("weights must match adapter_paths")
+        return value
+
+
+class MergeAnalyzeResponse(BaseModel):
+    """Interference report for a set of adapters.
+
+    Every number is measured on the adapters' own weights, so a report is
+    available before any model is loaded. ``interference`` and
+    ``recommendation`` are heuristics over those numbers, not a measurement of
+    merged-model accuracy.
+    """
+
+    success: bool = True
+    adapters: List[Dict[str, Any]] = Field(
+        default_factory = list,
+        description = "Per-adapter stats: name, base model, rank, alpha, module count, delta norm.",
+    )
+    pairs: List[Dict[str, Any]] = Field(
+        default_factory = list,
+        description = "Per-pair metrics: cosine, sign conflict rate, norm ratio, worst modules.",
+    )
+    mean_cosine: float = Field(
+        0.0, description = "Mean pairwise cosine across all adapter pairs."
+    )
+    max_sign_conflict_rate: float = Field(
+        0.0, description = "Highest sign-conflict rate across all pairs."
+    )
+    interference: Literal["low", "moderate", "high"] = Field(
+        "low", description = "Severity bucket derived from the interference score."
+    )
+    score: float = Field(
+        0.0, ge = 0.0, le = 1.0, description = "Interference score in [0, 1]."
+    )
+    sign_scan_truncated: bool = Field(
+        False,
+        description = "True when the sign budget ran out, so the sign rate is a sample.",
+    )
+    recommendation: Dict[str, Any] = Field(
+        default_factory = dict,
+        description = "Suggested method, density and a one-line reason.",
+    )
+
+
 class LoadCheckpointRequest(BaseModel):
     """Request for loading a checkpoint into the export backend."""
 

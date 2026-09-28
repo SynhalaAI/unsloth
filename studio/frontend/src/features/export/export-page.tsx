@@ -59,6 +59,7 @@ import {
   Key01Icon,
   PackageIcon,
   Search01Icon,
+  TestTube01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useSearch } from "@tanstack/react-router";
@@ -73,8 +74,14 @@ import {
 } from "react";
 import { InfoHint } from "@/components/ui/info-hint";
 import { useShallow } from "zustand/react/shallow";
-import { fetchAdapterCheckpoints, type ModelCheckpoints } from "./api/export-api";
+import {
+  analyzeMerge,
+  fetchAdapterCheckpoints,
+  type MergeAnalyzeReport,
+  type ModelCheckpoints,
+} from "./api/export-api";
 import { ExportRunPanel } from "./components/export-run-panel";
+import { MergeTestPanel } from "./components/merge-test-panel";
 import { MethodPicker } from "./components/method-picker";
 import { QuantPicker } from "./components/quant-picker";
 import {
@@ -140,6 +147,31 @@ type AdapterMergeSelection = {
   source: "local" | "hf";
   checkpoint: string;
 };
+
+/**
+ * The adapter paths a merge request carries: a local directory (with the chosen
+ * checkpoint appended) or an HF repo id + subfolder. Pure so the merge payload
+ * and the Test button's analysis payload cannot drift apart, and so a test can
+ * pin the resolution without mounting the page.
+ */
+function buildAdapterMergePaths(
+  selections: AdapterMergeSelection[],
+  localMetaById: Map<string, LocalModelInfo>,
+): (string | { repo_id: string; subfolder: string })[] {
+  return selections.map((item) => {
+    if (item.source === "hf") {
+      return {
+        repo_id: item.path,
+        subfolder:
+          item.checkpoint === ROOT_CHECKPOINT_VALUE ? "" : item.checkpoint,
+      };
+    }
+    const localDir = localMetaById.get(item.path)?.path ?? item.path;
+    return item.checkpoint && item.checkpoint !== ROOT_CHECKPOINT_VALUE
+      ? `${localDir.replace(/[\\/]+$/, "")}/${item.checkpoint}`
+      : localDir;
+  });
+}
 
 const makeAdapterSelection = (
   partial?: Partial<Omit<AdapterMergeSelection, "id">> & { id?: string },
@@ -481,6 +513,14 @@ export function ExportPage() {
   const configFileInputRef = useRef<HTMLInputElement>(null);
   const startRequestInFlightRef = useRef(false);
   const [startRequestInFlight, setStartRequestInFlight] = useState(false);
+
+  // Test merge: the interference report from the last run of the button, and
+  // whether one is in flight. Cleared whenever the selection changes, so a
+  // report can never be read as describing different adapters than the ones
+  // currently picked.
+  const [mergeReport, setMergeReport] = useState<MergeAnalyzeReport | null>(null);
+  const [mergeTestPending, setMergeTestPending] = useState(false);
+  const [mergeTestError, setMergeTestError] = useState<string | null>(null);
 
   const hardware = useHardwareInfo();
   // GGUF LoRA conversion is rejected on the macOS / MLX path, so gate it out on a Mac host.
@@ -1161,6 +1201,79 @@ export function ExportPage() {
     reader.readAsText(file);
   };
 
+  // Test needs the same inputs the merge does: two distinct adapters, each with
+  // a real path and a finite weight. A single adapter has no pair to compare,
+  // and a repeated path would silently compare an adapter with itself.
+  const mergeTestReady = useMemo(() => {
+    const filled = adapterMergeSelections.filter(
+      (item) => item.path.trim() !== "",
+    );
+    if (filled.length < 2) return false;
+    if (new Set(filled.map((item) => item.path)).size !== filled.length) {
+      return false;
+    }
+    return filled.every((item) => Number.isFinite(Number(item.weight)));
+  }, [adapterMergeSelections]);
+
+  // The report describes one exact set of adapters, so it is dropped when that
+  // set changes; a stale verdict next to different adapters is worse than none.
+  const mergeTestKey = useMemo(
+    () =>
+      JSON.stringify(
+        adapterMergeSelections.map((item) => [
+          item.source,
+          item.path,
+          item.checkpoint,
+          item.weight,
+        ]),
+      ),
+    [adapterMergeSelections],
+  );
+  useEffect(() => {
+    setMergeReport(null);
+    setMergeTestError(null);
+  }, [mergeTestKey]);
+
+  // Test merge: measure how much the selected adapters interfere, without
+  // loading the base model. Same paths and weights the merge would use, so the
+  // report describes the merge that is about to run.
+  const handleTestMerge = useCallback(async () => {
+    if (mergeTestPending) return;
+    const selections = adapterMergeSelections.filter(
+      (item) => item.path.trim() !== "",
+    );
+    if (selections.length < 2) return;
+    setMergeTestPending(true);
+    setMergeTestError(null);
+    try {
+      const report = await analyzeMerge({
+        adapter_paths: buildAdapterMergePaths(selections, localMetaById),
+        weights: selections.map((item) => Number(item.weight)),
+        hf_token: hfToken,
+      });
+      setMergeReport(report);
+    } catch (error) {
+      setMergeReport(null);
+      setMergeTestError(
+        error instanceof Error ? error.message : "Could not analyze the adapters",
+      );
+    } finally {
+      setMergeTestPending(false);
+    }
+  }, [adapterMergeSelections, hfToken, localMetaById, mergeTestPending]);
+
+  // Applies what the report recommends, so a verdict is one click from being
+  // acted on. Both fields move together: the method decides whether density is
+  // read at all, and TIES with the wrong density is the difference between a
+  // clean merge and a lossy one.
+  const handleApplyMergeRecommendation = useCallback(
+    (method: MergeMethodType, density: number) => {
+      handleMergeMethodChange(method);
+      setMergeDensity(String(density));
+    },
+    [handleMergeMethodChange],
+  );
+
   const handleStart = useCallback(async () => {
     if (startRequestInFlightRef.current || isExporting) return;
     startRequestInFlightRef.current = true;
@@ -1252,22 +1365,11 @@ export function ExportPage() {
     const checkpointPath = selectedCp?.path ?? null;
     const mergeDensityValue = Number(mergeDensity);
     const mergeDropRateValue = Number(mergeDropRate);
-    // A Local picker value is a model ID; the merge needs the real directory.
-    const localAdapterDir = (value: string) => localMetaById.get(value)?.path ?? value;
     const mergeConfig = multiAdapterMerge && exportMethod === "merged"
       ? {
-          adapter_paths: adapterMergeSelections.map((item) =>
-            item.source === "hf"
-              ? {
-                  repo_id: item.path,
-                  subfolder:
-                    item.checkpoint === ROOT_CHECKPOINT_VALUE
-                      ? ""
-                      : item.checkpoint,
-                }
-                : item.checkpoint && item.checkpoint !== ROOT_CHECKPOINT_VALUE
-                  ? `${localAdapterDir(item.path).replace(/[\\/]+$/, "")}/${item.checkpoint}`
-                  : localAdapterDir(item.path),
+          adapter_paths: buildAdapterMergePaths(
+            adapterMergeSelections,
+            localMetaById,
           ),
           weights: adapterMergeSelections.map((item) => Number(item.weight)),
           method: mergeMethod,
@@ -2169,6 +2271,29 @@ export function ExportPage() {
                         >
                           Save config
                         </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleTestMerge}
+                          disabled={!mergeTestReady || mergeTestPending}
+                          aria-label="Test merge"
+                        >
+                          {mergeTestPending ? (
+                            <Spinner className="size-3.5" />
+                          ) : (
+                            <HugeiconsIcon
+                              icon={TestTube01Icon}
+                              className="size-3.5"
+                            />
+                          )}
+                          Test
+                        </Button>
+                        <InfoHint>
+                          Compares the selected adapters&apos; weights before
+                          anything is loaded: how much they disagree, and which
+                          method fits. Needs at least two adapters.
+                        </InfoHint>
                         <Select
                           value={mergeCategory}
                           onValueChange={(value: MergeMethodCategory) =>
@@ -2516,6 +2641,14 @@ export function ExportPage() {
                             merge the selected checkpoint on its own.
                           </p>
                         )}
+                        <MergeTestPanel
+                          pending={mergeTestPending}
+                          error={mergeTestError}
+                          report={mergeReport}
+                          onApplyRecommendation={
+                            handleApplyMergeRecommendation
+                          }
+                        />
                       </div>
                   </div>
                 )}

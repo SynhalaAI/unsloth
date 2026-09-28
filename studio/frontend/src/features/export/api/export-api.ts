@@ -232,6 +232,93 @@ export async function exportLoRA(params: {
   return parseJson<ExportOperationResponse>(response);
 }
 
+/** One adapter in a merge-interference report. */
+export interface MergeAnalyzeAdapter {
+  name: string;
+  base_model: string;
+  rank: number | null;
+  lora_alpha: number | null;
+  /** alpha / r, the factor the LoRA delta is scaled by. */
+  scaling: number;
+  /** The weight as configured. */
+  weight: number;
+  /** The weight after normalisation, i.e. what the merge would use. */
+  effective_weight: number;
+  modules: number;
+  delta_norm: number;
+}
+
+/** One shared module in a pair, reported when its cosine is low. */
+export interface MergeWorstModule {
+  module: string;
+  cosine: number;
+  sign_conflict_rate: number | null;
+}
+
+/** Interference between one pair of adapters, over the modules they share. */
+export interface MergeAnalyzePair {
+  a: string;
+  b: string;
+  shared_modules: number;
+  /** shared_modules / the larger adapter's module count, in 0..1. */
+  module_overlap: number;
+  /** -1 (opposed) .. 1 (aligned). Negative means the deltas fight. */
+  cosine: number;
+  /** Share of shared weights where the two disagree in sign; 0.5 is chance. */
+  sign_conflict_rate: number;
+  /** ||di|| / ||dj||; > 1 means the first adapter dominates. */
+  norm_ratio: number;
+  worst_modules: MergeWorstModule[];
+}
+
+export type MergeInterference = "low" | "moderate" | "high";
+
+export interface MergeAnalyzeReport {
+  success: boolean;
+  adapters: MergeAnalyzeAdapter[];
+  pairs: MergeAnalyzePair[];
+  mean_cosine: number;
+  max_sign_conflict_rate: number;
+  interference: MergeInterference;
+  /** Interference in 0..1, combining opposition and sign disagreement. */
+  score: number;
+  /** True when the sign budget ran out, so sign rates come from a sample. */
+  sign_scan_truncated: boolean;
+  recommendation: {
+    method: MergeMethodType;
+    density: number;
+    reason: string;
+  };
+}
+
+/**
+ * Measure interference between the selected adapters without loading a model.
+ *
+ * Reads only the adapter weights, so it is the cheap preflight for the merge
+ * the user is about to run. Weights default to equal, matching the merge.
+ */
+export async function analyzeMerge(params: {
+  adapter_paths: (string | { repo_id: string; subfolder?: string })[];
+  weights?: number[];
+  normalize_weights?: boolean;
+  hf_token?: string | null;
+}): Promise<MergeAnalyzeReport> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (params.hf_token) {
+    headers["X-HF-Token"] = params.hf_token;
+  }
+  const response = await authFetch("/api/export/merge/analyze", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      adapter_paths: params.adapter_paths,
+      weights: params.weights,
+      normalize_weights: params.normalize_weights ?? true,
+    }),
+  });
+  return parseJson<MergeAnalyzeReport>(response);
+}
+
 export async function cleanupExport(): Promise<ExportOperationResponse> {
   const response = await authFetch("/api/export/cleanup", { method: "POST" });
   return parseJson<ExportOperationResponse>(response);

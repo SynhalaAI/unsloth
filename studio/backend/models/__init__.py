@@ -41,6 +41,8 @@ from .export import (
     ExportBaseModelRequest,
     ExportGGUFRequest,
     ExportLoRAAdapterRequest,
+    MergeAnalyzeRequest,
+    MergeAnalyzeResponse,
 )
 from .users import Token
 from .inference import (
@@ -98,6 +100,8 @@ __all__ = [
     "ExportBaseModelRequest",
     "ExportGGUFRequest",
     "ExportLoRAAdapterRequest",
+    "MergeAnalyzeRequest",
+    "MergeAnalyzeResponse",
     "Token",
     "LoadRequest",
     "UnloadRequest",

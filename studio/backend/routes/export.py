@@ -49,6 +49,8 @@ from models import (
     ExportBaseModelRequest,
     ExportGGUFRequest,
     ExportLoRAAdapterRequest,
+    MergeAnalyzeRequest,
+    MergeAnalyzeResponse,
 )
 
 router = APIRouter()
@@ -89,6 +91,58 @@ async def list_adapter_checkpoints(
     except Exception as exc:
         logger.warning("Could not list adapter checkpoints: %s", exc)
         raise HTTPException(status_code = 400, detail = "Could not list adapter checkpoints")
+
+
+@router.post("/merge/analyze", response_model = MergeAnalyzeResponse)
+async def analyze_merge(
+    request: MergeAnalyzeRequest,
+    current_subject: str = Depends(get_current_subject),
+    allow_ambient: bool = Depends(allow_ambient_hf_token),
+):
+    """Measure interference between LoRA adapters without loading a model.
+
+    Reads only the adapter weights, so it is the cheap preflight the Export
+    page offers next to the merge settings: it tells the user whether the chosen
+    adapters fight each other, and which method to reach for, before a base
+    model is loaded onto a GPU. Wraps core.export.merge_metrics.analyze_adapters.
+    """
+    validate_job_paths(request.model_dump())
+    try:
+        from core.export.merge_metrics import analyze_adapters
+
+        # Off-loop: reconstructing the deltas is a few seconds of CPU, and the
+        # first call on a cold import resolves the unsloth package.
+        report = await asyncio.to_thread(
+            analyze_adapters,
+            request.adapter_paths,
+            weights = request.weights,
+            normalize_weights = request.normalize_weights,
+            max_sign_elements = request.max_sign_elements,
+        )
+    except HTTPException:
+        raise
+    except ValueError as e:
+        # The core merger writes these for display (mismatched base models, a
+        # non-LoRA peft_type, no A/B factors, a zero weight sum) and they name
+        # only what the user just picked, so the text is safe to return; the
+        # real trace still goes to the server log.
+        logger.warning(f"Adapter merge cannot be analyzed: {e}")
+        raise HTTPException(status_code = 400, detail = str(e))
+    except FileNotFoundError as e:
+        logger.warning(f"Adapter not found for merge analysis: {e}")
+        raise HTTPException(status_code = 400, detail = "An adapter folder could not be read.")
+    except ImportError as e:
+        raise HTTPException(
+            status_code = 400,
+            detail = f"PyTorch is not installed, so the adapters cannot be read: {e}",
+        )
+    except Exception as e:
+        logger.error(f"Error analyzing adapter merge: {e}", exc_info = True)
+        raise HTTPException(
+            status_code = 500,
+            detail = "Failed to analyze the adapter merge",
+        )
+    return MergeAnalyzeResponse(**report)
 
 
 async def _ensure_export_supported() -> None:
