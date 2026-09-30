@@ -28,7 +28,13 @@ const adapter = readFileSync(
 
 test("model-audio recorder is visible only for audio-input models", () => {
   assert.match(composer, /activeModel\?\.hasAudioInput/);
-  assert.match(composer, /aria-label=\{activeModel\?\.hasAudioInput \? "Record audio for model"/);
+  assert.match(composer, /useModelAudioRecording\(attachRecordedAudio\)/);
+  // The mic gates on the shared audio-input helper: a row that omits
+  // `has_audio_input` but names an audio-input type still records.
+  assert.match(
+    composer,
+    /aria-label=\{modelAcceptsAudioInput\(activeModel\) \? "Record audio for model"/,
+  );
   assert.match(thread, /modelAcceptsAudioInput\(activeModel\)/);
   assert.match(thread, /useModelAudioRecording\(attachRecordedAudio\)/);
   assert.match(recorder, /isFinalizing/);
@@ -63,6 +69,10 @@ test("capture failures and oversized clips are reported and release resources", 
 });
 
 test("recorded pending audio uses the established audio-base64 request path", () => {
-  assert.match(composer, /audio: `data:\$\{submittedAudio\.contentType\};base64,\$\{submittedAudio\.base64\}`/);
-  assert.match(adapter, /audio_base64: audioBase64/);
+  // One part per clip since Chat took multiple audio files per message, so the
+  // recorded clip carries its own content type into the same data URL.
+  assert.match(composer, /audio: `data:\$\{clip\.contentType\};base64,\$\{clip\.base64\}`/);
+  // The single-chat path stages the clip as pending audio, which the adapter
+  // reads as audio_base64 for the turn.
+  assert.match(adapter, /audio_base64: findLatestUserAudioBase64\(/);
 });

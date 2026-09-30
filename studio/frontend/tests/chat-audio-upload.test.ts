@@ -184,7 +184,9 @@ test("the main composer has one Dictate entry and does not gate it on draft text
   );
   const controlsStart = threadSource.indexOf("const ComposerRightControls:");
   const controls = threadSource.slice(controlsStart);
-  assert.equal((controls.match(/tooltip="Dictate"/g) ?? []).length, 1);
+  // One mic entry in the controls. Its label switches to "Record audio for
+  // model" for a model that reads audio input, so count the entry, not the text.
+  assert.equal((controls.match(/<MicIcon/g) ?? []).length, 1);
   assert.doesNotMatch(controls, /Upload01Icon|DialogTrigger/);
 });
 

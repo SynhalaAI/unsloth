@@ -91,6 +91,9 @@ import {
   useInComparePane,
   refreshSkillsCatalog,
 } from "@/features/chat";
+import { useModelAudioRecording } from "@/features/chat/model-audio-recording";
+import { modelAcceptsAudioInput } from "@/features/chat/types/runtime";
+import { fileToBase64 } from "@/lib/audio-utils";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import {
   IntentAwareScrollProvider,
@@ -4894,6 +4897,31 @@ const Composer: FC<{
   // panel opens in. Published so that panel opens clear of Send. The
   // notification rail does not read this; it is anchored in CSS.
   usePublishedFrame(composerEl);
+  // Model-audio recording: for a model that reads audio input the mic records a
+  // clip the model hears, instead of dictating text into the draft.
+  const modelSendAfterRecordingRef = useRef(false);
+  const activeModel = useChatRuntimeStore((s) =>
+    s.models.find((model) => model.id === s.params.checkpoint),
+  );
+  const isAudioInputModel = modelAcceptsAudioInput(activeModel);
+  const setPendingAudio = useChatRuntimeStore((s) => s.setPendingAudio);
+  const attachRecordedAudio = useCallback(
+    async (file: File) => {
+      setPendingAudio(await fileToBase64(file), file.name);
+      if (modelSendAfterRecordingRef.current) {
+        modelSendAfterRecordingRef.current = false;
+        queueMicrotask(() => formRef.current?.requestSubmit());
+      }
+    },
+    [setPendingAudio],
+  );
+  const {
+    isRecording: isRecordingModelAudio,
+    isFinalizing: isFinalizingModelAudio,
+    start: startModelAudioRecording,
+    stop: stopModelAudioRecording,
+    cancel: cancelModelAudioRecording,
+  } = useModelAudioRecording(attachRecordedAudio);
   const dictationBaseTextRef = useRef("");
   const dictationComposerRef = useRef("");
   useEffect(() => {
@@ -4921,6 +4949,12 @@ const Composer: FC<{
   // the local model instead of disabling the button.
   const startDictation = useCallback(() => {
     if (audioUpload.busy || dictationEntryDisabled) return;
+    // One entry point for the mic: a model that reads audio input records a
+    // clip for the model, everything else dictates text.
+    if (isAudioInputModel) {
+      void startModelAudioRecording();
+      return;
+    }
     if (currentDictationEntryMode() === "recording-file") {
       audioUpload.openDialog();
       return;
@@ -4934,7 +4968,13 @@ const Composer: FC<{
     } catch {
       notifyStudioDictationUnavailable();
     }
-  }, [aui, audioUpload, dictationEntryDisabled]);
+  }, [
+    aui,
+    audioUpload,
+    dictationEntryDisabled,
+    isAudioInputModel,
+    startModelAudioRecording,
+  ]);
   const sendAfterDictation = useCallback(() => {
     sendAfterDictationRef.current = true;
     dictationComposerRef.current = composerIdentity;
@@ -4968,6 +5008,10 @@ const Composer: FC<{
       // to stop.
       if (isDictating) {
         aui.composer().stopDictation();
+        return;
+      }
+      if (isRecordingModelAudio) {
+        stopModelAudioRecording();
         return;
       }
       // A dialog over Chat leaves this registered, and a microphone opened
@@ -5309,9 +5353,14 @@ const Composer: FC<{
 
   const queueContextValue: PromptQueueCallbacks = { startQueue, stopQueue };
 
+  // The recording bar replaces the input row for both kinds of recording: text
+  // dictation, and a clip recorded for a model that reads audio input.
+  const composerIsRecording =
+    isDictating || isRecordingModelAudio || isFinalizingModelAudio;
+
   const composerContent = (
     <>
-      {!isDictating ? (
+      {!composerIsRecording ? (
         <>
           <ComposerAttachments />
           <PendingAudioChip />
@@ -5319,20 +5368,20 @@ const Composer: FC<{
       ) : null}
       {/* Keep indexing state subscribed while dictating, but hide its chips so
           the waveform stays the composer's only status indicator. */}
-      <div className={isDictating ? "hidden" : "contents"}>
+      <div className={composerIsRecording ? "hidden" : "contents"}>
         <ThreadDocumentsBar
           threadId={referenceThreadId}
           onIndexingChange={handleIndexingChange}
         />
       </div>
-      {!isDictating ? <ComposerDraftPreview text={composerText} /> : null}
-      {!isDictating ? <ToolStatusDisplay /> : null}
+      {!composerIsRecording ? <ComposerDraftPreview text={composerText} /> : null}
+      {!composerIsRecording ? <ToolStatusDisplay /> : null}
       <div
         className="unsloth-composer-line"
         // The permission pill is always visible, so keep the two-row layout
         // expanded whenever not dictating; dictation collapses to the bar.
-        data-expanded={!isDictating ? "true" : "false"}
-        data-dictating={isDictating ? "true" : undefined}
+        data-expanded={!composerIsRecording ? "true" : "false"}
+        data-dictating={composerIsRecording ? "true" : undefined}
       >
         <div
           ref={pillRowRef}
@@ -5346,7 +5395,7 @@ const Composer: FC<{
           />
           {/* While dictating, show only the "+"; hide the pill and tool toggles
               so the waveform is the sole status indicator. */}
-          {!isDictating ? (
+          {!composerIsRecording ? (
             <>
               {/* Permission-level pill: always visible, opens the level dropdown. */}
               <PermissionModeComposerPill side={effectiveMenuSide} />
@@ -5366,11 +5415,19 @@ const Composer: FC<{
             </>
           ) : null}
         </div>
-        {isDictating ? (
+        {composerIsRecording ? (
           // The recording UI replaces the input and send controls; only the
           // left plus stays visible alongside it.
           <ChatDictationBar
             onSend={sendAfterDictation}
+            modelRecording={isRecordingModelAudio}
+            modelFinalizing={isFinalizingModelAudio}
+            onModelStop={stopModelAudioRecording}
+            onModelCancel={cancelModelAudioRecording}
+            onModelSend={() => {
+              modelSendAfterRecordingRef.current = true;
+              stopModelAudioRecording();
+            }}
             // Every state handleSubmit rejects, since it would reject after
             // transcription with the send intent already spent. Text presence
             // is left out: the transcript supplies it.
@@ -5467,6 +5524,7 @@ const Composer: FC<{
               onStopClick={stopQueue}
               onResumeClick={resumeQueue}
               onDictateClick={startDictation}
+              isModelAudio={isAudioInputModel}
               audioUpload={audioUpload}
               pendingSend={pendingSend}
               menuSide={effectiveMenuSide}
@@ -7051,6 +7109,7 @@ const ComposerRightControls: FC<{
   onStopClick?: () => void;
   onResumeClick?: () => void;
   onDictateClick?: () => void;
+  isModelAudio?: boolean;
   audioUpload: ReturnType<typeof useChatAudioUpload>;
   pendingSend?: boolean;
   menuSide?: "top" | "bottom";
@@ -7064,6 +7123,7 @@ const ComposerRightControls: FC<{
   onStopClick,
   onResumeClick,
   onDictateClick,
+  isModelAudio,
   audioUpload,
   pendingSend,
   menuSide,
@@ -7174,8 +7234,8 @@ const ComposerRightControls: FC<{
           </Button>
         ) : (
           <TooltipIconButton
-            tooltip="Dictate"
-            aria-label="Dictate"
+            tooltip={isModelAudio ? "Record audio for model" : "Dictate"}
+            aria-label={isModelAudio ? "Record audio for model" : "Dictate"}
             type="button"
             variant="ghost"
             className="size-9 rounded-full text-foreground"

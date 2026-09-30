@@ -66,6 +66,8 @@ import {
 import { isTauri } from "@/lib/api-base";
 import { classifiedAttachmentFiles, isVideoFile } from "@/lib/video-utils";
 import { newAttachmentId } from "./audio-attachment-adapter";
+import { useModelAudioRecording } from "./model-audio-recording";
+import { modelAcceptsAudioInput } from "./types/runtime";
 import { isDownloadCancelled } from "@/lib/native-files";
 import { isMultimodalResponse } from "./types/api";
 import { getImageInputUnavailableReason } from "./utils/image-input-support";
@@ -1035,14 +1037,49 @@ export function SharedComposer({
     writeDraft: writeAudioUploadDraft,
     focusDraft: focusAudioUploadDraft,
   });
+  // A recorded clip is staged like a dropped audio file, so compare sends it
+  // down the same audio path.
+  const attachRecordedAudio = useCallback(
+    async (file: File) => {
+      const clip = {
+        id: newAttachmentId(),
+        name: file.name,
+        base64: await fileToBase64(file),
+        contentType: file.type,
+        size: file.size,
+      };
+      pendingAudioRef.current = [...pendingAudioRef.current, clip];
+      setPendingAudio((prev) => [...prev, clip]);
+    },
+    [],
+  );
+  const {
+    isRecording: isRecordingModelAudio,
+    isFinalizing: isFinalizingModelAudio,
+    start: startModelAudioRecording,
+    stop: stopModelAudioRecording,
+    cancel: cancelModelAudioRecording,
+  } = useModelAudioRecording(attachRecordedAudio);
   const startDictation = useCallback(() => {
     if (audioUpload.busy || !chatActive) return;
+    // As in the single-chat composer: an audio-input model records a clip for
+    // the model to hear rather than transcribing it.
+    if (modelAcceptsAudioInput(activeModel)) {
+      void startModelAudioRecording();
+      return;
+    }
     if (currentDictationEntryMode() === "recording-file") {
       audioUpload.openDialog();
       return;
     }
     startDictationSession();
-  }, [audioUpload, chatActive, startDictationSession]);
+  }, [
+    activeModel,
+    audioUpload,
+    chatActive,
+    startDictationSession,
+    startModelAudioRecording,
+  ]);
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -2273,6 +2310,10 @@ export function SharedComposer({
         stopDictation();
         return;
       }
+      if (isRecordingModelAudio) {
+        stopModelAudioRecording();
+        return;
+      }
       if (!isSurfaceInForeground(COMPOSER_INPUT_SELECTOR)) return;
       startDictation();
     },
@@ -3195,7 +3236,7 @@ export function SharedComposer({
           ) : null}
           {
             <>
-              {!isDictating ? (
+              {!isDictating && !isRecordingModelAudio && !isFinalizingModelAudio ? (
                 audioUpload.busy ? (
                   <Button
                     type="button"
@@ -3212,18 +3253,65 @@ export function SharedComposer({
                   </Button>
                 ) : (
                   <TooltipIconButton
-                    tooltip="Dictate"
+                    tooltip={
+                      modelAcceptsAudioInput(activeModel)
+                        ? "Record audio for model"
+                        : "Dictate"
+                    }
                     side="bottom"
                     variant="ghost"
                     size="icon"
                     className="size-8 rounded-full text-muted-foreground"
                     disabled={!chatActive}
                     onClick={startDictation}
-                    aria-label="Dictate"
+                    aria-label={modelAcceptsAudioInput(activeModel) ? "Record audio for model" : "Dictate"}
                   >
                     <MicIcon className="unsloth-dictate-icon size-4" />
                   </TooltipIconButton>
                 )
+              ) : isRecordingModelAudio || isFinalizingModelAudio ? (
+                <>
+                  <TooltipIconButton
+                    tooltip={
+                      isFinalizingModelAudio
+                        ? "Cancel audio attachment"
+                        : "Stop recording"
+                    }
+                    side="bottom"
+                    variant="ghost"
+                    size="icon"
+                    className="size-8 rounded-full text-destructive"
+                    onClick={
+                      isFinalizingModelAudio
+                        ? cancelModelAudioRecording
+                        : stopModelAudioRecording
+                    }
+                    aria-label={
+                      isFinalizingModelAudio
+                        ? "Cancel audio attachment"
+                        : "Stop audio recording"
+                    }
+                  >
+                    {isFinalizingModelAudio ? (
+                      <Spinner className="size-3.5" />
+                    ) : (
+                      <SquareIcon className="size-3 animate-pulse fill-current" />
+                    )}
+                  </TooltipIconButton>
+                  {isRecordingModelAudio ? (
+                    <TooltipIconButton
+                      tooltip="Cancel recording"
+                      side="bottom"
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 rounded-full text-muted-foreground"
+                      onClick={cancelModelAudioRecording}
+                      aria-label="Cancel audio recording"
+                    >
+                      <XIcon className="size-4" />
+                    </TooltipIconButton>
+                  ) : null}
+                </>
               ) : (
                 <TooltipIconButton
                   tooltip={

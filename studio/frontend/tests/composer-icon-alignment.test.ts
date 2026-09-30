@@ -38,7 +38,8 @@ test("every isolated composer stop square keeps its size-3 glyph", () => {
     .flatMap((source) => tags(source, "SquareIcon"))
     .filter((tag) => /\bsize-3\b/.test(tag));
 
-  assert.equal(stops.length, 6);
+  // Six dictation/queue stops, plus the model-audio recording stop.
+  assert.equal(stops.length, 7);
 });
 
 // Browser geometry is checked by tests/studio/playwright_composer_icons.py.
