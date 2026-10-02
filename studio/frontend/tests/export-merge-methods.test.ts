@@ -247,3 +247,19 @@ test("auto-weight methods (sce, model_stock) disable the manual weight input", (
     /aria-label=\{`Weight for adapter \$\{index \+ 1\}`\}\s*disabled=\{MERGE_METHODS_AUTO_WEIGHTS\.has\(mergeMethod\)\}/,
   );
 });
+
+test("the normalize_weights toggle drives the merge payload and the analysis", () => {
+  // The Export page must let the user pick normalize_weights; a hardcoded
+  // true makes the backend False mode unreachable from the UI.
+  assert.match(exportPageSource, /const \[mergeNormalizeWeights, setMergeNormalizeWeights\] = useState\(true\);/);
+  assert.match(exportPageSource, /aria-label="Normalize merge weights"/);
+  // The payload and the preflight analysis both carry the chosen value, so the
+  // report describes the merge that is about to run.
+  assert.match(exportPageSource, /normalize_weights: mergeNormalizeWeights,/);
+  assert.doesNotMatch(exportPageSource, /normalize_weights: true,/);
+  // The state feeds the runtime request deps to avoid a stale send.
+  assert.match(exportPageSource, /mergeSelectTopk,\s*\n\s*mergeNormalizeWeights,/);
+  // It round-trips through the saved/imported YAML config.
+  assert.match(exportPageSource, /normalizeWeights: mergeNormalizeWeights,/);
+  assert.match(exportPageSource, /if \(typeof config\.normalizeWeights === "boolean"\) \{/);
+});

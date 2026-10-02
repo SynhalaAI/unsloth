@@ -184,6 +184,7 @@ type AdapterMergeConfig = {
   density: string;
   dropout?: string;
   rank?: string;
+  normalizeWeights?: boolean;
   destination: "local" | "hub";
   hfUsername: string;
   modelName: string;
@@ -460,6 +461,9 @@ export function ExportPage() {
   const [mergeDellaEpsilon, setMergeDellaEpsilon] = useState("0.15");
   const [mergeGamma, setMergeGamma] = useState("0.01");
   const [mergeSelectTopk, setMergeSelectTopk] = useState("1");
+  // Rescale the per-adapter weights to sum to 1 before merging. On by default,
+  // matching the core merger; turning it off uses the raw weights as entered.
+  const [mergeNormalizeWeights, setMergeNormalizeWeights] = useState(true);
   const [mergeCategory, setMergeCategory] = useState<MergeMethodCategory>(
     "recommended",
   );
@@ -1120,6 +1124,7 @@ export function ExportPage() {
       density: mergeDensity,
       dropout: mergeDropRate,
       rank: mergeTargetRank,
+      normalizeWeights: mergeNormalizeWeights,
       destination,
       hfUsername,
       modelName,
@@ -1183,6 +1188,9 @@ export function ExportPage() {
         if (typeof config.rank === "string") {
           setMergeTargetRank(config.rank);
         }
+        if (typeof config.normalizeWeights === "boolean") {
+          setMergeNormalizeWeights(config.normalizeWeights);
+        }
         if (config.destination === "local" || config.destination === "hub") {
           setDestination(config.destination);
         }
@@ -1244,6 +1252,7 @@ export function ExportPage() {
       const report = await analyzeMerge({
         adapter_paths: buildAdapterMergePaths(selections, localMetaById),
         weights: selections.map((item) => Number(item.weight)),
+        normalize_weights: mergeNormalizeWeights,
         hf_token: hfToken,
       });
       setMergeReport(report);
@@ -1255,7 +1264,7 @@ export function ExportPage() {
     } finally {
       setMergeTestPending(false);
     }
-  }, [adapterMergeSelections, hfToken, localMetaById, mergeTestPending]);
+  }, [adapterMergeSelections, hfToken, localMetaById, mergeTestPending, mergeNormalizeWeights]);
 
   // Applies what the report recommends, so a verdict is one click from being
   // acted on. Both fields move together: the method decides whether density is
@@ -1363,7 +1372,7 @@ export function ExportPage() {
           ),
           weights: adapterMergeSelections.map((item) => Number(item.weight)),
           method: mergeMethod,
-          normalize_weights: true,
+          normalize_weights: mergeNormalizeWeights,
           density: mergeDensityValue,
           drop_rate:
             MERGE_METHODS_WITH_DROPOUT.has(mergeMethod) &&
@@ -1514,6 +1523,7 @@ export function ExportPage() {
     mergeDellaEpsilon,
     mergeGamma,
     mergeSelectTopk,
+    mergeNormalizeWeights,
     exportUnsupported,
     destination,
     saveDirectory,
@@ -2368,6 +2378,25 @@ export function ExportPage() {
                             );
                           })()}
                         </InfoHint>
+                        <span className="flex items-center gap-1">
+                          <Switch
+                            checked={mergeNormalizeWeights}
+                            onCheckedChange={(checked) =>
+                              setMergeNormalizeWeights(checked)
+                            }
+                            disabled={MERGE_METHODS_AUTO_WEIGHTS.has(mergeMethod)}
+                            aria-label="Normalize merge weights"
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            Normalize weights
+                          </span>
+                          <InfoHint>
+                            Rescales the per-adapter weights to sum to 1 before
+                            merging, keeping their ratios. Turn off to use the raw
+                            weights exactly as entered. Auto-weight methods (SCE,
+                            Model Stock) derive their own and ignore this.
+                          </InfoHint>
+                        </span>
                         {MERGE_METHODS_WITH_DENSITY.has(mergeMethod) && (
                           <span className="flex items-center gap-1">
                             <Input
