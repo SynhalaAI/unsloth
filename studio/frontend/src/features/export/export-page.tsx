@@ -468,6 +468,20 @@ export function ExportPage() {
     "recommended",
   );
 
+  const [adapterMergeSelections, setAdapterMergeSelections] = useState<
+    AdapterMergeSelection[]
+  >([]);
+
+  // How many adapters the user has actually filled in. One adapter is the
+  // degenerate merge: the core short-circuits every method to `delta * weight`,
+  // so trimming, sign election and pruning never run and all the method knobs
+  // are inert. Linear is the only honest choice there, so the picker offers it
+  // alone rather than implying TIES/DELLA/SCE would do something.
+  const filledAdapterCount = adapterMergeSelections.filter(
+    (item) => item.path.trim() !== "",
+  ).length;
+  const singleAdapterMerge = filledAdapterCount === 1;
+
   // Methods available in the currently selected category. The two dropdowns
   // stay in sync: changing the category resets the method to the category's
   // first method, and any method set programmatically (e.g. from an imported
@@ -477,20 +491,32 @@ export function ExportPage() {
     [mergeCategory],
   );
   useEffect(() => {
+    // A single adapter is pinned to Linear by the effect below; without this
+    // guard the two would fight, each resetting the method on every render.
+    if (singleAdapterMerge) return;
     if (!mergeMethodsForCategory.some((method) => method.value === mergeMethod)) {
       const first = mergeMethodsForCategory[0];
       if (first) {
         setMergeMethod(first.value);
       }
     }
-  }, [mergeCategory, mergeMethod, mergeMethodsForCategory]);
+  }, [mergeCategory, mergeMethod, mergeMethodsForCategory, singleAdapterMerge]);
   const handleMergeCategoryChange = useCallback((value: MergeMethodCategory) => {
+    if (singleAdapterMerge) return;
     setMergeCategory(value);
     const first = MERGE_METHODS.find((method) => method.category === value);
     if (first) {
       setMergeMethod(first.value);
     }
-  }, []);
+  }, [singleAdapterMerge]);
+  // A single adapter always merges as Linear; drop back to it if the count
+  // shrinks to one while another method is selected.
+  useEffect(() => {
+    if (singleAdapterMerge && mergeMethod !== "linear") {
+      setMergeMethod("linear");
+    }
+  }, [singleAdapterMerge, mergeMethod]);
+
   const handleMergeMethodChange = useCallback((value: MergeMethodType) => {
     setMergeMethod(value);
     const category = MERGE_METHODS.find(
@@ -500,9 +526,6 @@ export function ExportPage() {
       setMergeCategory(category);
     }
   }, []);
-  const [adapterMergeSelections, setAdapterMergeSelections] = useState<
-    AdapterMergeSelection[]
-  >([]);
   // Adding an adapter row with a path IS the opt-in — no separate toggle.
   const multiAdapterMerge = adapterMergeSelections.some(
     (item) => item.path.trim() !== "",
@@ -2300,43 +2323,59 @@ export function ExportPage() {
                           method fits. Needs at least two adapters, so it stays
                           disabled for a single-adapter merge.
                         </InfoHint>
-                        <Select
-                          value={mergeCategory}
-                          onValueChange={(value: MergeMethodCategory) =>
-                            handleMergeCategoryChange(value)
-                          }
-                        >
-                          <SelectTrigger
-                            className="w-40"
-                            aria-label="Merge method category"
+                        {!singleAdapterMerge && (
+                          <Select
+                            value={mergeCategory}
+                            onValueChange={(value: MergeMethodCategory) =>
+                              handleMergeCategoryChange(value)
+                            }
                           >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {MERGE_METHOD_CATEGORY_ORDER.map((category) => (
-                              <SelectItem key={category} value={category}>
-                                {MERGE_METHOD_CATEGORY_LABELS[category]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                            <SelectTrigger
+                              className="w-40"
+                              aria-label="Merge method category"
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {MERGE_METHOD_CATEGORY_ORDER.map((category) => (
+                                <SelectItem key={category} value={category}>
+                                  {MERGE_METHOD_CATEGORY_LABELS[category]}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
                         <Select
                           value={mergeMethod}
                           onValueChange={(value: MergeMethodType) =>
                             handleMergeMethodChange(value)
                           }
+                          disabled={singleAdapterMerge}
                         >
-                          <SelectTrigger className="w-36" aria-label="Merge method">
+                          <SelectTrigger
+                            className="w-36"
+                            aria-label="Merge method"
+                          >
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {mergeMethodsForCategory.map((method) => (
+                            {(singleAdapterMerge
+                              ? MERGE_METHODS.filter(
+                                  (method) => method.value === "linear",
+                                )
+                              : mergeMethodsForCategory
+                            ).map((method) => (
                               <SelectItem key={method.value} value={method.value}>
                                 {method.label}
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
+                        {singleAdapterMerge && (
+                          <span className="text-xs text-muted-foreground">
+                            One adapter merges as a plain weighted sum
+                          </span>
+                        )}
                         <InfoHint>
                           {(() => {
                             const selected = MERGE_METHODS.find(

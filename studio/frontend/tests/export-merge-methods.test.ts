@@ -312,3 +312,53 @@ test("a single adapter is a runnable merge, not just a multi-adapter one", () =>
   // model_stock still needs three: it blends three models, not one.
   assert.match(exportPageSource, /MERGE_METHODS_MIN_3_ADAPTERS\.has\(mergeMethod\) &&\s*adapterMergeSelections\.length < 3/);
 });
+
+test("a single-adapter merge offers only Linear", () => {
+  // With one adapter the core short-circuits every method to `delta * weight`,
+  // so trimming, sign election and pruning never run. Offering TIES/DELLA/SCE
+  // there would imply they do something, so the picker locks to Linear.
+  assert.match(
+    exportPageSource,
+    /const filledAdapterCount = adapterMergeSelections\.filter\([\s\S]*?const singleAdapterMerge = filledAdapterCount === 1;/,
+  );
+  // The method dropdown is disabled and lists only Linear in that state.
+  assert.match(exportPageSource, /disabled=\{singleAdapterMerge\}/);
+  assert.match(
+    exportPageSource,
+    /singleAdapterMerge\s*\?\s*MERGE_METHODS\.filter\(\s*\(method\) => method\.value === "linear",?\s*\)/,
+  );
+  // The category dropdown is hidden, since there is nothing to choose between.
+  assert.match(exportPageSource, /\{!singleAdapterMerge && \(\s*<Select\s*value=\{mergeCategory\}/);
+  // And the state is actually forced back to Linear, so an imported config or a
+  // shrinking selection cannot leave a multi-adapter method selected.
+  assert.match(
+    exportPageSource,
+    /if \(singleAdapterMerge && mergeMethod !== "linear"\) \{\s*setMergeMethod\("linear"\);/,
+  );
+  // Declaration order: singleAdapterMerge must be derived from the selection
+  // state BEFORE any hook takes it as a dependency, or the dep array reads it
+  // in its temporal dead zone and the page crashes on render.
+  assert.ok(
+    exportPageSource.indexOf("adapterMergeSelections, setAdapterMergeSelections") <
+      exportPageSource.indexOf("const singleAdapterMerge = filledAdapterCount === 1;"),
+    "singleAdapterMerge must be declared after adapterMergeSelections",
+  );
+  assert.ok(
+    exportPageSource.indexOf("const singleAdapterMerge = filledAdapterCount === 1;") <
+      exportPageSource.indexOf(
+        "}, [mergeCategory, mergeMethod, mergeMethodsForCategory, singleAdapterMerge]);",
+      ),
+    "singleAdapterMerge must be declared before it is used as a dependency",
+  );
+  // The category-sync effect and its handler both bail out for a single adapter,
+  // otherwise the two effects reset the method on every render.
+  assert.match(
+    exportPageSource,
+    /if \(singleAdapterMerge\) return;\s*if \(!mergeMethodsForCategory\.some/,
+  );
+  assert.match(
+    exportPageSource,
+    /const handleMergeCategoryChange = useCallback\(\(value: MergeMethodCategory\) => \{\s*if \(singleAdapterMerge\) return;/,
+  );
+  assert.match(exportPageSource, /\}, \[singleAdapterMerge\]\);/);
+});
