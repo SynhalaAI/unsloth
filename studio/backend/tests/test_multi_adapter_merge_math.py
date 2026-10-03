@@ -1,20 +1,17 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
-"""Math tests for the newer merge strategies in unsloth.multi_adapter_merge.
+"""PEFT delegation tests for unsloth.multi_adapter_merge.
 
-Loads the core module directly by file path (no package init), then checks each
-per-module merge key against hand-computed expectations on tiny matrices:
-dare_linear (drop & rescale + weighted sum), magnitude_prune (top-density
-sparsify + weighted sum), and cat (factor concatenation == the weighted sum in
-weight space, with negative-weight sign handling).
+The merge arithmetic now lives in PEFT (``add_weighted_adapter``), so these
+tests pin what matters on our side: the supported method list and the mapping
+from Unsloth's config onto PEFT's arguments.
 """
 
 import importlib.util
+import sys
 import unittest
 from pathlib import Path
-
-import torch
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -25,102 +22,85 @@ def _load_core_module():
         _REPO_ROOT / "unsloth" / "multi_adapter_merge.py",
     )
     module = importlib.util.module_from_spec(spec)
+    # Registered before exec: the module uses postponed annotations, and its
+    # dataclass resolves those through sys.modules[cls.__module__].
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
 
-class TestNewMergeStrategies(unittest.TestCase):
+class TestPeftMethodMapping(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.core = _load_core_module()
 
-    def test_new_methods_are_registered(self):
-        for method in ("dare_linear", "magnitude_prune", "cat"):
-            self.assertIn(method, self.core.SUPPORTED_METHODS)
-
-    def test_dare_linear_with_zero_drop_is_the_weighted_sum(self):
-        d1 = torch.tensor([[1.0, -2.0], [3.0, 0.5]])
-        d2 = torch.tensor([[0.4, 0.8], [-1.0, 2.0]])
-        merged = self.core._dare_linear_merge_key([d1, d2], [0.7, 0.3], drop_rate = 0.0)
-        self.assertTrue(torch.allclose(merged, 0.7 * d1 + 0.3 * d2))
-
-    def test_dare_linear_is_deterministic_for_a_seed(self):
-        torch.manual_seed(1234)
-        d1 = torch.randn(8, 8)
-        d2 = torch.randn(8, 8)
-        first = self.core._dare_linear_merge_key(
-            [d1, d2], [0.5, 0.5], drop_rate = 0.5, seed = 7
-        )
-        second = self.core._dare_linear_merge_key(
-            [d1, d2], [0.5, 0.5], drop_rate = 0.5, seed = 7
-        )
-        self.assertTrue(torch.equal(first, second))
-
-    def test_dare_linear_rescales_surviving_deltas(self):
-        # A zeroed partner isolates adapter 1's mask: with drop_rate=0.5 the
-        # rescale factor is 1/(1 - 0.5) = 2, so surviving 0.5-weighted entries
-        # land back at their original values.
-        torch.manual_seed(9)
-        d1 = torch.randn(8, 8)
-        zeros = torch.zeros_like(d1)
-        merged = self.core._dare_linear_merge_key(
-            [d1, zeros], [0.5, 0.5], drop_rate = 0.5, seed = 7
-        )
-        nonzero = merged != 0
-        self.assertTrue(nonzero.any())
-        self.assertTrue(
-            torch.allclose(merged[nonzero], d1[nonzero], atol = 1e-5)
+    def test_supported_methods_are_peft_combination_types(self):
+        self.assertEqual(
+            self.core.SUPPORTED_METHODS,
+            (
+                "linear", "svd", "cat", "ties", "dare_ties", "dare_linear",
+                "magnitude_prune",
+            ),
         )
 
-    def test_magnitude_prune_keeps_the_top_density_fraction(self):
-        delta = torch.tensor([[-5.0, 0.1, 3.0, -0.2], [0.05, 4.0, -0.3, 2.0]])
-        zeros = torch.zeros_like(delta)
-        # density 0.5 of 8 elements keeps exactly the top 4 by |value|.
-        merged = self.core._magnitude_prune_merge_key(
-            [delta, zeros], [1.0, 1.0], density = 0.5
-        )
-        expected = torch.tensor([[-5.0, 0.0, 3.0, 0.0], [0.0, 4.0, 0.0, 2.0]])
-        self.assertTrue(torch.equal(merged, expected))
-
-    def test_magnitude_prune_with_full_density_is_the_weighted_sum(self):
-        d1 = torch.randn(6, 6)
-        d2 = torch.randn(6, 6)
-        merged = self.core._magnitude_prune_merge_key(
-            [d1, d2], [0.6, 0.4], density = 1.0
-        )
-        self.assertTrue(torch.allclose(merged, 0.6 * d1 + 0.4 * d2))
-
-    def test_cat_matches_the_weighted_sum_in_weight_space(self):
-        A1 = torch.randn(4, 8)
-        B1 = torch.randn(6, 4)
-        A2 = torch.randn(4, 8)
-        B2 = torch.randn(6, 4)
-        merged = self.core._cat_merge_key(
-            [(A1, B1, 2.0, 0.7), (A2, B2, 1.0, 0.3)]
-        )
-        expected = 0.7 * 2.0 * B1 @ A1 + 0.3 * 1.0 * B2 @ A2
-        self.assertTrue(torch.allclose(merged, expected, atol = 1e-4))
-
-    def test_cat_flips_the_sign_of_negative_weights(self):
-        A = torch.randn(4, 8)
-        B = torch.randn(6, 4)
-        merged = self.core._cat_merge_key([(A, B, 2.0, -0.5)])
-        self.assertTrue(torch.allclose(merged, -0.5 * 2.0 * B @ A, atol = 1e-5))
-
-    def test_single_adapter_shortcuts_skip_the_strategy_math(self):
-        d = torch.randn(5, 5)
-        self.assertTrue(
-            torch.equal(
-                self.core._dare_linear_merge_key([d], [0.7], drop_rate = 0.9),
-                0.7 * d,
+    def test_density_is_forwarded_for_sparsifying_methods(self):
+        for method in ("ties", "dare_ties", "dare_linear", "magnitude_prune"):
+            kwargs = self.core._peft_combination_kwargs(method, density = 0.25)
+            self.assertEqual(
+                kwargs, {"combination_type": method, "density": 0.25}, method
             )
-        )
-        self.assertTrue(
-            torch.equal(
-                self.core._magnitude_prune_merge_key([d], [0.7], density = 0.1),
-                0.7 * d,
-            )
-        )
+
+    def test_linear_and_cat_take_no_density(self):
+        for method in ("linear", "cat"):
+            kwargs = self.core._peft_combination_kwargs(method, density = 0.25)
+            self.assertEqual(kwargs, {"combination_type": method}, method)
+
+    def test_svd_forwards_the_target_rank(self):
+        kwargs = self.core._peft_combination_kwargs("svd", target_rank = 32)
+        self.assertEqual(kwargs, {"combination_type": "svd", "svd_rank": 32})
+
+    def test_svd_without_a_target_rank_uses_pefts_default(self):
+        kwargs = self.core._peft_combination_kwargs("svd")
+        self.assertEqual(kwargs, {"combination_type": "svd"})
+
+    def test_svd_ignores_density(self):
+        kwargs = self.core._peft_combination_kwargs("svd", density = 0.25)
+        self.assertNotIn("density", kwargs)
+
+
+class TestConfigAliases(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.core = _load_core_module()
+
+    def _config(self, **kwargs):
+        kwargs.setdefault("adapter_paths", ["a", "b"])
+        kwargs.setdefault("weights", [1.0, 1.0])
+        return self.core.MultiAdapterMergeConfig(**kwargs)
+
+    def test_dare_alias_maps_to_dare_ties(self):
+        self.assertEqual(self._config(method = "dare").method, "dare_ties")
+
+    def test_ctm_alias_maps_to_svd(self):
+        self.assertEqual(self._config(method = "ctm").method, "svd")
+
+    def test_hyphenated_names_are_normalised(self):
+        self.assertEqual(self._config(method = "DARE-TIES").method, "dare_ties")
+
+    def test_removed_in_house_methods_are_rejected(self):
+        for method in ("sce", "della", "breadcrumbs", "multislerp", "model_stock"):
+            with self.assertRaises(ValueError, msg = method):
+                self._config(method = method)
+
+    def test_density_must_stay_in_range(self):
+        for density in (0.0, -0.1, 1.1):
+            with self.assertRaises(ValueError):
+                self._config(density = density)
+
+    def test_target_rank_must_be_positive(self):
+        for target_rank in (0, -4):
+            with self.assertRaises(ValueError):
+                self._config(target_rank = target_rank)
 
 
 if __name__ == "__main__":

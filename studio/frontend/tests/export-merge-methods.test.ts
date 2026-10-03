@@ -16,21 +16,19 @@ const storeSource = readSrc("features/export/stores/export-runtime-store.ts");
 const apiSource = readSrc("features/export/api/export-api.ts");
 
 test("the merge picker lists every method the core merger supports", () => {
-  // Keep in sync with SUPPORTED_METHODS in unsloth/multi_adapter_merge.py.
+  // Keep in sync with SUPPORTED_METHODS in unsloth/multi_adapter_merge.py, which
+  // are PEFT's official add_weighted_adapter combination types.
   assert.deepEqual(
     MERGE_METHODS.map((method) => method.value),
     [
-      "linear", "ties", "dare_ties", "dare_linear", "magnitude_prune",
-      "sce", "della", "della_linear", "breadcrumbs", "breadcrumbs_ties",
-      "multislerp", "model_stock", "ctm", "cat",
+      "linear", "svd", "cat", "ties", "dare_ties", "dare_linear",
+      "magnitude_prune",
     ],
   );
   assert.deepEqual(
     MERGE_METHODS.map((method) => method.label),
     [
-      "Linear", "TIES", "DARE-TIES", "DARE-Linear", "Mag-Prune",
-      "SCE", "DELLA", "DELLA-Linear", "Breadcrumbs", "Breadcrumbs-TIES",
-      "Multi-SLERP", "Model Stock", "CtM", "CAT",
+      "Linear", "SVD", "CAT", "TIES", "DARE-TIES", "DARE-Linear", "Mag-Prune",
     ],
   );
   for (const method of MERGE_METHODS) {
@@ -43,7 +41,7 @@ test("the merge picker lists every method the core merger supports", () => {
 test("the constants module keeps the picker type and list in one place", () => {
   assert.match(
     constantsSource,
-    /export type MergeMethodType =[\s\S]*"model_stock";/,
+    /export type MergeMethodType =[\s\S]*"magnitude_prune";/,
   );
   assert.match(constantsSource, /export const MERGE_METHODS:/);
   assert.match(constantsSource, /export type MergeMethodCategory/);
@@ -62,50 +60,45 @@ test("the export page picker renders from MERGE_METHODS, not hardcoded items", (
   assert.doesNotMatch(exportPageSource, /<SelectItem value="ties">TIES<\/SelectItem>/);
 });
 
-test("method-specific controls exist for the new strategies", () => {
-  // Density now covers TIES, DARE-TIES, Mag-Prune, DELLA, breadcrumbs, etc.
+test("method-specific controls exist for the PEFT strategies", () => {
+  // Density covers TIES, DARE-TIES, DARE-Linear and Mag-Prune; the SVD
+  // combination additionally takes an output rank.
   assert.match(
     exportPageSource,
     /MERGE_METHODS_WITH_DENSITY\.has\(mergeMethod\)/,
   );
   assert.match(exportPageSource, /aria-label="Merge density"/);
-  assert.match(exportPageSource, /MERGE_METHODS_WITH_DROPOUT\.has\(mergeMethod\)/);
-  assert.match(exportPageSource, /aria-label="DARE drop rate"/);
-  assert.match(exportPageSource, /aria-label="CtM target rank"/);
-  assert.match(exportPageSource, /MERGE_METHODS_WITH_EPSILON\.has\(mergeMethod\)/);
-  assert.match(exportPageSource, /aria-label="DELLA epsilon"/);
-  assert.match(exportPageSource, /MERGE_METHODS_WITH_GAMMA\.has\(mergeMethod\)/);
-  assert.match(exportPageSource, /aria-label="Breadcrumbs gamma"/);
-  assert.match(exportPageSource, /MERGE_METHODS_WITH_TOPK\.has\(mergeMethod\)/);
-  assert.match(exportPageSource, /aria-label="SCE select top-k"/);
+  assert.match(exportPageSource, /MERGE_METHODS_WITH_RANK\.has\(mergeMethod\)/);
+  assert.match(exportPageSource, /aria-label="SVD output rank"/);
   // The old TIES-only density label must be gone: a future method using the
   // density knob would silently keep the misleading name.
   assert.doesNotMatch(exportPageSource, /aria-label="TIES density"/);
+  // The knobs that only fed the removed in-house methods must be gone with them.
+  for (const gone of [
+    "DARE drop rate",
+    "DELLA epsilon",
+    "Breadcrumbs gamma",
+    "SCE select top-k",
+  ]) {
+    assert.doesNotMatch(exportPageSource, new RegExp(gone));
+  }
 });
 
-test("the merge request payload carries drop_rate and target_rank", () => {
-  assert.match(
-    exportPageSource,
-    /MERGE_METHODS_WITH_DROPOUT\.has\(mergeMethod\) &&/,
-  );
+test("the merge request payload carries target_rank", () => {
   assert.match(
     exportPageSource,
     /MERGE_METHODS_WITH_RANK\.has\(mergeMethod\) &&/,
   );
+  assert.doesNotMatch(exportPageSource, /drop_rate:/);
 });
 
-test("validation covers the new strategies in both canExport and the start gate", () => {
-  // canExport: drop_rate must stay in [0, 1); target_rank (when set) must be >= 1.
-  assert.match(
-    exportPageSource,
-    /!MERGE_METHODS_WITH_DROPOUT\.has\(mergeMethod\) \|\|\s*\(Number\.isFinite\(Number\(mergeDropRate\)\) &&\s*Number\(mergeDropRate\) >= 0 &&\s*Number\(mergeDropRate\) < 1\)/,
-  );
+test("validation covers the merge knobs in both canExport and the start gate", () => {
+  // canExport: target_rank (when set) must be >= 1.
   assert.match(
     exportPageSource,
     /!MERGE_METHODS_WITH_RANK\.has\(mergeMethod\) \|\|\s*mergeTargetRank\.trim\(\) === "" \|\|/,
   );
   // Start gate: out-of-range values stop the run instead of shipping them.
-  assert.match(exportPageSource, /Number\(mergeDropRate\) >= 1/);
   assert.match(exportPageSource, /!Number\.isInteger\(Number\(mergeTargetRank\)\)/);
   // Density is validated in both gates via the shared knob set.
   assert.match(exportPageSource, /MERGE_METHODS_WITH_DENSITY\.has\(mergeMethod\)/);
@@ -125,8 +118,7 @@ test("merge parameter inputs carry hover hints", () => {
   assert.match(exportPageSource, /selected\.description/);
   for (const hintText of [
     "Fraction of each adapter's strongest weight changes to",
-    "Fraction of weight changes randomly dropped before",
-    "Optional SVD compression rank (≥1)",
+    "Output adapter rank for the SVD merge",
   ]) {
     assert.ok(exportPageSource.includes(hintText), `missing hint: ${hintText}`);
   }
@@ -140,26 +132,22 @@ test("merge parameter inputs carry hover hints", () => {
 test("the new merge states feed the runtime request deps to avoid stale sends", () => {
   assert.match(
     exportPageSource,
-    /mergeMethod,\s*\n\s*mergeDensity,\s*\n\s*mergeDropRate,\s*\n\s*mergeTargetRank,/,
+    /mergeMethod,\s*\n\s*mergeDensity,\s*\n\s*mergeTargetRank,/,
   );
 });
 
 test("the store and api pass-through types carry every merge field", () => {
-  // The page builds the full payload (method incl. dare_ties/ctm, drop_rate,
-  // target_rank); the store param and the load-checkpoint request must accept
-  // all of it, not just the original linear/ties pair.
+  // The page builds the full payload (method incl. svd/ties, target_rank); the
+  // store param and the load-checkpoint request must accept all of it.
   assert.match(storeSource, /multiAdapterMerge\?: \{/);
   assert.match(storeSource, /method: MergeMethodType;/);
-  assert.match(storeSource, /drop_rate\?: number;/);
   assert.match(storeSource, /target_rank\?: number;/);
   assert.match(apiSource, /method\?: MergeMethodType;/);
-  assert.match(apiSource, /drop_rate\?: number;/);
   assert.match(apiSource, /target_rank\?: number;/);
   // The narrowed linear/ties-only unions must be gone from both pass-throughs.
   assert.doesNotMatch(storeSource, /method: "linear" \| "ties"/);
   assert.doesNotMatch(apiSource, /method\?: "linear" \| "ties"/);
 });
-
 test("the page-built merge payload satisfies the runtime request chain", () => {
   // Compile-time guard: `npm run typecheck` (tsconfig.test.json includes
   // tests/) fails this file if either pass-through type is narrowed again.
@@ -169,18 +157,17 @@ test("the page-built merge payload satisfies the runtime request chain", () => {
   type ApiMerge = NonNullable<Parameters<typeof loadCheckpoint>[0]["merge_adapters"]>;
 
   const strategies: MergeMethodType[] = MERGE_METHODS.map((method) => method.value);
-  assert.equal(strategies.length, 14);
+  assert.equal(strategies.length, 7);
   for (const method of strategies) {
     // Mirrors export-page.tsx's mergeConfig, including the explicit-undefined
-    // target_rank the non-CtM strategies produce.
+    // target_rank the non-svd strategies produce.
     const pagePayload: StoreMerge = {
       adapter_paths: ["local/path", { repo_id: "org/repo", subfolder: "ckpt" }],
       weights: [0.6, 0.4],
       method,
       normalize_weights: true,
       density: 0.5,
-      drop_rate: 0.2,
-      target_rank: method === "ctm" ? 16 : undefined,
+      target_rank: method === "svd" ? 16 : undefined,
     };
     assert.equal(pagePayload.adapter_paths.length, pagePayload.weights.length);
     // The store param must flow into the load-checkpoint request unchanged.
@@ -225,27 +212,10 @@ test("the method picker groups methods by category with a per-method hover hint"
     /MERGE_METHODS\.find\(\s*\(method\) => method\.value === mergeMethod,\s*\)/,
   );
   assert.match(exportPageSource, /selected\.bestFor/);
-  // model_stock requires 3+ adapters — the picker surfaces the requirement.
-  assert.match(
-    exportPageSource,
-    /MERGE_METHODS_MIN_3_ADAPTERS\.has\(mergeMethod\)/,
-  );
-  // sce / model_stock derive their own weights — the picker says so instead of
-  // silently ignoring the weight inputs.
-  assert.match(
-    exportPageSource,
-    /MERGE_METHODS_AUTO_WEIGHTS\.has\(mergeMethod\)/,
-  );
-});
-
-test("auto-weight methods (sce, model_stock) disable the manual weight input", () => {
-  // SCE / Model Stock derive per-adapter weights from the deltas themselves,
-  // so a typed weight would be silently ignored — the per-adapter weight
-  // input must be disabled, not just documented in the hover hint.
-  assert.match(
-    exportPageSource,
-    /aria-label=\{`Weight for adapter \$\{index \+ 1\}`\}\s*disabled=\{MERGE_METHODS_AUTO_WEIGHTS\.has\(mergeMethod\)\}/,
-  );
+  // Every PEFT combination type works with a single adapter, so no method may
+  // reintroduce a minimum-adapter requirement.
+  assert.doesNotMatch(exportPageSource, /MERGE_METHODS_MIN_3_ADAPTERS/);
+  assert.doesNotMatch(exportPageSource, /MERGE_METHODS_AUTO_WEIGHTS/);
 });
 
 test("the normalize_weights toggle drives the merge payload and the analysis", () => {
@@ -260,7 +230,7 @@ test("the normalize_weights toggle drives the merge payload and the analysis", (
   assert.match(exportPageSource, /normalize_weights: mergeNormalizeWeights,/);
   assert.doesNotMatch(exportPageSource, /normalize_weights: true,/);
   // The state feeds the runtime request deps to avoid a stale send.
-  assert.match(exportPageSource, /mergeSelectTopk,\s*\n\s*mergeNormalizeWeights,/);
+  assert.match(exportPageSource, /mergeTargetRank,\s*\n\s*mergeNormalizeWeights,/);
   // It round-trips through the saved/imported YAML config.
   assert.match(exportPageSource, /normalizeWeights: mergeNormalizeWeights,/);
   assert.match(exportPageSource, /if \(typeof config\.normalizeWeights === "boolean"\) \{/);
@@ -268,8 +238,8 @@ test("the normalize_weights toggle drives the merge payload and the analysis", (
 
 test("the normalize toggle is the last control in the merge toolbar row", () => {
   // It used to sit between the method hint and the method-specific inputs, so a
-  // narrow panel pushed it into the middle of the row. It stays the last child
-  // of that row now, whatever controls the selected method adds.
+  // narrow panel left it stranded; whatever controls the selected method adds
+  // has to render before it.
   const row = exportPageSource.slice(
     exportPageSource.indexOf("flex flex-wrap items-center justify-end gap-2"),
     exportPageSource.indexOf('ref={configFileInputRef}'),
@@ -283,11 +253,7 @@ test("the normalize toggle is the last control in the merge toolbar row", () => 
   for (const control of [
     "aria-label=\"Merge method\"",
     "aria-label=\"Merge density\"",
-    "aria-label=\"DARE drop rate\"",
-    "aria-label=\"CtM target rank\"",
-    "aria-label=\"DELLA epsilon\"",
-    "aria-label=\"Breadcrumbs gamma\"",
-    "aria-label=\"SCE select top-k\"",
+    "aria-label=\"SVD output rank\"",
   ]) {
     assert.ok(
       toolbar.indexOf(control) < toggle,
@@ -309,14 +275,12 @@ test("a single adapter is a runnable merge, not just a multi-adapter one", () =>
   assert.doesNotMatch(exportPageSource, /length < 2 && multiAdapterMerge/);
   // The panel now presents one adapter as a supported amount.
   assert.match(exportPageSource, /One\s*adapter is enough/);
-  // model_stock still needs three: it blends three models, not one.
-  assert.match(exportPageSource, /MERGE_METHODS_MIN_3_ADAPTERS\.has\(mergeMethod\) &&\s*adapterMergeSelections\.length < 3/);
 });
 
 test("a single-adapter merge offers only Linear", () => {
-  // With one adapter the core short-circuits every method to `delta * weight`,
-  // so trimming, sign election and pruning never run. Offering TIES/DELLA/SCE
-  // there would imply they do something, so the picker locks to Linear.
+  // PEFT falls back to linear for a single adapter, so trimming, sign election
+  // and pruning never run. Offering TIES/SVD there would imply they do
+  // something, so the picker locks to Linear.
   assert.match(
     exportPageSource,
     /const filledAdapterCount = adapterMergeSelections\.filter\([\s\S]*?const singleAdapterMerge = filledAdapterCount === 1;/,
@@ -341,24 +305,5 @@ test("a single-adapter merge offers only Linear", () => {
   assert.ok(
     exportPageSource.indexOf("adapterMergeSelections, setAdapterMergeSelections") <
       exportPageSource.indexOf("const singleAdapterMerge = filledAdapterCount === 1;"),
-    "singleAdapterMerge must be declared after adapterMergeSelections",
   );
-  assert.ok(
-    exportPageSource.indexOf("const singleAdapterMerge = filledAdapterCount === 1;") <
-      exportPageSource.indexOf(
-        "}, [mergeCategory, mergeMethod, mergeMethodsForCategory, singleAdapterMerge]);",
-      ),
-    "singleAdapterMerge must be declared before it is used as a dependency",
-  );
-  // The category-sync effect and its handler both bail out for a single adapter,
-  // otherwise the two effects reset the method on every render.
-  assert.match(
-    exportPageSource,
-    /if \(singleAdapterMerge\) return;\s*if \(!mergeMethodsForCategory\.some/,
-  );
-  assert.match(
-    exportPageSource,
-    /const handleMergeCategoryChange = useCallback\(\(value: MergeMethodCategory\) => \{\s*if \(singleAdapterMerge\) return;/,
-  );
-  assert.match(exportPageSource, /\}, \[singleAdapterMerge\]\);/);
 });

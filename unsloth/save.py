@@ -7302,6 +7302,7 @@ def _unsloth_merge_multi_adapters(
     method = "linear",
     normalize_weights = True,
     density = 0.5,
+    target_rank = None,
 ):
     """Merge multiple LoRA adapters into this model in-place.
 
@@ -7311,12 +7312,15 @@ def _unsloth_merge_multi_adapters(
         Paths to PEFT adapter directories on disk.
     weights : list[float] | None
         Per-adapter merge weights.  Defaults to equal weighting.
-    method : ``"linear"`` | ``"ties"``
-        Merge strategy.
+    method : ``"linear"`` | ``"svd"`` | ``"cat"`` | ``"ties"`` | ``"dare_ties"`` | ``"dare_linear"`` | ``"magnitude_prune"``
+        PEFT combination type used to combine the adapters.
     normalize_weights : bool
         If ``True``, weights are normalised to sum to 1.
     density : float
-        TIES density parameter (fraction of top-k params to keep).
+        PEFT density for ``ties``/``dare_ties``/``dare_linear``/
+        ``magnitude_prune``: fraction of weight deltas kept.
+    target_rank : int | None
+        PEFT ``svd_rank`` for ``method="svd"``.
 
     Returns
     -------
@@ -7331,6 +7335,7 @@ def _unsloth_merge_multi_adapters(
         method = method,
         normalize_weights = normalize_weights,
         density = density,
+        target_rank = target_rank,
     )
 
 

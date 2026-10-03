@@ -1634,7 +1634,6 @@ class FastLanguageModel(FastLlamaModel):
         method = "linear",
         normalize_weights = True,
         density = 0.5,
-        drop_rate = 0.5,
         target_rank = None,
         max_seq_length = 2048,
         dtype = None,
@@ -1657,19 +1656,15 @@ class FastLanguageModel(FastLlamaModel):
             Paths to PEFT adapter directories.
         weights : list[float] | None
             Per-adapter merge weights (default: equal).
-        method : ``"linear"`` | ``"ties"`` | ``"dare_ties"`` | ``"dare_linear"`` | \
-``"magnitude_prune"`` | ``"ctm"`` | ``"cat"``
-            Merge strategy.
+        method : ``"linear"`` | ``"svd"`` | ``"cat"`` | ``"ties"`` | ``"dare_ties"`` | ``"dare_linear"`` | ``"magnitude_prune"``
+            PEFT combination type used to combine the adapters.
         normalize_weights : bool
             Normalise weights to sum to 1.
         density : float
-            TIES/DARE-TIES/magnitude-prune density parameter (top-k fraction).  Ignored
-            for the other methods.
-        drop_rate : float
-            DARE drop rate (fraction of weight deltas randomly dropped).
-            Only used for ``"dare_ties"`` and ``"dare_linear"``.
+            PEFT density for ``ties``/``dare_ties``/``dare_linear``/``magnitude_prune``:
+            fraction of weight deltas kept.  Ignored for the other methods.
         target_rank : int | None
-            SVD low-rank compression target.  Only used for ``"ctm"``.
+            PEFT ``svd_rank`` for ``"svd"``: rank of the output adapter.
         max_seq_length, dtype, load_in_4bit, token, trust_remote_code :
             Forwarded to ``from_pretrained``.
         **from_pretrained_kwargs :
@@ -1694,7 +1689,6 @@ class FastLanguageModel(FastLlamaModel):
             method = method,
             normalize_weights = normalize_weights,
             density = density,
-            drop_rate = drop_rate,
             target_rank = target_rank,
         )
         return model, tokenizer

@@ -27,40 +27,45 @@ and with work from other contributors.
 - Before finishing, inspect the final diff, remove unrelated changes, and report
   that no unrelated diff remains.
 
-## Adapter merging methods — reference parity rule
+## Adapter merging — PEFT parity rule
 
-The in-house adapter merging implementations in `unsloth/multi_adapter_merge.py`
-do **not** use mergekit as a dependency. All methods are re-implemented in pure
-PyTorch, but their algorithms **must remain faithful to the published references**.
+`unsloth/multi_adapter_merge.py` implements **no merge arithmetic**. Every
+method it exposes is a PEFT combination type, applied through
+`peft.tuners.lora.model.LoraModel.add_weighted_adapter` and then merged into the
+base weights with `merge_and_unload`.
 
-### Canonical references
+| Method | PEFT `combination_type` | Reference |
+|---|---|---|
+| `linear` | `linear` | [PEFT `add_weighted_adapter`](https://github.com/huggingface/peft/blob/main/src/peft/tuners/lora/model.py) |
+| `svd` | `svd`, with `svd_rank` from `target_rank` | same |
+| `cat` | `cat` | same |
+| `ties` | `ties` | [PEFT `merge_utils.ties`](https://github.com/huggingface/peft/blob/main/src/peft/utils/merge_utils.py) |
+| `dare_ties` | `dare_ties` | [PEFT `merge_utils.dare_ties`](https://github.com/huggingface/peft/blob/main/src/peft/utils/merge_utils.py) |
+| `dare_linear` | `dare_linear` | [PEFT `merge_utils.dare_linear`](https://github.com/huggingface/peft/blob/main/src/peft/utils/merge_utils.py) |
+| `magnitude_prune` | `magnitude_prune` | [PEFT `merge_utils.magnitude_prune`](https://github.com/huggingface/peft/blob/main/src/peft/utils/merge_utils.py) |
 
-| Method | Reference |
-|---|---|
-| `linear` | [mergekit `linear.py`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/merge_methods/linear.py) |
-| `ties` | [mergekit `generalized_task_arithmetic.py`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/merge_methods/generalized_task_arithmetic.py) (``sum`` consensus, weight divisor) |
-| `dare_ties` | [DARE paper (Yu et al., 2024)](https://arxiv.org/abs/2311.03099) + TIES |
-| `dare_linear` | [DARE paper](https://arxiv.org/abs/2311.03099) + linear weighted sum |
-| `magnitude_prune` | [PEFT `merge_utils.py`](https://github.com/huggingface/peft/blob/main/src/peft/utils/merge_utils.py) |
-| `ctm` | Unsloth-specific (truncated-SVD compression); no external reference |
-| `cat` | [PEFT `add_weighted_adapter` `combination_type="cat"`](https://github.com/huggingface/peft/blob/main/src/peft/tuners/lora/model.py) |
-| `sce` | [mergekit `sce.py`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/merge_methods/sce.py) ([SCE paper](https://arxiv.org/abs/2408.07990)) |
-| `della` / `della_linear` | [mergekit `sparsify.py` `della_magprune`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/sparsify.py) ([DELLA paper](https://arxiv.org/abs/2406.11617)) |
-| `breadcrumbs` / `breadcrumbs_ties` | [mergekit `sparsify.py` `magnitude_outliers`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/sparsify.py) ([Breadcrumbs paper](https://arxiv.org/abs/2312.06795)) |
-| `multislerp` | [mergekit `multislerp.py`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/merge_methods/multislerp.py) (delta-space adaptation; no base tensor) |
-| `model_stock` | [mergekit `model_stock.py`](https://github.com/arcee-ai/mergekit/blob/main/mergekit/merge_methods/model_stock.py) ([Model Stock paper](https://arxiv.org/abs/2403.19522); delta-space adaptation, ≥3 adapters) |
+The adapter I/O helpers (`_load_adapter_state_dict`, `_group_lora_factors`,
+`_reconstruct_deltas`) stay in that module: the Studio interference preflight
+(`studio/backend/core/export/merge_metrics.py`) reads adapters with them without
+loading peft, so the module must keep importing nothing but torch and the
+standard library at module level.
 
 ### Rules for merging-related changes
 
-1. **Never** modify merge-method math (trim, sign election, rescale, pruning,
-   concatenation) without cross-checking against the canonical reference above.
-2. If an upstream fix (mergekit, PEFT, or the original paper) changes an
-   algorithm, update the in-house implementation **and** its tests in the same
-   PR, and note the sync in the commit message.
-3. New merge methods must cite their reference implementation or paper in the
-   docstring.
-4. The weekly `mergekit-parity-check` GitHub Actions workflow monitors
-   `mergekit/merge_methods/` for upstream changes; act on issues it creates.
+1. **Never** reimplement merge math in this repository. Fix or extend the
+   algorithm in PEFT, and raise the `peft` floor in `pyproject.toml` when a fix
+   is only needed by a newer PEFT.
+2. `SUPPORTED_METHODS` is exactly the set of PEFT combination types Unsloth
+   exposes. Add a name there only together with its mapping in
+   `_peft_combination_kwargs`.
+3. `density` is PEFT's keep fraction and `target_rank` is PEFT's `svd_rank`.
+   Neither may be reinterpreted, and no method gets a second, private knob.
+4. A test may compare a merge against PEFT's own output or against the
+   reconstructed `ΔW = (α/r)·B·A` of an adapter - never against a mergekit
+   reimplementation.
+5. PEFT requires every adapter to share one LoRA rank for `linear`, `ties`,
+   `dare_*` and `magnitude_prune`; `svd` and `cat` accept mixed ranks. Keep
+   that constraint visible to callers instead of working around it silently.
 
 ## When uncertain
 

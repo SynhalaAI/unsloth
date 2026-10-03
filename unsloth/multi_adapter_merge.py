@@ -11,22 +11,37 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 """Multi-adapter LoRA merging for Unsloth.
 
-Supports merging multiple LoRA adapters into a single base model using
-different strategies:
+Merging is delegated to PEFT's official weighted-adapter combination
+(``peft.tuners.lora.model.LoraModel.add_weighted_adapter``): every selected
+adapter is loaded onto the base model as a named PEFT adapter, combined with
+``add_weighted_adapter``, and the combined adapter is merged into the base
+weights with ``merge_and_unload``. No merge arithmetic is reimplemented here,
+so the numbers follow PEFT exactly.
 
-  * **linear** — weighted sum of adapter deltas (default)
-  * **ties** — TIES-Merging: trim low-magnitude, elect sign, disjoint average
-  * **dare_ties** — DARE (drop & rescale) followed by TIES-Merging
-  * **dare_linear** — DARE followed by a plain weighted sum (no sign election)
-  * **magnitude_prune** — keep the top-density magnitudes, then weighted sum
-  * **ctm** — weighted sum, then truncated-SVD low-rank compression
-  * **cat** — factor concatenation (PEFT-compatible; equals linear in
-    weight space, lossless when exported as a merged adapter)
+Supported methods (all are PEFT ``combination_type`` names):
 
-After merging, the model can be saved via the usual
+  * **linear** — weighted blend of the LoRA factors. Fast; PEFT documents it
+    as an approximation, because it combines the A and B factors rather than
+    the full weight deltas.
+  * **svd** — exact weighted sum of the deltas, re-factorised by SVD. Precise;
+    the output rank is the widest source adapter's rank unless ``target_rank``
+    is given.
+  * **cat** — factor concatenation. A lossless weighted sum of the deltas; the
+    output adapter's rank is the sum of the source ranks.
+  * **ties** — TIES: trim low magnitudes, elect a sign, disjoint merge.
+  * **dare_ties** — DARE drop-and-rescale, then TIES.
+  * **dare_linear** — DARE drop-and-rescale, then a weighted sum.
+  * **magnitude_prune** — keep the top-density magnitudes, then weighted sum.
+
+``density`` is PEFT's keep fraction for ``ties``, ``dare_ties``,
+``dare_linear`` and ``magnitude_prune``. ``target_rank`` is PEFT's
+``svd_rank`` for ``svd``. The ``linear``, ``ties``, ``dare_*`` and
+``magnitude_prune`` combination types require every adapter to share the same
+LoRA rank; ``svd`` and ``cat`` accept mixed ranks.
+
+After merging, the model is a plain base model and can be saved via the usual
 ``model.save_pretrained_merged(...)`` path.
 
 Usage (instance method — primary API)::
@@ -52,11 +67,106 @@ from __future__ import annotations
 
 import gc
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 import torch
+
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
+
+SUPPORTED_METHODS = (
+    "linear", "svd", "cat", "ties", "dare_ties", "dare_linear", "magnitude_prune",
+)
+
+# Accepted aliases mapped onto a supported method (kept for backward
+# compatibility with the previously shipped in-house method names).
+_METHOD_ALIASES = {
+    "dare": "dare_ties",
+    # The in-house CtM was a weighted sum compressed by a truncated SVD, which
+    # is exactly PEFT's "svd" combination type with an explicit rank.
+    "ctm": "svd",
+}
+
+# PEFT combination types that read the ``density`` knob (fraction kept).
+_DENSITY_METHODS = ("ties", "dare_ties", "dare_linear", "magnitude_prune")
+
+
+def _peft_combination_kwargs(
+    method: str,
+    density: float = 0.5,
+    target_rank: Optional[int] = None,
+) -> dict:
+    """Map a validated method and its knobs onto ``add_weighted_adapter`` args.
+
+    Only what PEFT reads is forwarded: ``density`` for the sparsifying methods
+    and ``svd_rank`` for the SVD re-factorisation. Everything else stays at
+    PEFT's defaults.
+    """
+    kwargs: dict = {"combination_type": method}
+    if method in _DENSITY_METHODS:
+        kwargs["density"] = float(density)
+    if method == "svd" and target_rank is not None:
+        kwargs["svd_rank"] = int(target_rank)
+    return kwargs
+
+
+@dataclass
+class MultiAdapterMergeConfig:
+    """Holds validated parameters for a multi-adapter merge."""
+
+    adapter_paths: List[str]
+    weights: List[float]
+    method: str = "linear"
+    normalize_weights: bool = True
+    # TIES / DARE / magnitude-prune: fraction of each adapter's weight deltas to
+    # keep (PEFT ``density``; 1.0 keeps everything).
+    density: float = 0.5
+    # ``svd`` only: rank of the re-factorised output adapter (None = the widest
+    # source adapter's rank).
+    target_rank: Optional[int] = None
+    # Deterministic seed for the DARE random drop.
+    seed: int = 42
+
+    def __post_init__(self):
+        if not self.adapter_paths:
+            raise ValueError("Unsloth: At least one adapter path is required.")
+        if len(self.adapter_paths) != len(self.weights):
+            raise ValueError(
+                f"Unsloth: Number of adapter paths ({len(self.adapter_paths)}) "
+                f"must match number of weights ({len(self.weights)})."
+            )
+        method_lower = self.method.lower().replace("-", "_")
+        method_lower = _METHOD_ALIASES.get(method_lower, method_lower)
+        if method_lower not in SUPPORTED_METHODS:
+            raise ValueError(
+                f"Unsloth: Unknown merge method '{self.method}'. "
+                f"Supported: {', '.join(SUPPORTED_METHODS)}."
+            )
+        self.method = method_lower
+        if self.normalize_weights:
+            total = sum(self.weights)
+            if total == 0:
+                raise ValueError("Unsloth: Adapter weights must not sum to zero.")
+            self.weights = [w / total for w in self.weights]
+        if not (0.0 < self.density <= 1.0):
+            raise ValueError(
+                f"Unsloth: density must be in (0, 1], got {self.density}."
+            )
+        if self.target_rank is not None and self.target_rank <= 0:
+            raise ValueError(
+                f"Unsloth: target_rank must be positive, got {self.target_rank}."
+            )
+
+
+# ---------------------------------------------------------------------------
+# Adapter path helpers
+# ---------------------------------------------------------------------------
+
 
 
 def _resolve_adapter_path(adapter_path, hf_token=None) -> str:
@@ -128,118 +238,10 @@ def _adapter_display_name(raw_spec: Union[str, dict], resolved_path: Optional[st
 
 
 # ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-SUPPORTED_METHODS = (
-    "linear", "ties", "dare_ties", "dare_linear", "magnitude_prune", "ctm", "cat",
-    "sce", "della", "della_linear", "breadcrumbs", "breadcrumbs_ties", "multislerp",
-    "model_stock",
-)
-
-
-@dataclass
-class MultiAdapterMergeConfig:
-    """Holds validated parameters for a multi-adapter merge."""
-
-    adapter_paths: List[str]
-    weights: List[float]
-    method: str = "linear"
-    normalize_weights: bool = True
-    # TIES / DARE-TIES / magnitude-prune specific: fraction of params to keep
-    # (top-k by magnitude).
-    density: float = 0.5
-    # DARE-specific: fraction of weight deltas to randomly drop before rescaling.
-    drop_rate: float = 0.5
-    # CtM / SVD specific: target low-rank for truncated SVD compression.
-    target_rank: Optional[int] = None
-    # Deterministic seed for reproducible dropout masking in DARE/DELLA.
-    seed: int = 42
-    # DELLA-specific: half-width of the per-rank probability range around
-    # ``density`` (mergekit ``della_magprune`` epsilon).
-    della_epsilon: float = 0.15
-    # Breadcrumbs-specific: fraction of *largest* magnitudes to drop
-    # (outlier removal) before pruning the smallest (mergekit
-    # ``magnitude_outliers`` gamma).
-    gamma: float = 0.01
-    # SCE-specific: fraction of highest-variance elements to keep before the
-    # sign-consensus erase step (1.0 = keep all).
-    select_topk: float = 1.0
-
-    def __post_init__(self):
-        if not self.adapter_paths:
-            raise ValueError("Unsloth: At least one adapter path is required.")
-        if len(self.adapter_paths) != len(self.weights):
-            raise ValueError(
-                f"Unsloth: Number of adapter paths ({len(self.adapter_paths)}) "
-                f"must match number of weights ({len(self.weights)})."
-            )
-        method_lower = self.method.lower().replace("-", "_")
-        # Support aliases
-        if method_lower in ("dare", "dare_ties"):
-            method_lower = "dare_ties"
-        elif method_lower in ("svd", "ctm"):
-            method_lower = "ctm"
-        elif method_lower in ("della_ties",):
-            method_lower = "della"
-        elif method_lower in ("breadcrumbs_linear",):
-            method_lower = "breadcrumbs"
-        elif method_lower in ("multi_slerp", "karcher"):
-            method_lower = "multislerp"
-        elif method_lower in ("modelstock", "stock"):
-            method_lower = "model_stock"
-
-        if method_lower not in SUPPORTED_METHODS:
-            raise ValueError(
-                f"Unsloth: Unknown merge method '{self.method}'. "
-                f"Supported: {', '.join(SUPPORTED_METHODS)}."
-            )
-        self.method = method_lower
-        if self.method == "model_stock" and len(self.adapter_paths) < 3:
-            raise ValueError(
-                f"Unsloth: model_stock requires at least 3 adapters "
-                f"(got {len(self.adapter_paths)})."
-            )
-        if self.normalize_weights:
-            total = sum(self.weights)
-            if total == 0:
-                raise ValueError("Unsloth: Adapter weights must not sum to zero.")
-            self.weights = [w / total for w in self.weights]
-        if not (0.0 < self.density <= 1.0):
-            raise ValueError(
-                f"Unsloth: density must be in (0, 1], got {self.density}."
-            )
-        if not (0.0 <= self.drop_rate < 1.0):
-            raise ValueError(
-                f"Unsloth: drop_rate must be in [0, 1), got {self.drop_rate}."
-            )
-        if self.target_rank is not None and self.target_rank <= 0:
-            raise ValueError(
-                f"Unsloth: target_rank must be positive, got {self.target_rank}."
-            )
-        if not (0.0 <= self.gamma < 1.0):
-            raise ValueError(
-                f"Unsloth: gamma must be in [0, 1), got {self.gamma}."
-            )
-        if not (0.0 < self.select_topk <= 1.0):
-            raise ValueError(
-                f"Unsloth: select_topk must be in (0, 1], got {self.select_topk}."
-            )
-        if self.method in ("della", "della_linear"):
-            if not (0.0 < self.della_epsilon):
-                raise ValueError(
-                    f"Unsloth: della_epsilon must be positive, got {self.della_epsilon}."
-                )
-            if self.density - self.della_epsilon <= 0 or self.density + self.della_epsilon >= 1:
-                raise ValueError(
-                    f"Unsloth: density ± della_epsilon must stay within (0, 1); "
-                    f"got density={self.density}, della_epsilon={self.della_epsilon}."
-                )
-
-
-# ---------------------------------------------------------------------------
 # Adapter I/O helpers
 # ---------------------------------------------------------------------------
+
+
 
 def _load_adapter_config(adapter_path: str) -> dict:
     """Load a PEFT adapter_config.json from *adapter_path*.
@@ -288,6 +290,8 @@ def _load_adapter_state_dict(adapter_path: str) -> Dict[str, torch.Tensor]:
 # ---------------------------------------------------------------------------
 # Delta reconstruction  ΔW = (α / r) × (B × A)
 # ---------------------------------------------------------------------------
+
+
 
 def _normalize_module_key(base_key: str) -> str:
     """Normalise a PEFT lora module key to the base model parameter name.
@@ -373,550 +377,10 @@ def _reconstruct_deltas(
 
 
 # ---------------------------------------------------------------------------
-# Merge strategies
-# ---------------------------------------------------------------------------
-
-
-def _ties_merge_key(
-    per_adapter_deltas: List[torch.Tensor],
-    per_adapter_weights: List[float],
-    density: float = 0.5,
-) -> torch.Tensor:
-    """TIES-merge ONE module's deltas (streaming per-module math).
-
-    Steps (aligned with mergekit's ``generalized_task_arithmetic`` TIES):
-      1. **Trim**: zero out the bottom (1 − density) of each adapter's delta
-         by magnitude (top-k thresholding).
-      2. **Elect sign**: per element, elect the dominant sign from the
-         *weighted sum of deltas* — ``sign(Σ wᵢ·δᵢ)`` — so magnitude and
-         weight jointly influence the vote (mergekit ``sum`` consensus).
-      3. **Disjoint merge**: for each element, average only the adapters whose
-         (trimmed) delta agrees with the elected sign, normalizing by the
-         *sum of the aligned weights* (``Σ wᵢ``), not the count.
-    """
-    if len(per_adapter_deltas) == 1:
-        # Single adapter: skip TIES overhead; just scale.
-        return per_adapter_deltas[0] * per_adapter_weights[0]
-
-    shape = per_adapter_deltas[0].shape
-
-    # Step 1: Trim — top-k by magnitude per adapter.
-    trimmed = []
-    for delta in per_adapter_deltas:
-        flat = delta.view(-1)
-        k = max(1, int(density * flat.numel()))
-        threshold = flat.abs().topk(k).values[-1]
-        mask = flat.abs() >= threshold
-        trimmed.append((flat * mask.float()).view(delta.shape))
-
-    # Step 2: Elect sign — mergekit ``sum`` consensus: the sign of the
-    # weighted sum of the (trimmed) deltas. Magnitude and weight jointly
-    # influence the election.
-    weighted_sum = torch.zeros(shape, dtype=torch.float32)
-    for t, w in zip(trimmed, per_adapter_weights):
-        weighted_sum += w * t
-    elected_sign = weighted_sum.sign()
-    # Where elected sign is 0 (perfect tie), default to positive.
-    elected_sign[elected_sign == 0] = 1.0
-
-    # Step 3: Disjoint merge — average aligned contributions, normalized by
-    # the sum of the aligned weights (mergekit divisor), not the count.
-    acc = torch.zeros(shape, dtype=torch.float32)
-    weight_sum = torch.zeros(shape, dtype=torch.float32)
-    for t, w in zip(trimmed, per_adapter_weights):
-        aligned = (t.sign() == elected_sign) & (t != 0)
-        acc += (t * w) * aligned.float()
-        weight_sum += w * aligned.float()
-
-    weight_sum = weight_sum.clamp(min=1e-8)
-    merged = acc / weight_sum
-    # Cleanup
-    del trimmed, weighted_sum, elected_sign, acc, weight_sum
-    return merged
-
-
-
-def _dare_ties_merge_key(
-    per_adapter_deltas: List[torch.Tensor],
-    per_adapter_weights: List[float],
-    density: float = 0.5,
-    drop_rate: float = 0.5,
-    seed: Optional[int] = None,
-) -> torch.Tensor:
-    """DARE-TIES merge ONE module's deltas.
-
-    Steps:
-      1. **DARE (Drop and Rescale)**:
-         Randomly zero out deltas with probability `drop_rate` using a Bernoulli mask,
-         and rescale remaining values by `1 / (1 - drop_rate)` to keep expected magnitude intact.
-      2. **TIES-Merging**:
-         Trim bottom `(1 - density)` of values by magnitude, elect dominant sign,
-         and perform disjoint average of sign-aligned weights.
-    """
-    if len(per_adapter_deltas) == 1:
-        return per_adapter_deltas[0] * per_adapter_weights[0]
-
-    # Step 1: DARE mask & rescale
-    rescaled_deltas = []
-    scale = 1.0 / (1.0 - drop_rate) if drop_rate < 1.0 else 1.0
-    generator = torch.Generator().manual_seed(seed) if seed is not None else None
-
-    for i, delta in enumerate(per_adapter_deltas):
-        if drop_rate > 0.0:
-            # Keep probability is (1.0 - drop_rate)
-            keep_prob = 1.0 - drop_rate
-            mask = torch.bernoulli(
-                torch.full(delta.shape, keep_prob, dtype=torch.float32, device=delta.device),
-                generator=generator,
-            )
-            rescaled = delta * mask * scale
-        else:
-            rescaled = delta
-        rescaled_deltas.append(rescaled)
-
-    # Step 2 & 3: TIES merge on rescaled deltas
-    return _ties_merge_key(rescaled_deltas, per_adapter_weights, density=density)
-
-
-def _dare_linear_merge_key(
-    per_adapter_deltas: List[torch.Tensor],
-    per_adapter_weights: List[float],
-    drop_rate: float = 0.5,
-    seed: Optional[int] = None,
-) -> torch.Tensor:
-    """DARE + Linear merge ONE module's deltas (no sign election).
-
-    Same Drop-and-Rescale step as DARE-TIES, followed by a plain weighted
-    sum instead of TIES' trim/elect/disjoint-average. Suits adapter sets
-    whose signs already agree, where the sign voting adds interference
-    risk rather than removing it.
-    """
-    if len(per_adapter_deltas) == 1:
-        return per_adapter_deltas[0] * per_adapter_weights[0]
-
-    scale = 1.0 / (1.0 - drop_rate) if drop_rate < 1.0 else 1.0
-    generator = torch.Generator().manual_seed(seed) if seed is not None else None
-    merged: Optional[torch.Tensor] = None
-    for delta, weight in zip(per_adapter_deltas, per_adapter_weights):
-        if drop_rate > 0.0:
-            keep_prob = 1.0 - drop_rate
-            mask = torch.bernoulli(
-                torch.full(delta.shape, keep_prob, dtype=torch.float32, device=delta.device),
-                generator=generator,
-            )
-            contribution = delta * mask * scale
-        else:
-            contribution = delta
-        contribution = contribution.to(torch.float32) * weight
-        merged = contribution if merged is None else merged + contribution
-    assert merged is not None  # len > 1 guard above
-    return merged
-
-
-def _magnitude_prune_merge_key(
-    per_adapter_deltas: List[torch.Tensor],
-    per_adapter_weights: List[float],
-    density: float = 0.5,
-) -> torch.Tensor:
-    """Magnitude-prune merge ONE module's deltas (PEFT ``magnitude_prune``).
-
-    Keeps the top ``density`` fraction of each adapter's delta by absolute
-    magnitude (zeroing the rest), then takes the weighted sum. Like TIES'
-    trim stage but without sign election — cheap sparsification that
-    produces compact merged deltas for sign-consistent adapter sets.
-    """
-    if len(per_adapter_deltas) == 1:
-        return per_adapter_deltas[0] * per_adapter_weights[0]
-
-    merged = torch.zeros_like(per_adapter_deltas[0], dtype=torch.float32)
-    for delta, weight in zip(per_adapter_deltas, per_adapter_weights):
-        delta32 = delta.to(torch.float32)
-        if density < 1.0:
-            flat_abs = delta32.abs().flatten()
-            keep_num = max(1, int(flat_abs.numel() * density))
-            if keep_num < flat_abs.numel():
-                # kthvalue avoids torch.quantile's ~16M-element limit.
-                threshold = flat_abs.kthvalue(flat_abs.numel() - keep_num + 1).values
-                mask = flat_abs.view_as(delta32) >= threshold
-                delta32 = torch.where(mask, delta32, torch.zeros_like(delta32))
-        merged += delta32 * weight
-    return merged
-
-
-def _cat_merge_key(
-    per_adapter_factors: List[Tuple[torch.Tensor, torch.Tensor, float, float]],
-) -> torch.Tensor:
-    """Concatenation merge ONE module's LoRA factors (PEFT ``combination_type="cat"``).
-
-    ΔW = concat_j(√(w_j·s_j)·B_j) @ concat_j(√(w_j·s_j)·A_j), preserving every
-    adapter's full contribution — no averaging, hence no interference. Applied
-    to model weights this is numerically the weighted sum (Linear); the
-    factorized concatenation matters when the merge is exported as a
-    rank-extended adapter instead of into the base weights.
-    """
-    a_parts = []
-    b_parts = []
-    for A, B, scaling, weight in per_adapter_factors:
-        magnitude = (abs(weight) * abs(scaling)) ** 0.5
-        sign = 1.0 if weight >= 0 else -1.0
-        a_parts.append(A.to(torch.float32) * magnitude)
-        b_parts.append(B.to(torch.float32) * (magnitude * sign))
-    return torch.cat(b_parts, dim=1).mm(torch.cat(a_parts, dim=0))
-
-
-def _ctm_merge_key(
-    per_adapter_deltas: List[torch.Tensor],
-    per_adapter_weights: List[float],
-    target_rank: Optional[int] = None,
-) -> torch.Tensor:
-    """CtM (Compress-then-Merge) via SVD orthogonal subspace projection.
-
-    Steps:
-      1. Accumulate weighted delta sum ΔW = ∑ w_i * ΔW_i in float32.
-      2. If target_rank is specified and smaller than min(dim), perform truncated SVD:
-         ΔW ≈ U_r @ diag(S_r) @ Vh_r
-         This isolates the principal directions of task features, eliminating destructive
-         cross-adapter noise and parameter interference.
-    """
-    if len(per_adapter_deltas) == 1:
-        merged_delta = per_adapter_deltas[0] * per_adapter_weights[0]
-    else:
-        merged_delta = sum(d * w for d, w in zip(per_adapter_deltas, per_adapter_weights))
-
-    if target_rank is not None and merged_delta.ndim == 2:
-        m, n = merged_delta.shape
-        r = min(target_rank, m, n)
-        if r < min(m, n):
-            # Compute thin SVD in float32 for maximum numerical stability
-            U, S, Vh = torch.linalg.svd(merged_delta.to(torch.float32), full_matrices=False)
-            U_r = U[:, :r]
-            S_r = S[:r]
-            Vh_r = Vh[:r, :]
-            # Low-rank reconstruction
-            merged_delta = (U_r * S_r.unsqueeze(0)) @ Vh_r
-
-    return merged_delta
-
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# Sparsifiers shared by DELLA / breadcrumbs (adapted from mergekit.sparsify)
-# ---------------------------------------------------------------------------
-
-def _della_magprune_tensor(
-    tensor: torch.Tensor,
-    density: float,
-    epsilon: float,
-    generator: Optional[torch.Generator] = None,
-) -> torch.Tensor:
-    """DELLA magnitude pruning (mergekit ``della_magprune``).
-
-    Rows are ranked by magnitude; keep-probability interpolates linearly
-    between ``density - epsilon`` (lowest rank) and ``density + epsilon``
-    (highest rank), then a Bernoulli mask is sampled per element.
-    Reference: mergekit/sparsify.py ``della_magprune``.
-    """
-    if density >= 1:
-        return tensor
-    orig_shape = tensor.shape
-    work = tensor.to(torch.float32)
-    if work.dim() < 2:
-        work = work.unsqueeze(0)
-
-    sorted_indices = torch.argsort(work.abs(), dim=1, descending=False)
-    ranks = sorted_indices.argsort(dim=1).to(torch.float32) + 1
-    min_ranks = ranks.min(dim=1, keepdim=True).values
-    max_ranks = ranks.max(dim=1, keepdim=True).values
-    rank_norm = ((ranks - min_ranks) / (max_ranks - min_ranks)).clamp(0, 1)
-    probs = (density - epsilon) + rank_norm * 2 * epsilon
-    mask = torch.bernoulli(probs, generator=generator)
-    return (work * mask).reshape(orig_shape)
-
-
-def _magnitude_outliers_tensor(
-    tensor: torch.Tensor,
-    density: float,
-    gamma: float = 0.01,
-) -> torch.Tensor:
-    """Breadcrumbs pruning (mergekit ``magnitude_outliers``).
-
-    First removes the ``gamma`` fraction of *largest* magnitudes (outliers),
-    then removes the smallest magnitudes to reach the target ``density``.
-    Reference: mergekit/sparsify.py ``magnitude_outliers``; Breadcrumbs paper
-    (Davari & Belilovsky, 2024, arXiv:2312.06795).
-    """
-    if density >= 1:
-        return tensor
-    num_elems = tensor.numel()
-    target_n = int(density * num_elems)
-    n_top = int(gamma * num_elems)
-    # Reduce the outlier removal when necessary to retain the target density.
-    n_bot = max(0, num_elems - target_n - n_top)
-
-    w = tensor.abs().reshape(-1).to(torch.float32)
-    indices = torch.sort(w, descending=False).indices
-    mask = torch.zeros(num_elems, dtype=torch.float32)
-    mask[indices[n_bot : n_bot + target_n]] = 1.0
-    return tensor.to(torch.float32) * mask.reshape_as(tensor)
-
-
-# ---------------------------------------------------------------------------
-# New merge strategies (per-module ``*_merge_key`` functions)
-# ---------------------------------------------------------------------------
-
-def _della_merge_key(
-    per_adapter_deltas: List[torch.Tensor],
-    per_adapter_weights: List[float],
-    density: float = 0.5,
-    della_epsilon: float = 0.15,
-    seed: Optional[int] = None,
-    sign_elect: bool = True,
-) -> torch.Tensor:
-    """DELLA merge ONE module's deltas (mergekit ``della_magprune`` + TIES).
-
-    Rank-based probabilistic pruning (higher-magnitude elements get a higher
-    keep probability), followed by TIES sign election + disjoint average when
-    ``sign_elect`` is True, or a plain weighted sum when False
-    (``della_linear``).
-    Reference: mergekit/sparsify.py ``della_magprune``.
-    """
-    if len(per_adapter_deltas) == 1:
-        return per_adapter_deltas[0] * per_adapter_weights[0]
-
-    generator = torch.Generator().manual_seed(seed) if seed is not None else None
-    pruned = [
-        _della_magprune_tensor(d, density, della_epsilon, generator=generator)
-        for d in per_adapter_deltas
-    ]
-    if sign_elect:
-        return _ties_merge_key(pruned, per_adapter_weights, density=1.0)
-    merged = torch.zeros_like(pruned[0], dtype=torch.float32)
-    for d, w in zip(pruned, per_adapter_weights):
-        merged += d * w
-    return merged
-
-
-def _della_linear_merge_key(
-    per_adapter_deltas: List[torch.Tensor],
-    per_adapter_weights: List[float],
-    density: float = 0.5,
-    della_epsilon: float = 0.15,
-    seed: Optional[int] = None,
-) -> torch.Tensor:
-    """DELLA + linear weighted sum (no sign election)."""
-    return _della_merge_key(
-        per_adapter_deltas, per_adapter_weights,
-        density=density, della_epsilon=della_epsilon, seed=seed,
-        sign_elect=False,
-    )
-
-
-def _breadcrumbs_merge_key(
-    per_adapter_deltas: List[torch.Tensor],
-    per_adapter_weights: List[float],
-    density: float = 0.5,
-    gamma: float = 0.01,
-    sign_elect: bool = False,
-) -> torch.Tensor:
-    """Breadcrumbs merge ONE module's deltas (mergekit ``magnitude_outliers``).
-
-    Drops the ``gamma`` fraction of largest magnitudes (outliers) *and* the
-    smallest magnitudes down to ``density``, then merges. ``sign_elect=False``
-    gives ``breadcrumbs`` (weighted sum); ``True`` gives ``breadcrumbs_ties``.
-    Reference: mergekit/sparsify.py ``magnitude_outliers``; Breadcrumbs paper
-    (arXiv:2312.06795).
-    """
-    if len(per_adapter_deltas) == 1:
-        return per_adapter_deltas[0] * per_adapter_weights[0]
-
-    pruned = [
-        _magnitude_outliers_tensor(d, density=density, gamma=gamma)
-        for d in per_adapter_deltas
-    ]
-    if sign_elect:
-        return _ties_merge_key(pruned, per_adapter_weights, density=1.0)
-    merged = torch.zeros_like(pruned[0], dtype=torch.float32)
-    for d, w in zip(pruned, per_adapter_weights):
-        merged += d * w
-    return merged
-
-
-def _breadcrumbs_ties_merge_key(
-    per_adapter_deltas: List[torch.Tensor],
-    per_adapter_weights: List[float],
-    density: float = 0.5,
-    gamma: float = 0.01,
-) -> torch.Tensor:
-    """Breadcrumbs + TIES sign election."""
-    return _breadcrumbs_merge_key(
-        per_adapter_deltas, per_adapter_weights,
-        density=density, gamma=gamma, sign_elect=True,
-    )
-
-
-def _sce_merge_key(
-    per_adapter_deltas: List[torch.Tensor],
-    per_adapter_weights: List[float],
-    select_topk: float = 1.0,
-) -> torch.Tensor:
-    """SCE (Sign-Consensus Erasure) merge ONE module's deltas.
-
-    1. Optional variance-based mask: keep only the ``select_topk`` fraction of
-       elements with the highest cross-adapter variance.
-    2. Magnitude-based per-adapter weights: ``mean(δᵢ²) / Σ mean(δⱼ²)``.
-    3. Sign-consensus erase (mergekit ``sum`` consensus): drop deltas that
-       disagree with the elected sign.
-    4. Weighted sum normalized by the sum of surviving weights.
-
-    Reference: mergekit/merge_methods/sce.py; SCE paper (arXiv:2408.07990).
-    Note: SCE derives its own per-adapter weights from delta energies, so the
-    user-supplied ``per_adapter_weights`` are intentionally unused (kept for
-    interface symmetry).
-    """
-    if len(per_adapter_deltas) == 1:
-        return per_adapter_deltas[0] * per_adapter_weights[0]
-
-    tvs = torch.stack([d.to(torch.float32) for d in per_adapter_deltas], dim=0)
-
-    # Step 1: variance-based element selection
-    if select_topk < 1.0:
-        var = torch.var(tvs, dim=0, unbiased=False)
-        nonzero = torch.count_nonzero(var)
-        k = int(nonzero.item() * select_topk)
-        if k == 0:
-            return torch.zeros_like(tvs[0])
-        _, indices = torch.topk(var.abs().view(-1), k=k, largest=True)
-        sel_mask = torch.zeros_like(var)
-        sel_mask.view(-1)[indices] = 1.0
-        tvs = tvs * sel_mask.unsqueeze(0)
-
-    # Step 2: magnitude-based per-adapter weights (SCE replaces user weights)
-    energies = tvs.square().reshape(tvs.shape[0], -1).mean(dim=1)
-    energy_sum = energies.sum()
-    if energy_sum.abs() < 1e-6:
-        tv_weights = torch.ones_like(energies) / energies.shape[0]
-    else:
-        tv_weights = energies / energy_sum
-
-    # Step 3: sign-consensus erase (mergekit `sum` consensus)
-    sign = tvs.sign()
-    majority_sign = (tvs.sum(dim=0) >= 0).to(torch.float32) * 2 - 1
-    erase_mask = (sign == majority_sign).to(torch.float32)
-
-    # Step 4: weighted sum normalized by surviving weights
-    while tv_weights.dim() < tvs.dim():
-        tv_weights = tv_weights.unsqueeze(-1)
-    erased_weights = tv_weights * erase_mask
-    merged = (tvs * erased_weights).sum(dim=0)
-    merged = merged / erased_weights.sum(dim=0).clamp(min=1e-6)
-    return merged
-
-
-def _multislerp_merge_key(
-    per_adapter_deltas: List[torch.Tensor],
-    per_adapter_weights: List[float],
-    eps: float = 1e-8,
-) -> torch.Tensor:
-    """Multi-SLERP merge ONE module's deltas (barycentric hypersphere interp).
-
-    LoRA-delta adaptation of mergekit ``multislerp``: operates directly on the
-    deltas (no base tensor — the "origin" of the hypersphere is the zero
-    delta). Projects deltas to a unit hypersphere, interpolates in the tangent
-    space at the weighted mean, projects back, and rescales by the weighted
-    average of the original norms.
-
-    Reference: mergekit/merge_methods/multislerp.py
-    """
-    if len(per_adapter_deltas) == 1:
-        return per_adapter_deltas[0] * per_adapter_weights[0]
-
-    tensors = torch.stack([d.to(torch.float32) for d in per_adapter_deltas], dim=0)
-    weights = torch.tensor(per_adapter_weights, dtype=torch.float32)
-    weights = weights / weights.sum()
-
-    flat = tensors.view(tensors.shape[0], -1)
-    norms = torch.norm(flat, dim=-1, keepdim=True)
-    unit = flat / (norms + eps)
-
-    mean = (unit * weights.view(-1, 1)).sum(0)
-    mean_norm = torch.norm(mean)
-    if mean_norm < eps:
-        # Antipodal / balancing weights — fall back to linear interpolation.
-        # Match mergekit multislerp.py: reshape weights to broadcast over all
-        # trailing tensor dimensions regardless of tensor rank (1D, 2D, etc.).
-        view_shape = (-1,) + (1,) * (tensors.dim() - 1)
-        return (tensors * weights.view(*view_shape)).sum(0)
-    mean = mean / mean_norm
-
-    dots = (unit * mean).sum(-1, keepdim=True)
-    tangent = unit - dots * mean
-    tangent_result = (tangent * weights.view(-1, 1)).sum(0)
-
-    tangent_norm = torch.norm(tangent_result) + eps
-    result = mean * torch.cos(tangent_norm) + tangent_result * (
-        torch.sin(tangent_norm) / tangent_norm
-    )
-    avg_norm = (norms.squeeze(-1) * weights).sum()
-    return (result * avg_norm).view(tensors.shape[1:])
-
-
-def _model_stock_merge_key(
-    per_adapter_deltas: List[torch.Tensor],
-    per_adapter_weights: List[float],
-) -> torch.Tensor:
-    """Model Stock merge ONE module's deltas (mergekit ``model_stock``).
-
-    LoRA-delta adaptation: in mergekit's formulation the base is W₀ and the
-    fine-tuned models are W₀+δᵢ, so the offsets are exactly our deltas δᵢ.
-    The merged result is ``t · mean(δᵢ)`` where ``t = N·cosθ / (1+(N−1)·cosθ)``
-    and cosθ is the mean pairwise cosine similarity of the deltas. When all
-    deltas point the same way (cosθ→1), t→1 (keep everything); when they are
-    orthogonal (cosθ→0), t→0 (fall back toward the base — i.e. merge to zero
-    delta). Requires ≥ 3 adapters.
-
-    Reference: mergekit/merge_methods/model_stock.py; Model Stock paper
-    (Jang et al., 2024, arXiv:2403.19522).
-    Note: ``per_adapter_weights`` are not used — Model Stock is uniformly
-    weighted by construction.
-    """
-    n = len(per_adapter_deltas)
-    if n < 3:
-        raise ValueError(
-            f"Unsloth: model_stock requires at least 3 adapters, got {n}."
-        )
-
-    # Compute in float32 on flattened deltas (mergekit non-filter-wise mode).
-    flats = [d.reshape(-1).to(torch.float32) for d in per_adapter_deltas]
-
-    cos_thetas = []
-    for idx, offset_a in enumerate(flats):
-        for offset_b in flats[idx + 1:]:
-            norm_product = torch.norm(offset_a) * torch.norm(offset_b)
-            cos_thetas.append(
-                ((offset_a * offset_b).sum() / norm_product.clamp(min=1e-6))
-                .clamp(-1, 1)
-            )
-
-    cos_theta = torch.stack(cos_thetas).mean(dim=0)
-    denominator = 1 + (n - 1) * cos_theta
-    # At the singularity there is no finite interpolation estimate; keep the
-    # base (zero delta) instead of amplifying opposing updates.
-    singular = denominator.abs() < 1e-6
-    if singular:
-        return torch.zeros_like(per_adapter_deltas[0])
-    t = (n * cos_theta) / denominator
-
-    average = sum(flats) / n
-    merged = (t * average).reshape(per_adapter_deltas[0].shape)
-    return merged
-
-
-# ---------------------------------------------------------------------------
 # Compatibility validation
 # ---------------------------------------------------------------------------
+
+
 
 def _validate_adapters(
     configs: List[dict],
@@ -955,6 +419,8 @@ def _validate_adapters(
 # Public orchestrator
 # ---------------------------------------------------------------------------
 
+
+
 def merge_adapters_into_model(
     model: torch.nn.Module,
     adapter_paths: List[str],
@@ -962,58 +428,51 @@ def merge_adapters_into_model(
     method: str = "linear",
     normalize_weights: bool = True,
     density: float = 0.5,
-    drop_rate: float = 0.5,
     target_rank: Optional[int] = None,
     seed: int = 42,
-    della_epsilon: float = 0.15,
-    gamma: float = 0.01,
-    select_topk: float = 1.0,
     hf_token=None,
     report_callback=None,
 ) -> torch.nn.Module:
-    """Merge multiple LoRA adapters into *model* in-place.
+    """Merge multiple LoRA adapters into *model* using PEFT.
+
+    Each adapter in *adapter_paths* is loaded onto *model* as a named PEFT
+    adapter, combined with PEFT's ``add_weighted_adapter`` and then merged into
+    the base weights with ``merge_and_unload``. The merge arithmetic is PEFT's,
+    not Unsloth's.
 
     Parameters
     ----------
     model : torch.nn.Module
-        A base model (or a PeftModel whose base is to be modified).
+        A base model. A PeftModel is accepted too: its adapter is merged into
+        the base first, so the result is base + the selected adapters.
     adapter_paths : list[str]
-        Paths to PEFT adapter directories on disk.
+        Paths to PEFT adapter directories, or ``{"repo_id": ..., "subfolder":
+        ...}`` dicts for Hub adapters.
     weights : list[float] | None
-        Per-adapter merge weights.  Defaults to equal weighting.
-        Note: SCE ignores these (it derives weights from delta energies).
-    method : ``"linear"`` | ``"ties"`` | ``"dare_ties"`` | ``"dare_linear"`` | \
-``"magnitude_prune"`` | ``"ctm"`` | ``"cat"`` | ``"sce"`` | ``"della"`` | \
-``"della_linear"`` | ``"breadcrumbs"`` | ``"breadcrumbs_ties"`` | ``"multislerp"`` | \
-``"model_stock"``
-        Merge strategy.
+        Per-adapter merge weights (default: equal). Normalised to sum to one
+        unless *normalize_weights* is ``False``.
+    method : ``"linear"`` | ``"svd"`` | ``"cat"`` | ``"ties"`` | \
+``"dare_ties"`` | ``"dare_linear"`` | ``"magnitude_prune"``
+        PEFT combination type. ``"dare"`` and ``"ctm"`` are accepted as
+        aliases for ``"dare_ties"`` and ``"svd"``.
     normalize_weights : bool
-        If ``True``, weights are normalised to sum to 1.
+        Normalise the weights to sum to 1 (what PEFT recommends).
     density : float
-        TIES/DARE/DELLA/breadcrumbs/magnitude-prune density parameter (fraction of
-        top-k params to keep).
-    drop_rate : float
-        DARE drop rate (fraction of non-essential weight deltas to mask). Only used
-        when ``method in ("dare_ties", "dare_linear")``.
+        PEFT ``density`` for ``ties``/``dare_ties``/``dare_linear``/
+        ``magnitude_prune``: the fraction of weight deltas kept (1.0 keeps
+        everything).
     target_rank : int | None
-        Target rank for SVD low-rank compression. Only used when ``method="ctm"``.
+        PEFT ``svd_rank`` for ``svd``: the rank of the output adapter.
     seed : int
-        Deterministic seed for reproducible DARE/DELLA dropout masking.
-    della_epsilon : float
-        DELLA probability half-width around ``density`` (mergekit epsilon).
-        Only used when ``method in ("della", "della_linear")``.
-    gamma : float
-        Breadcrumbs outlier-removal fraction (mergekit gamma).
-        Only used when ``method in ("breadcrumbs", "breadcrumbs_ties")``.
-    select_topk : float
-        SCE variance-selection fraction (1.0 = keep all).
-        Only used when ``method == "sce"``.
+        Seed for the DARE random drop, so a merge is reproducible.
+    hf_token, report_callback :
+        Hub token for private adapters; ``report_callback(message)`` receives
+        the progress lines that are printed.
 
     Returns
     -------
     model : torch.nn.Module
-        The same model, with merged ΔW applied to its base weights.  Any
-        existing PEFT adapter layers are unloaded so the model is ready for
+        A plain base model with the merged deltas applied, ready for
         ``save_pretrained_merged``.
     """
     if weights is None:
@@ -1028,15 +487,11 @@ def merge_adapters_into_model(
         method=method,
         normalize_weights=normalize_weights,
         density=density,
-        drop_rate=drop_rate,
         target_rank=target_rank,
         seed=seed,
-        della_epsilon=della_epsilon,
-        gamma=gamma,
-        select_topk=select_topk,
     )
 
-    # Determine human-friendly display names for logging (e.g. "my-adapter (checkpoint-500)")
+    # Human-friendly display names for logging, e.g. "my-adapter (checkpoint-500)".
     display_names = [
         _adapter_display_name(raw, resolved)
         for raw, resolved in zip(adapter_paths, config.adapter_paths)
@@ -1056,222 +511,83 @@ def merge_adapters_into_model(
         )
     )
 
-    # 1. Load and validate adapter configs.
+    # 1. Load and validate the adapter configs before touching the model.
     adapter_configs: List[dict] = []
     for path in config.adapter_paths:
         cfg = _load_adapter_config(path)
         adapter_configs.append(cfg)
     _validate_adapters(adapter_configs, config.adapter_paths)
 
-    # If model is a PeftModel, get the underlying base model first.
+    # PEFT does the merge. Imported here so the module stays torch-only at
+    # import time: the Studio interference preflight loads this file directly on
+    # CPU-only hosts that need no peft.
+    from peft import PeftModel
+
+    # 2. Fold any adapter already attached to the model into the base first, so
+    #    only the selected adapters are applied on top of it.
     base_model = model
-    try:
-        from peft import PeftModel
-        if isinstance(model, PeftModel):
-            base_model = model.merge_and_unload()
-            report("  Unloaded existing PEFT adapter layers.")
-    except ImportError:
-        pass
+    if isinstance(model, PeftModel):
+        base_model = model.merge_and_unload()
+        report("  Merged the model's existing PEFT adapter into the base weights.")
 
-    # Linear merging is streamed so only one adapter's deltas and one layer's
-    # device copy exist at a time. This avoids an O(N adapters) memory spike.
+    # 3. Load every selected adapter onto the base as a named PEFT adapter.
     total_adapters = len(config.adapter_paths)
-    if config.method == "linear":
-        model_params = dict(base_model.named_parameters())
-        applied = 0
-        skipped = 0
-        for idx, (path, name, cfg, weight) in enumerate(
-            zip(config.adapter_paths, display_names, adapter_configs, config.weights),
-            start=1,
-        ):
-            report(f"  Loading adapter: {name} ({path})")
-            pct = int((idx - 1) / total_adapters * 100)
-            report(f"Merge progress: adapter {idx} of {total_adapters} ({pct}%)")
-            state_dict = _load_adapter_state_dict(path)
-            deltas = _reconstruct_deltas(state_dict, cfg)
-            del state_dict
-            delta_elements = sum(delta.numel() for delta in deltas.values())
-            delta_norm = sum(
-                float(delta.float().norm().item() ** 2) for delta in deltas.values()
-            ) ** 0.5
-            report(
-                f"Merge adapter {name}: modules={len(deltas)}, elements={delta_elements}, "
-                f"delta_norm={delta_norm:.6g}, effective_norm={abs(weight) * delta_norm:.6g}, "
-                f"weight={weight:.4f}"
+    adapter_names: List[str] = []
+    peft_model = None
+    for idx, (path, name) in enumerate(zip(config.adapter_paths, display_names)):
+        adapter_name = f"merge_adapter_{idx}"
+        pct = int(idx / total_adapters * 100)
+        report(f"  Loading adapter: {name} ({path})")
+        report(f"Merge progress: adapter {idx + 1} of {total_adapters} ({pct}%)")
+        if peft_model is None:
+            peft_model = PeftModel.from_pretrained(
+                base_model, path, adapter_name=adapter_name
             )
-            adapter_applied = 0
-            adapter_skipped = 0
-            for key, delta in deltas.items():
-                param = model_params.get(key)
-                if param is None:
-                    skipped += 1
-                    adapter_skipped += 1
-                    continue
-                # Update in place; do not materialize a second full model state dict.
-                param.data.add_(delta.to(device=param.device, dtype=param.dtype), alpha=weight)
-                applied += 1
-                adapter_applied += 1
-            report(
-                f"Merge coverage {name}: applied={adapter_applied}, "
-                f"skipped={adapter_skipped}"
-            )
-            pct_done = int(idx / total_adapters * 100)
-            report(f"Merge progress: adapter {idx} of {total_adapters} ({pct_done}%)")
-            del deltas
-            gc.collect()
-    else:
-        # TIES, DARE-TIES, and CtM need every adapter's deltas for a module only WHILE
-        # that module is merged, so stream: keep the small low-rank A/B factors resident
-        # and reconstruct, merge, and apply one module's deltas per iteration.
-        adapter_factors: List[Dict[str, Tuple[torch.Tensor, torch.Tensor]]] = []
-        scalings: List[float] = []
-        for idx, (path, name, cfg) in enumerate(
-            zip(config.adapter_paths, display_names, adapter_configs),
-            start=1,
-        ):
-            report(f"  Loading adapter: {name} ({path})")
-            pct = int((idx - 1) / (total_adapters * 2) * 100)
-            report(f"Merge progress: loading factors {idx} of {total_adapters} ({pct}%)")
-            state_dict = _load_adapter_state_dict(path)
-            adapter_factors.append(_group_lora_factors(state_dict))
-            del state_dict  # the factors keep references to the tensors
-            scalings.append(_adapter_scaling(cfg))
-            gc.collect()
-
-        model_params = dict(base_model.named_parameters())
-        # Sorted for a deterministic merge order.
-        module_keys = sorted({key for factors in adapter_factors for key in factors})
-        applied = 0
-        skipped = 0
-        total_modules = len(module_keys)
-        # Report progress periodically (every 10% or at least a few steps) to avoid log spam
-        step_interval = max(1, total_modules // 10)
-        for mod_idx, module_key in enumerate(module_keys, start=1):
-            per_adapter_deltas = []
-            per_adapter_weights = []
-            # Raw (A, B, scaling, weight) tuples — used by the "cat" method,
-            # which composes from factors instead of reconstructed deltas.
-            per_adapter_factors = []
-            for factors, scaling, weight in zip(
-                adapter_factors, scalings, config.weights
-            ):
-                pair = factors.get(module_key)
-                if pair is None:
-                    continue  # this adapter didn't touch this module
-                A, B = pair
-                per_adapter_factors.append((A, B, scaling, weight))
-                per_adapter_deltas.append(_delta_for_module(A, B, scaling))
-                per_adapter_weights.append(weight)
-            if not per_adapter_deltas:
-                continue
-
-            if config.method == "ties":
-                delta = _ties_merge_key(
-                    per_adapter_deltas, per_adapter_weights, config.density
-                )
-            elif config.method == "dare_ties":
-                delta = _dare_ties_merge_key(
-                    per_adapter_deltas,
-                    per_adapter_weights,
-                    density=config.density,
-                    drop_rate=config.drop_rate,
-                    seed=config.seed,
-                )
-            elif config.method == "ctm":
-                delta = _ctm_merge_key(
-                    per_adapter_deltas,
-                    per_adapter_weights,
-                    target_rank=config.target_rank,
-                )
-            elif config.method == "dare_linear":
-                delta = _dare_linear_merge_key(
-                    per_adapter_deltas,
-                    per_adapter_weights,
-                    drop_rate=config.drop_rate,
-                    seed=config.seed,
-                )
-            elif config.method == "magnitude_prune":
-                delta = _magnitude_prune_merge_key(
-                    per_adapter_deltas,
-                    per_adapter_weights,
-                    density=config.density,
-                )
-            elif config.method == "cat":
-                delta = _cat_merge_key(per_adapter_factors)
-            elif config.method == "della":
-                delta = _della_merge_key(
-                    per_adapter_deltas,
-                    per_adapter_weights,
-                    density=config.density,
-                    della_epsilon=config.della_epsilon,
-                    seed=config.seed,
-                    sign_elect=True,
-                )
-            elif config.method == "della_linear":
-                delta = _della_linear_merge_key(
-                    per_adapter_deltas,
-                    per_adapter_weights,
-                    density=config.density,
-                    della_epsilon=config.della_epsilon,
-                    seed=config.seed,
-                )
-            elif config.method == "breadcrumbs":
-                delta = _breadcrumbs_merge_key(
-                    per_adapter_deltas,
-                    per_adapter_weights,
-                    density=config.density,
-                    gamma=config.gamma,
-                    sign_elect=False,
-                )
-            elif config.method == "breadcrumbs_ties":
-                delta = _breadcrumbs_ties_merge_key(
-                    per_adapter_deltas,
-                    per_adapter_weights,
-                    density=config.density,
-                    gamma=config.gamma,
-                )
-            elif config.method == "sce":
-                delta = _sce_merge_key(
-                    per_adapter_deltas,
-                    per_adapter_weights,
-                    select_topk=config.select_topk,
-                )
-            elif config.method == "multislerp":
-                delta = _multislerp_merge_key(
-                    per_adapter_deltas,
-                    per_adapter_weights,
-                )
-            elif config.method == "model_stock":
-                delta = _model_stock_merge_key(
-                    per_adapter_deltas,
-                    per_adapter_weights,
-                )
-            else:
-                raise ValueError(f"Unsupported merge method: {config.method}")
-
-            del per_adapter_deltas
-            param = model_params.get(module_key)
-            if param is None:
-                skipped += 1
-                continue
-            # Update in place; do not materialize a second full model state dict.
-            param.data.add_(delta.to(device=param.device, dtype=param.dtype))
-            applied += 1
-            del delta
-
-            if mod_idx % step_interval == 0 or mod_idx == total_modules:
-                # Factor loading took 0..50%, module merge takes 50..100%
-                pct = 50 + int((mod_idx / total_modules) * 50)
-                report(f"Merge progress: module {mod_idx} of {total_modules} ({pct}%)")
-
-        report(
-            f"Merge {config.method.upper()}: merged_modules={len(module_keys)}"
-        )
-        del adapter_factors
-        gc.collect()
-
-    report(
-        f"Merge complete: applied={applied}"
-        f"{f', skipped={skipped}' if skipped else ''}"
+        else:
+            peft_model.load_adapter(path, adapter_name=adapter_name)
+        adapter_names.append(adapter_name)
+    # 4. Combine the adapters with PEFT. DARE's random drop reads the global
+    #    torch RNG, so the configured seed is applied for that one call and the
+    #    RNG state restored afterwards (device RNG included).
+    kwargs = _peft_combination_kwargs(
+        config.method, config.density, config.target_rank
     )
-    return base_model
+    report(f"Merge: combining adapters with PEFT combination_type='{config.method}'")
+
+    rng_state = torch.get_rng_state()
+    cuda_rng_state = (
+        torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+    )
+    if config.method in ("dare_ties", "dare_linear"):
+        torch.manual_seed(config.seed)
+    try:
+        try:
+            peft_model.add_weighted_adapter(
+                adapter_names,
+                list(config.weights),
+                adapter_name="merged",
+                **kwargs,
+            )
+        except ValueError as exc:
+            # PEFT rejects, for example, mixed LoRA ranks for the factor-space
+            # combinations, or two adapters saving the same modules. Say which
+            # method failed instead of surfacing the bare PEFT error.
+            raise ValueError(
+                f"Unsloth: PEFT could not combine the adapters with method "
+                f"'{config.method}': {exc}"
+            ) from exc
+    finally:
+        torch.set_rng_state(rng_state)
+        if cuda_rng_state is not None:
+            try:
+                torch.cuda.set_rng_state_all(cuda_rng_state)
+            except Exception:
+                pass
+
+    peft_model.set_adapter("merged")
+    report("Merge progress: merging the combined adapter into the base weights")
+    merged_model = peft_model.merge_and_unload()
+
+    report(f"Merge complete: method={config.method}, adapters={total_adapters}")
+    gc.collect()
+    return merged_model
