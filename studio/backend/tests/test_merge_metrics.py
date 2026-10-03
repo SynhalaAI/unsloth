@@ -226,6 +226,117 @@ class TestRecommendation:
         assert metrics._classify(0.25) == "moderate"
         assert metrics._classify(0.9) == "high"
 
+
+class TestDominance:
+    """The second axis: agreeing adapters that still leave one carrying the merge.
+
+    Cosine, conflict and score 0 all describe two adapters that face the same
+    way; none of them notice that one delta is 27x the other. Before this axis a
+    set like that read "low interference".
+    """
+
+    def test_even_adapters_have_no_dominance(self, metrics):
+        assert metrics._dominance_score(1.0) == 0.0
+        # Below 1 is the same gap read the other way round.
+        assert metrics._dominance_score(0.5) == 0.0
+
+    def test_the_axis_is_logarithmic(self, metrics):
+        # A multiplicative failure: 2x matters to 10x as 10x matters to 50x, so
+        # equal ratios must sit equal distances apart.
+        two_to_ten = metrics._dominance_score(10.0) - metrics._dominance_score(2.0)
+        ten_to_fifty = metrics._dominance_score(50.0) - metrics._dominance_score(10.0)
+        assert two_to_ten == pytest.approx(ten_to_fifty, rel = 1e-6)
+
+    def test_a_dominant_adapter_raises_severity_with_no_disagreement(self, metrics):
+        # The merge from the bug report: adapters that do not conflict at all
+        # (cosine ~0, conflict at chance) but one is far larger.
+        assert metrics._classify(metrics._score(0.02, 0.5, 1.0)) == "low"
+        assert metrics._classify(metrics._score(0.02, 0.5, 2.0)) == "moderate"
+        assert metrics._classify(metrics._score(0.02, 0.5, 5.5)) == "moderate"
+        assert metrics._classify(metrics._score(0.02, 0.5, 27.5)) == "high"
+
+    def test_dominance_is_the_worse_axis_not_an_average(self, metrics):
+        # Averaging would let a balanced, opposed pair wash out a dominant one
+        # and vice versa. Either axis being bad has to be enough on its own.
+        opposed_and_even = metrics._score(-0.7, 0.6, 1.0)
+        agreeing_and_dominant = metrics._score(0.02, 0.5, 27.5)
+        assert metrics._classify(opposed_and_even) == "high"
+        assert metrics._classify(agreeing_and_dominant) == "high"
+        assert metrics._score(0.0, 0.0, 1.0) == 0.0
+
+    def test_dominance_reads_direction_off_the_pair(self, metrics):
+        # norm_ratio is ||first|| / ||second||, so a ratio below 1 means the
+        # second adapter is the larger one and must be named as such.
+        pairs = [
+            {"a": "Small", "b": "Big", "shared_modules": 393, "norm_ratio": 0.2},
+            {"a": "Big", "b": "Other", "shared_modules": 245, "norm_ratio": 1.5},
+        ]
+        ratio, larger, smaller = metrics._dominance(pairs)
+        assert ratio == pytest.approx(5.0)
+        assert (larger, smaller) == ("Big", "Small")
+
+    def test_pairs_without_shared_modules_are_not_even(self, metrics):
+        # A disjoint pair has no ratio at all; it must not be read as 1.0 and
+        # must not outrank a real gap.
+        pairs = [
+            {"a": "x", "b": "y", "shared_modules": 0, "norm_ratio": 1.0},
+            {"a": "Small", "b": "Big", "shared_modules": 10, "norm_ratio": 0.25},
+        ]
+        ratio, larger, smaller = metrics._dominance(pairs)
+        assert ratio == pytest.approx(4.0)
+        assert (larger, smaller) == ("Big", "Small")
+
+class TestDominance:
+    """The widest norm gap between two adapters, surfaced on its own axis.
+
+    Interference (opposition and sign disagreement) used to be the only thing
+    that could move severity, so an adapter set in perfect agreement still read
+    "low" with one member carrying the whole merge.
+    """
+
+    def test_dominance_axis_reads_logarithmically(self, metrics):
+        # 1.0 is even by construction; 2x is the first visibly uneven merge and
+        # 10x is past the point where one adapter carries the result.
+        assert metrics._dominance_score(1.0) == 0.0
+        assert metrics._dominance_score(0.5) == 0.0
+        assert metrics._classify(metrics._dominance_score(1.6)) == "low"
+        assert metrics._classify(metrics._dominance_score(2.0)) == "moderate"
+        assert metrics._classify(metrics._dominance_score(5.5)) == "moderate"
+        assert metrics._classify(metrics._dominance_score(10.0)) == "high"
+        assert metrics._dominance_score(10_000.0) == pytest.approx(1.0)
+
+    def test_severity_takes_the_worse_axis(self, metrics):
+        # No dominance: exactly the old number.
+        assert metrics._score(0.02, 0.5, 1.0) == pytest.approx(0.0)
+        # A 27x gap on an otherwise agreeing set - dominance alone is enough.
+        dominated = metrics._score(0.02, 0.5, 27.5)
+        assert metrics._classify(dominated) == "high"
+        # And a bad disagreement is still visible when the set is balanced.
+        assert metrics._score(-0.7, 0.6, 1.0) == pytest.approx(0.45)
+
+    def test_dominance_names_the_outranking_side(self, metrics):
+        pairs = [
+            {"a": "big", "b": "small", "shared_modules": 10, "norm_ratio": 5.5},
+            {"a": "even", "b": "small", "shared_modules": 10, "norm_ratio": 0.4},
+        ]
+        # 0.4 is the other way round: small outranks even by 2.5x, but big still
+        # wins the maximum at 5.5x.
+        ratio, larger, smaller = metrics._dominance(pairs)
+        assert ratio == pytest.approx(5.5)
+        assert (larger, smaller) == ("big", "small")
+        # Pairs sharing no modules carry no ratio and must not read as even.
+        assert metrics._dominance(
+            [{"a": "x", "b": "y", "shared_modules": 0, "norm_ratio": 1.0}]
+        ) == (1.0, "", "")
+
+    def test_an_audio_style_gap_reads_high_while_agreeing(self, metrics):
+        # One adapter 5.5x the others with a near-zero cosine: nothing disagrees,
+        # yet the small one can barely contribute; shrinking it further to a 27x
+        # gap with a 0.2 weight only makes that worse.
+        assert metrics._classify(metrics._score(0.02, 0.5, 5.5)) == "moderate"
+        assert metrics._classify(metrics._score(0.02, 0.5, 27.5)) == "high"
+
+
 class TestAnalyzeAdapters:
     """End to end over adapter directories on disk, through the real core loader."""
 
@@ -298,6 +409,39 @@ class TestAnalyzeAdapters:
         (pair,) = report["pairs"]
         assert pair["cosine"] == pytest.approx(1.0, abs = 1e-3)
         assert pair["norm_ratio"] == pytest.approx(3.0, rel = 1e-3)
+
+    def test_an_uneven_pair_reports_dominance_even_when_it_agrees(self, analyze, tmp_path):
+        # Identical factors mirrored by a weight gap: same direction, no
+        # conflict, yet one adapter carries the merge. The report has to say so
+        # instead of stopping at "low interference".
+        factors = {"model.layers.0.self_attn.q_proj": _factors(4, 4, 2, seed = 20)}
+        first = _write_adapter(tmp_path / "first", factors)
+        second = _write_adapter(tmp_path / "second", factors)
+
+        report = analyze([str(first), str(second)], weights = [50.0, 1.0])
+
+        assert report["dominance"]["ratio"] == pytest.approx(50.0, rel = 1e-3)
+        assert report["dominance"]["adapter"] == report["adapters"][0]["name"]
+        assert report["dominance"]["against"] == report["adapters"][1]["name"]
+        assert report["dominance"]["score"] > 0.0
+        # Severity follows the worse axis, so dominance alone lifts the report
+        # out of "low" even with a perfect cosine and zero conflict.
+        assert report["interference"] == "high"
+        (pair,) = report["pairs"]
+        assert pair["cosine"] == pytest.approx(1.0, abs = 1e-3)
+        assert pair["sign_conflict_rate"] == 0.0
+
+    def test_an_even_pair_reports_no_dominance(self, analyze, tmp_path):
+        factors = {"model.layers.0.self_attn.q_proj": _factors(4, 4, 2, seed = 21)}
+        first = _write_adapter(tmp_path / "first", factors)
+        second = _write_adapter(tmp_path / "second", factors)
+
+        report = analyze([str(first), str(second)])
+
+        assert report["dominance"]["ratio"] == pytest.approx(1.0)
+        assert report["dominance"]["score"] == 0.0
+        assert report["dominance"]["adapter"] == ""
+        assert report["interference"] == "low"
 
     def test_worst_modules_name_the_layer_that_conflicts(self, analyze, tmp_path):
         shared_agreeing = {"model.layers.0.self_attn.q_proj": _factors(4, 4, 2, seed = 10)}

@@ -164,6 +164,13 @@ class MergeAnalyzeResponse(BaseModel):
         False,
         description = "True when the sign budget ran out, so the sign rate is a sample.",
     )
+    dominance: Dict[str, Any] = Field(
+        default_factory = dict,
+        description = "Widest norm gap between two adapters: ratio, the adapter "
+        "that outranks the other, and its own 0..1 score. A different failure "
+        "from disagreement: adapters can agree perfectly and still leave one "
+        "carrying the merge.",
+    )
     recommendation: Dict[str, Any] = Field(
         default_factory = dict,
         description = "Suggested method, density and a one-line reason.",

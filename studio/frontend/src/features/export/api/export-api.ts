@@ -288,8 +288,23 @@ export interface MergeAnalyzeReport {
   mean_cosine: number;
   max_sign_conflict_rate: number;
   interference: MergeInterference;
-  /** Interference in 0..1, combining opposition and sign disagreement. */
+  /** Severity in 0..1: the worse of disagreement and dominance. */
   score: number;
+  /**
+   * The widest norm gap between two adapters. A different failure from
+   * disagreement: adapters can agree on direction and still leave one
+   * carrying the whole merge, which the score used to miss entirely.
+   */
+  dominance: {
+    /** Largest norm ratio seen over any pair sharing modules; 1 = evenly weighted. */
+    ratio: number;
+    /** Adapter whose delta is larger. Empty when every pair is even. */
+    adapter: string;
+    /** Adapter it outranks. */
+    against: string;
+    /** 0..1, logarithmic in ratio; drives severity when it exceeds disagreement. */
+    score: number;
+  };
   /** True when the sign budget ran out, so sign rates come from a sample. */
   sign_scan_truncated: boolean;
   recommendation: {

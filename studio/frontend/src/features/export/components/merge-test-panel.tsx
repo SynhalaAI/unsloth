@@ -96,6 +96,20 @@ export function MergeTestPanel({
 
   const severity = INTERFERENCE_STYLE[report.interference];
   const recommendation = report.recommendation;
+  // Older backends predate the dominance field; read it as evenly weighted
+  // rather than crashing on the missing key.
+  const dominance = report.dominance ?? {
+    ratio: 1,
+    adapter: "",
+    against: "",
+    score: 0,
+  };
+  // Severity folds dominance into the score, so the badge would otherwise read
+  // "interference" for a pair that agrees on direction. Name the real driver.
+  const dominanceDrives =
+    dominance.adapter !== "" &&
+    dominance.score >= report.score &&
+    report.interference !== "low";
 
   return (
     <div className="space-y-3 rounded-md border px-3 py-2.5">
@@ -104,7 +118,13 @@ export function MergeTestPanel({
           className={`flex items-center gap-1.5 text-xs font-medium ${severity.accent}`}
         >
           <HugeiconsIcon icon={severity.icon} className="size-4" />
-          {severity.text}
+          {dominanceDrives ? (
+            <>
+              Dominance: {dominance.adapter} outweighs {dominance.against}
+            </>
+          ) : (
+            severity.text
+          )}
         </div>
         <span className="text-ui-11 text-muted-foreground">
           {report.pairs.length} pair{report.pairs.length === 1 ? "" : "s"} compared
@@ -115,6 +135,14 @@ export function MergeTestPanel({
           <span className="text-muted-foreground">Mean cosine </span>
           <span className="font-medium text-foreground">
             {formatCosine(report.mean_cosine)}
+          </span>
+        </div>
+        <div>
+          <span className="text-muted-foreground">Dominance </span>
+          <span className="font-medium text-foreground">
+            {dominance.adapter !== "" && dominance.ratio > 1.01
+              ? `${dominance.ratio.toFixed(1)}x (${dominance.adapter} over ${dominance.against})`
+              : "even"}
           </span>
         </div>
         <div>

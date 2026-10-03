@@ -25,6 +25,11 @@ Reported per adapter pair, over the modules the two share:
   one adapter dominates the merged model whatever the weights say.
 * ``worst_modules`` - the shared modules with the lowest cosine, so a conflict
   can be traced to a layer instead of guessed at.
+* ``dominance`` - how far the widest norm gap between two adapters reaches. This
+  is a different failure from interference: two adapters can agree perfectly
+  (cosine 1, conflict 0, score 0) and still leave one carrying the whole merge.
+  ``norm_ratio`` was always reported for that, but nothing fed it into the
+  score, so a 27x-dominant set read "low interference".
 
 ``interference`` / ``score`` / ``recommendation`` are heuristics over those
 numbers, documented in ``_recommend``. They estimate interference, not
@@ -35,6 +40,7 @@ merge arithmetic is reimplemented here, this module only measures inputs.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
@@ -90,6 +96,12 @@ _SCORE_HIGH = 0.35
 
 # How many conflicting modules a pair names, worst first.
 _WORST_MODULE_COUNT = 3
+
+# Dominance is read on a log axis: the failure mode is multiplicative, so 2x
+# matters to 10x the way 10x matters to 50x. 2.5 puts a 2x gap at 0.12
+# (moderate, where a visibly uneven merge starts to worry) and a 10x gap at
+# 0.40 (high, past the point where one adapter carries the result).
+_DOMINANCE_LOG_HIGH = 2.5
 
 
 def _core():
@@ -195,6 +207,61 @@ def _module_name(key: str) -> str:
     """A module key for display: the core normalises to base-parameter names, which
     carry a trailing ``.weight`` the user never sees in ``target_modules``."""
     return key[: -len(".weight")] if key.endswith(".weight") else key
+
+
+def _dominance_score(ratio: float) -> float:
+    """0..1 for how far one adapter outweighs the other.
+
+    ``ratio`` is the widest norm gap over any pair's shared modules, so 1.0
+    means the adapters are even. Logarithmic rather than linear for the reason
+    ``_DOMINANCE_LOG_HIGH`` gives: a linear axis reads 0 until the gap is absurd.
+    """
+    if ratio <= 1.0:
+        return 0.0
+    return min(1.0, math.log10(ratio) / _DOMINANCE_LOG_HIGH)
+
+
+def _dominance(pairs: List[dict]) -> Tuple[float, str, str]:
+    """The widest ``(ratio, larger, smaller)`` gap over pairs that share modules.
+
+    Each pair's ``norm_ratio`` is already weighted the way the merge would weight
+    it, so this answers "in the merge that would run, who outweighs whom".
+    Pairs sharing no modules carry no ratio and are skipped rather than treated
+    as even.
+    """
+    ratio = 1.0
+    larger = smaller = ""
+    for pair in pairs:
+        if not pair.get("shared_modules"):
+            continue
+        current = float(pair.get("norm_ratio") or 0.0)
+        if current <= 0.0:
+            continue
+        effective = current if current >= 1.0 else 1.0 / current
+        if effective > ratio:
+            ratio = effective
+            larger, smaller = (
+                (pair["a"], pair["b"]) if current >= 1.0 else (pair["b"], pair["a"])
+            )
+    return ratio, larger, smaller
+
+
+def _score(
+    mean_cosine: float,
+    max_conflict: float,
+    dominance_ratio: float = 1.0,
+) -> float:
+    """Severity in 0..1 - the worse of interference and dominance.
+
+    Opposition and sign disagreement are blended exactly as before, so a pair
+    that only disagrees reads the number it always did. Dominance is combined by
+    taking the worse axis rather than averaging the two: averaging would let a
+    balanced set wash out an opposed pair, and let an opposed pair wash out a
+    27x-dominant one. The two are different failures and either alone is enough
+    to send the reader looking.
+    """
+    interference = 0.5 * max(0.0, -mean_cosine) + 0.5 * max(0.0, 2.0 * max_conflict - 1.0)
+    return max(0.0, min(1.0, max(interference, _dominance_score(dominance_ratio))))
 
 
 def _classify(score: float) -> str:
@@ -467,16 +534,10 @@ def analyze_adapters(
         (pair["sign_conflict_rate"] for pair in pairs if pair["shared_modules"] > 0),
         default=0.0,
     )
-    # Opposition and disagreement each contribute half, so one opposed pair in a
-    # large set cannot be drowned out by several orthogonal ones. The sign term
-    # measures excess over the 0.5 chance level, rescaled to 0..1.
-    score = max(
-        0.0,
-        min(
-            1.0,
-            0.5 * max(0.0, -mean_cosine) + 0.5 * max(0.0, 2.0 * max_conflict - 1.0),
-        ),
-    )
+    # The opposition and sign terms are blended inside _score; dominance is the
+    # other axis, and either being bad is enough.
+    dominance_ratio, dominant_adapter, dominated_adapter = _dominance(pairs)
+    score = _score(mean_cosine, max_conflict, dominance_ratio)
     recommendation = _recommend(
         mean_cosine, max_conflict, any(pair["shared_modules"] for pair in pairs)
     )
@@ -488,6 +549,12 @@ def analyze_adapters(
         "max_sign_conflict_rate": max_conflict,
         "interference": _classify(score),
         "score": score,
+        "dominance": {
+            "ratio": dominance_ratio,
+            "adapter": dominant_adapter,
+            "against": dominated_adapter,
+            "score": _dominance_score(dominance_ratio),
+        },
         "sign_scan_truncated": sign_truncated,
         "recommendation": recommendation,
     }
