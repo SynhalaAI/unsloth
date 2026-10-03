@@ -16,11 +16,14 @@ Reported per adapter pair, over the modules the two share:
   other, which is what TIES sign election resolves. Computed from the low-rank
   factors through <B1 A1, B2 A2> = <B1^T B2, A1 A2^T> and
   ||B A||^2 = <B^T B, A A^T>, so no full-rank delta is materialised for it.
-* ``sign_conflict_rate`` - share of weight positions where both adapters move
-  the weight (above a small fraction of the delta's own scale) and disagree in
-  sign. 0.5 is the chance level for two independent adapters, so a rate well
-  below that means they agree, while a rate at 0.5 means they are orthogonal
-  rather than opposed.
+* ``sign_conflict_rate`` - how much of the disagreement is *beyond* what
+  independence predicts, in 0..1. Two unrelated adapters do not disagree 0% of
+  the time: each has its own positive-negative balance, and independence alone
+  gives ``p1(1-p2) + (1-p1)p2``. Subtracting that removes "unrelated" from
+  "opposed", so 0 now means the pair is at chance and only cancellation is
+  scored. The vote itself is weighted by how much each coordinate could
+  actually cancel (``min(|d1|, |d2|)``), so a disagreement on a coordinate
+  worth 1e-6 no longer counts as much as one on a coordinate worth 10.
 * ``norm_ratio`` - ||di|| / ||dj|| over the shared modules. A large ratio means
   one adapter dominates the merged model whatever the weights say.
 * ``worst_modules`` - the shared modules with the lowest cosine, so a conflict
@@ -42,7 +45,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
 # studio/backend/core/export/merge_metrics.py -> the repository root, which is
 # where the source checkout keeps unsloth/multi_adapter_merge.py.
@@ -70,20 +73,22 @@ _SIGN_BLOCK_ROWS = 256
 # the block RMS delta are treated as untouched.
 _SIGN_REL_EPS = 1e-3
 
-# Per-pair verdicts, from the two numbers that carry the signal: how opposed the
-# two deltas are (cosine) and how often they disagree in sign. A linear sum is
-# safe while the deltas agree; TIES trims the weakest entries and elects one
-# sign per coordinate, which is what rescues an opposed pair; DARE adds a
-# random drop-and-rescale before that, which pays off once conflicts are dense.
+# Per-pair verdicts on the excess-over-chance scale, where 0 means "these two
+# disagree exactly as much as independence predicts" and 1 means "they disagree
+# everywhere they could". Both numbers carrying the signal are already on that
+# scale: cosine is 0 at orthogonal and -1 at opposed, and conflict arrives from
+# ``_excess_over_chance``, so no baseline is subtracted a second time here.
+#
+# A linear sum is safe while the deltas agree (low excess); TIES trims the
+# weakest entries and elects one sign per coordinate, which is what rescues an
+# opposed pair; DARE adds a random drop-and-rescale before that, which pays off
+# only once the disagreement is dense. The old thresholds sat on raw rates
+# against an assumed 0.5 baseline and read very differently once the pair's own
+# sign bias is removed: 0.60 raw is a fifth of the disagreement that is left.
 _LINEAR_MAX_COSINE = 0.5
-_LINEAR_MAX_CONFLICT = 0.15
-_TIES_MAX_CONFLICT = 0.30
-# Deliberately above the 0.5 chance level. Two independent adapters disagree on
-# half their positions by construction, so a threshold below 0.5 makes DARE fire
-# on every orthogonal pair - and DARE sheds 70% of each delta at density 0.3,
-# which is exactly the signal a pair that does not conflict should keep. 0.6 is
-# the first rate that is excess over chance rather than chance itself.
-_DARE_MIN_CONFLICT = 0.60
+_LINEAR_MAX_CONFLICT = 0.10
+_TIES_MAX_CONFLICT = 0.25
+_DARE_MIN_CONFLICT = 0.40
 
 # Severity buckets over the same score the recommendation derives from. The
 # score halves each of its two terms, so a realistic opposition (cosine -0.3)
@@ -167,19 +172,49 @@ def _module_cosine(A1, B1, A2, B2, scaling1: float, scaling2: float) -> float:
     return dot / ((n1**0.5) * (n2**0.5))
 
 
-def _sign_scan(A1, B1, A2, B2, scaling1: float, scaling2: float) -> Tuple[int, int]:
-    """Count (disagreements, comparable positions) over one module's delta.
+class SignScan(NamedTuple):
+    """What one module's scan found, as counts and as magnitudes.
+
+    The counts exist for the sign budget: truncation has to say how much of the
+    model was looked at, which only a position count can express. The weighted
+    side is what the rate is built from - see ``_pair_metrics``.
+    """
+
+    disagreements: int
+    comparable: int
+    weighted_disagreements: float
+    total_weight: float
+    positive1: float
+    positive2: float
+
+
+def _sign_scan(A1, B1, A2, B2, scaling1: float, scaling2: float) -> SignScan:
+    """Measure disagreement over one module's delta, by count and by magnitude.
 
     Materialises the delta one row block at a time, so a 128k-row embedding
     costs the same memory as a small projection. Only positions where both
     adapters move the weight are comparable: a position one adapter left alone
     is not a disagreement, and `_SIGN_REL_EPS` is what makes that distinction
     real for a dense reconstruction.
+
+    Two things are summed that a plain count of sign flips cannot give:
+
+    * each position's vote is weighted by ``min(|d1|, |d2|)`` - the amount that
+      could actually cancel there, so a 1e-6 disagreement on a coordinate worth
+      1e-6 stops being equal to a 10-point disagreement on one worth 10;
+    * the sign biases ``p1``, ``p2`` (weighted positive fractions), so the
+      caller can subtract what two independent adapters would have shown. A
+      pair that is positive on 80% of its positions disagrees 32% of the time
+      by construction, which is agreement rather than conflict.
     """
     import torch
 
     disagreements = 0
     comparable = 0
+    weighted_disagreements = 0.0
+    total_weight = 0.0
+    positive1 = 0.0
+    positive2 = 0.0
     rows = B1.shape[0]
     A1 = A1.to(torch.float32)
     A2 = A2.to(torch.float32)
@@ -198,9 +233,70 @@ def _sign_scan(A1, B1, A2, B2, scaling1: float, scaling2: float) -> Tuple[int, i
         count = int(both.sum().item())
         if count == 0:
             continue
+        first = d1[both]
+        second = d2[both]
+        disagree = torch.sign(first) != torch.sign(second)
+        # min of the magnitudes: what this coordinate could lose to cancellation.
+        weight = torch.minimum(first.abs(), second.abs())
+
         comparable += count
-        disagreements += int((torch.sign(d1[both]) != torch.sign(d2[both])).sum().item())
-    return disagreements, comparable
+        disagreements += int(disagree.sum().item())
+        total_weight += float(weight.sum().item())
+        weighted_disagreements += float(weight[disagree].sum().item())
+        positive1 += float(weight[first > 0].sum().item())
+        positive2 += float(weight[second > 0].sum().item())
+    return SignScan(
+        disagreements,
+        comparable,
+        weighted_disagreements,
+        total_weight,
+        positive1,
+        positive2,
+    )
+
+
+def _mean_cosine(pairs: List[dict]) -> float:
+    """Cosine across the merge, weighted by how many modules each pair shares.
+
+    A plain average treats a 2-module overlap as equal to a 393-module one, so
+    one thin pair can decide the headline for a set that behaves nothing like
+    it. Pairs sharing no modules carry no cosine and no weight; an empty set
+    reads 0, meaning "unrelated" rather than "aligned".
+    """
+    weight = sum(pair["shared_modules"] for pair in pairs)
+    if not weight:
+        return 0.0
+    return sum(pair["cosine"] * pair["shared_modules"] for pair in pairs) / weight
+
+
+def _excess_over_chance(
+    weighted_disagreements: float,
+    total_weight: float,
+    positive1: float,
+    positive2: float,
+) -> float:
+    """Disagreement a pair shows beyond what independence predicts, in 0..1.
+
+    Two unrelated adapters do not disagree 0% of the time - they disagree at
+    ``p1(1 - p2) + (1 - p1)p2``, where ``p`` is each one's weighted share of
+    positive positions. An adapter that moves 80% of its weights upward and one
+    that moves 80% downward disagree on 32% of positions while being no more
+    opposed than chance, and the raw rate reports that as conflict. Subtracting
+    the pair's own baseline and rescaling what is left separates "these two
+    cancel" from "these two are unrelated", which the raw rate cannot.
+
+    Zero when either delta is empty, and zero when the pair is at or below its
+    baseline rather than negative: agreement is not a smaller amount of conflict.
+    """
+    if total_weight <= 0.0:
+        return 0.0
+    observed = weighted_disagreements / total_weight
+    p1 = positive1 / total_weight
+    p2 = positive2 / total_weight
+    chance = p1 * (1.0 - p2) + (1.0 - p1) * p2
+    if chance >= 1.0:
+        return 0.0
+    return max(0.0, (observed - chance) / (1.0 - chance))
 
 
 def _module_name(key: str) -> str:
@@ -253,14 +349,18 @@ def _score(
 ) -> float:
     """Severity in 0..1 - the worse of interference and dominance.
 
-    Opposition and sign disagreement are blended exactly as before, so a pair
-    that only disagrees reads the number it always did. Dominance is combined by
-    taking the worse axis rather than averaging the two: averaging would let a
-    balanced set wash out an opposed pair, and let an opposed pair wash out a
-    27x-dominant one. The two are different failures and either alone is enough
-    to send the reader looking.
+    ``max_conflict`` arrives already corrected for the pair's own sign bias
+    (``_excess_over_chance``), so it is conflict in 0..1 and not a raw rate that
+    has to have the old 0.5 chance level subtracted again. Opposition and
+    disagreement each contribute half, so one opposed pair in a large set cannot
+    be drowned out by several orthogonal ones.
+
+    Dominance is combined by taking the worse axis rather than averaging the
+    two: averaging would let a balanced set wash out an opposed pair, and let an
+    opposed pair wash out a 27x-dominant one. The two are different failures and
+    either alone is enough to send the reader looking.
     """
-    interference = 0.5 * max(0.0, -mean_cosine) + 0.5 * max(0.0, 2.0 * max_conflict - 1.0)
+    interference = 0.5 * max(0.0, -mean_cosine) + 0.5 * max(0.0, max_conflict)
     return max(0.0, min(1.0, max(interference, _dominance_score(dominance_ratio))))
 
 
@@ -280,6 +380,11 @@ def _recommend(cosine: float, conflict: float, overlap: bool) -> Dict[str, objec
     follow what each method is documented to fix - a weighted sum only survives
     adapters that agree, TIES rescues opposed signs, DARE additionally sheds
     redundant entries once the disagreements are dense.
+
+    ``conflict`` is excess over the pair's own chance level (0 means the two
+    disagree exactly as independence predicts), not a raw sign-disagreement rate.
+    Passing a raw rate here reads every orthogonal pair as dense conflict, which
+    is how DARE came to be recommended for merges with nothing to shed.
     """
     if not overlap:
         return {
@@ -301,7 +406,7 @@ def _recommend(cosine: float, conflict: float, overlap: bool) -> Dict[str, objec
             "method": "dare_ties",
             "density": 0.3,
             "reason": (
-                f"{conflict:.0%} of shared weights disagree in sign; DARE drops and "
+                f"{conflict:.0%} of the disagreement is beyond chance; DARE drops and "
                 "rescales the redundant entries before TIES elects the sign."
             ),
         }
@@ -358,6 +463,7 @@ def _pair_metrics(
             "module_overlap": 0.0,
             "cosine": 0.0,
             "sign_conflict_rate": 0.0,
+            "sign_positions": 0,
             "norm_ratio": 1.0,
             "worst_modules": [],
             "_sign_truncated": False,
@@ -366,8 +472,11 @@ def _pair_metrics(
     dot = 0.0
     norm1_sq = 0.0
     norm2_sq = 0.0
-    disagreements = 0
     comparable = 0
+    weighted_disagreements = 0.0
+    total_weight = 0.0
+    positive1 = 0.0
+    positive2 = 0.0
     truncated = False
     per_module = []
     for key in shared:
@@ -383,18 +492,33 @@ def _pair_metrics(
         module_cosine = _module_cosine(A1, B1, A2, B2, scaling1, scaling2)
         module_conflict = None
         if comparable < sign_budget:
-            found, count = _sign_scan(A1, B1, A2, B2, scaling1, scaling2)
+            scan = _sign_scan(A1, B1, A2, B2, scaling1, scaling2)
             remaining = sign_budget - comparable
+            count = scan.comparable
+            w_disc = scan.weighted_disagreements
+            w_tot = scan.total_weight
+            pos1 = scan.positive1
+            pos2 = scan.positive2
             if count > remaining:
-                # Out of budget: scale the count down to what the allowance
-                # covers, so the rate stays an estimate of the same rate rather
-                # than an over-count of a wider sample.
-                found = int(found * remaining / count) if count else 0
+                # Out of budget: scale what this module contributed down to the
+                # share the allowance covers, on the weighted side too, so the
+                # rate stays an estimate of the same rate rather than an
+                # over-count of a wider sample.
+                factor = (remaining / count) if count else 0.0
+                w_disc *= factor
+                w_tot *= factor
+                pos1 *= factor
+                pos2 *= factor
                 count = remaining
                 truncated = True
-            disagreements += found
             comparable += count
-            module_conflict = (found / count) if count else 0.0
+            weighted_disagreements += w_disc
+            total_weight += w_tot
+            positive1 += pos1
+            positive2 += pos2
+            # Per module, the same chance correction the pair gets, so a module
+            # is never named as a conflict for disagreeing at its own baseline.
+            module_conflict = _excess_over_chance(w_disc, w_tot, pos1, pos2)
         per_module.append((key, module_cosine, module_conflict))
 
     cosine = 0.0
@@ -419,7 +543,12 @@ def _pair_metrics(
         "shared_modules": len(per_module),
         "module_overlap": len(per_module) / max(modules1, modules2, 1),
         "cosine": cosine,
-        "sign_conflict_rate": (disagreements / comparable) if comparable else 0.0,
+        "sign_conflict_rate": _excess_over_chance(
+            weighted_disagreements, total_weight, positive1, positive2
+        ),
+        # Kept for the sign budget's own reporting: how much of the model was
+        # actually looked at, which only a position count can express.
+        "sign_positions": comparable,
         "norm_ratio": norm_ratio,
         "worst_modules": worst,
         "_sign_truncated": truncated,
@@ -529,7 +658,11 @@ def analyze_adapters(
                 sign_truncated = True
             pairs.append(pair)
 
-    mean_cosine = sum(pair["cosine"] for pair in pairs) / len(pairs) if pairs else 0.0
+    # Weighted by shared modules, not a plain average: a pair that touches 393
+    # modules and one that overlaps on 2 are not equally informative about where
+    # a merge will land, and an unweighted mean lets the thin overlap decide the
+    # headline. Pairs with no overlap contribute no cosine and no weight.
+    mean_cosine = _mean_cosine(pairs)
     max_conflict = max(
         (pair["sign_conflict_rate"] for pair in pairs if pair["shared_modules"] > 0),
         default=0.0,

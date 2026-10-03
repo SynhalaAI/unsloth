@@ -149,10 +149,15 @@ class MergeAnalyzeResponse(BaseModel):
         description = "Per-pair metrics: cosine, sign conflict rate, norm ratio, worst modules.",
     )
     mean_cosine: float = Field(
-        0.0, description = "Mean pairwise cosine across all adapter pairs."
+        0.0,
+        description = "Cosine across the merge, pooled by shared modules rather "
+        "than a plain average over pairs.",
     )
     max_sign_conflict_rate: float = Field(
-        0.0, description = "Highest sign-conflict rate across all pairs."
+        0.0,
+        description = "Highest sign conflict across all pairs, on the "
+        "excess-over-chance scale (0 = the pair disagrees no more than "
+        "independence predicts, 1 = they disagree everywhere they could).",
     )
     interference: Literal["low", "moderate", "high"] = Field(
         "low", description = "Severity bucket derived from the interference score."

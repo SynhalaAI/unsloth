@@ -272,8 +272,15 @@ export interface MergeAnalyzePair {
   module_overlap: number;
   /** -1 (opposed) .. 1 (aligned). Negative means the deltas fight. */
   cosine: number;
-  /** Share of shared weights where the two disagree in sign; 0.5 is chance. */
+  /**
+   * Disagreement beyond what this pair's own sign balance predicts, 0..1.
+   * 0 means the two disagree exactly as independence does (unrelated), 1 means
+   * they disagree everywhere they could (opposing). Magnitude-weighted, so a
+   * disagreement on a coordinate worth 1e-6 does not outweigh one worth 10.
+   */
   sign_conflict_rate: number;
+  /** Weight positions actually compared; a sign budget can make this a sample. */
+  sign_positions: number;
   /** ||di|| / ||dj||; > 1 means the first adapter dominates. */
   norm_ratio: number;
   worst_modules: MergeWorstModule[];
@@ -285,7 +292,9 @@ export interface MergeAnalyzeReport {
   success: boolean;
   adapters: MergeAnalyzeAdapter[];
   pairs: MergeAnalyzePair[];
+  /** Cosine across the merge, pooled by how many modules each pair shares. */
   mean_cosine: number;
+  /** Worst sign conflict across all pairs, on the excess-over-chance scale. */
   max_sign_conflict_rate: number;
   interference: MergeInterference;
   /** Severity in 0..1: the worse of disagreement and dominance. */

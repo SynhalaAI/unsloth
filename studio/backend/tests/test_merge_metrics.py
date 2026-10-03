@@ -142,30 +142,58 @@ class TestLowRankIdentities:
         A2 = torch.tensor([[1.0, 2.0, 3.0], [1.0, 1.0, 1.0]])
         B1 = torch.eye(2)
         B2 = torch.eye(2)
-        found, comparable = metrics._sign_scan(A1, B1, A2, B2, 1.0, 1.0)
-        assert comparable == 6
-        assert found == 3  # the negative row disagrees on all three columns
+        scan = metrics._sign_scan(A1, B1, A2, B2, 1.0, 1.0)
+        # The counts survive for the sign budget's own reporting.
+        assert scan.comparable == 6
+        assert scan.disagreements == 3  # the negative row disagrees on all three
+        # Every surviving position is worth min(|d1|, |d2|) = 1 here, so the
+        # weighted side agrees with the count side exactly.
+        assert scan.total_weight == pytest.approx(6.0)
+        assert scan.weighted_disagreements == pytest.approx(3.0)
 
     def test_sign_scan_ignores_positions_one_adapter_leaves_at_zero(self, metrics):
         A1 = torch.tensor([[1.0, 0.0]])
         A2 = torch.tensor([[-1.0, 1.0]])
         B1 = torch.ones(1, 1)
         B2 = torch.ones(1, 1)
-        found, comparable = metrics._sign_scan(A1, B1, A2, B2, 1.0, 1.0)
-        assert (found, comparable) == (1, 1)
+        scan = metrics._sign_scan(A1, B1, A2, B2, 1.0, 1.0)
+        assert (scan.disagreements, scan.comparable) == (1, 1)
+        # Only position 0 votes; it is worth min(1, 1).
+        assert scan.total_weight == pytest.approx(1.0)
 
     def test_sign_scan_drops_positions_below_the_delta_scale(self, metrics):
         # A reconstructed delta is dense, so `!= 0` counted float noise at
         # positions neither adapter really moved. Those signs are random and held
-        # the rate at the 0.5 chance level whatever the adapters did. Here only
-        # the first position is a real disagreement; the second is 1e-7 noise,
-        # which used to be counted too (comparable 2 instead of 1).
+        # the rate at the chance level whatever the adapters did. Here only the
+        # first position is a real disagreement; the second is 1e-7 noise, which
+        # used to be counted too (comparable 2 instead of 1).
         A1 = torch.tensor([[1.0, 1e-7]])
         A2 = torch.tensor([[-1.0, 1e-7]])
         B1 = torch.ones(1, 1)
         B2 = torch.ones(1, 1)
-        found, comparable = metrics._sign_scan(A1, B1, A2, B2, 1.0, 1.0)
-        assert (found, comparable) == (1, 1)
+        scan = metrics._sign_scan(A1, B1, A2, B2, 1.0, 1.0)
+        assert (scan.disagreements, scan.comparable) == (1, 1)
+        assert scan.total_weight == pytest.approx(1.0)
+
+    def test_a_disagreement_votes_by_what_it_could_cancel(self, metrics):
+        # Position 0 is a 1000-point coordinate and position 1 a 10-point one;
+        # only position 0 disagrees. Counting positions calls that a coin-flip
+        # (1 of 2), but position 0 is where the whole merge would cancel, so the
+        # weighted rate must sit near 1 rather than at 0.5.
+        A1 = torch.tensor([[1000.0, 10.0]])
+        A2 = torch.tensor([[-1000.0, 10.0]])
+        B1 = torch.ones(1, 1)
+        B2 = torch.ones(1, 1)
+        scan = metrics._sign_scan(A1, B1, A2, B2, 1.0, 1.0)
+        assert (scan.disagreements, scan.comparable) == (1, 2)
+        assert scan.total_weight == pytest.approx(1010.0)
+        assert scan.weighted_disagreements == pytest.approx(1000.0)
+        assert scan.weighted_disagreements / scan.total_weight == pytest.approx(
+            1000.0 / 1010.0
+        )
+        # The bias side is what lets the pair be judged against its own baseline.
+        assert scan.positive1 == pytest.approx(1010.0)  # d1 is positive twice
+        assert scan.positive2 == pytest.approx(10.0)  # d2 is positive only at 1
 
 
 class TestRecommendation:
@@ -190,36 +218,42 @@ class TestRecommendation:
         assert metrics._recommend(cosine = 0.2, conflict = 0.2, overlap = True)["method"] == "ties"
 
     def test_chance_level_disagreement_does_not_ask_for_dare_ties(self, metrics):
-        # Two independent adapters disagree on half their positions by
-        # construction, so the threshold has to sit above 0.5 or DARE fires on
-        # every orthogonal pair - and at density 0.3 DARE sheds 70% of each
-        # delta, which is exactly the signal a non-conflicting pair should keep.
-        assert metrics._recommend(cosine = 0.02, conflict = 0.5, overlap = True)["method"] != "dare_ties"
-        assert metrics._recommend(cosine = 0.02, conflict = 0.55, overlap = True)["method"] != "dare_ties"
+        # Conflict arrives as excess over the pair's own chance level, so 0.0 is
+        # exactly independence - the shape the Export page used to send to DARE.
+        # DARE sheds 70% of each delta, which is signal a non-conflicting pair
+        # should keep.
+        assert metrics._recommend(cosine = 0.02, conflict = 0.0, overlap = True)["method"] != "dare_ties"
+        assert metrics._recommend(cosine = 0.02, conflict = 0.2, overlap = True)["method"] != "dare_ties"
         # Genuinely dense disagreement still reaches DARE.
-        assert metrics._recommend(cosine = 0.3, conflict = 0.65, overlap = True)["method"] == "dare_ties"
+        assert metrics._recommend(cosine = 0.3, conflict = 0.5, overlap = True)["method"] == "dare_ties"
 
     def test_orthogonal_adapters_do_not_read_low_and_dare_at_once(self, metrics):
         # The Export page showed "Low interference" beside a dare_ties
-        # recommendation for this exact shape (cosine ~0.02, conflict ~0.5).
+        # recommendation for this exact shape (cosine ~0.02, at chance on sign).
         # Severity and the recommendation come off the same numbers, so they
         # have to agree.
-        conflict = 0.5
-        score = 0.5 * max(0.0, -0.02) + 0.5 * max(0.0, 2.0 * conflict - 1.0)
+        score = metrics._score(mean_cosine = 0.02, max_conflict = 0.0, dominance_ratio = 1.0)
         assert metrics._classify(score) == "low"
-        assert metrics._recommend(cosine = 0.02, conflict = conflict, overlap = True)["method"] != "dare_ties"
+        assert metrics._recommend(cosine = 0.02, conflict = 0.0, overlap = True)["method"] != "dare_ties"
 
     def test_high_severity_is_reachable_at_a_realistic_opposition(self, metrics):
         # "high" used to need a full -1.0 cosine or a 1.0 conflict rate, so a
         # pair opposed on most weights could never reach it. Both of these are
         # ordinary oppositions and both must now read as high.
-        opposed = 0.5 * max(0.0, -0.7) + 0.5 * max(0.0, 2.0 * 0.6 - 1.0)
+        opposed = metrics._score(-0.7, 0.6)
         assert metrics._classify(opposed) == "high"
-        dense = 0.5 * max(0.0, 0.0) + 0.5 * max(0.0, 2.0 * 0.85 - 1.0)
+        dense = metrics._score(0.0, 0.85)
         assert metrics._classify(dense) == "high"
         # A modest opposition lands in the middle rather than at the floor.
-        modest = 0.5 * max(0.0, -0.3) + 0.5 * max(0.0, 0.0)
+        modest = metrics._score(-0.3, 0.0)
         assert metrics._classify(modest) == "moderate"
+
+    def test_the_two_axes_arrive_on_one_scale(self, metrics):
+        # Both halves of the score are excess-over-chance now: cosine is 0 at
+        # orthogonal and conflict is 0 at independence, so neither has a baseline
+        # left to subtract. A pair that is unrelated on both reads nothing at all.
+        assert metrics._score(0.0, 0.0) == 0.0
+        assert metrics._classify(metrics._score(0.0, 0.0)) == "low"
 
     def test_severity_buckets_follow_the_score(self, metrics):
         assert metrics._classify(0.0) == "low"
@@ -250,19 +284,22 @@ class TestDominance:
     def test_a_dominant_adapter_raises_severity_with_no_disagreement(self, metrics):
         # The merge from the bug report: adapters that do not conflict at all
         # (cosine ~0, conflict at chance) but one is far larger.
-        assert metrics._classify(metrics._score(0.02, 0.5, 1.0)) == "low"
-        assert metrics._classify(metrics._score(0.02, 0.5, 2.0)) == "moderate"
-        assert metrics._classify(metrics._score(0.02, 0.5, 5.5)) == "moderate"
-        assert metrics._classify(metrics._score(0.02, 0.5, 27.5)) == "high"
+        # max_conflict is excess over chance: 0.0 means unrelated, not opposed.
+        assert metrics._classify(metrics._score(0.02, 0.0, 1.0)) == "low"
+        assert metrics._classify(metrics._score(0.02, 0.0, 2.0)) == "moderate"
+        assert metrics._classify(metrics._score(0.02, 0.0, 5.5)) == "moderate"
+        assert metrics._classify(metrics._score(0.02, 0.0, 27.5)) == "high"
 
     def test_dominance_is_the_worse_axis_not_an_average(self, metrics):
         # Averaging would let a balanced, opposed pair wash out a dominant one
         # and vice versa. Either axis being bad has to be enough on its own.
         opposed_and_even = metrics._score(-0.7, 0.6, 1.0)
-        agreeing_and_dominant = metrics._score(0.02, 0.5, 27.5)
+        agreeing_and_dominant = metrics._score(0.02, 0.0, 27.5)
         assert metrics._classify(opposed_and_even) == "high"
         assert metrics._classify(agreeing_and_dominant) == "high"
         assert metrics._score(0.0, 0.0, 1.0) == 0.0
+        # Averaging the two axes would never reach the top bucket.
+        assert metrics._classify(metrics._score(-0.7, 0.6, 1.0)) == "high"
 
     def test_dominance_reads_direction_off_the_pair(self, metrics):
         # norm_ratio is ||first|| / ||second||, so a ratio below 1 means the
@@ -286,55 +323,68 @@ class TestDominance:
         assert ratio == pytest.approx(4.0)
         assert (larger, smaller) == ("Big", "Small")
 
-class TestDominance:
-    """The widest norm gap between two adapters, surfaced on its own axis.
+class TestExcessOverChance:
+    """Conflict measured against each pair's own sign balance (Gap 2).
 
-    Interference (opposition and sign disagreement) used to be the only thing
-    that could move severity, so an adapter set in perfect agreement still read
-    "low" with one member carrying the whole merge.
+    A raw sign-disagreement rate cannot tell "these two cancel" from "these two
+    are unrelated": both land near the same number when the adapters' positive
+    and negative shares are similar. Subtracting what independence predicts is
+    the whole difference between conflict and indifference.
     """
 
-    def test_dominance_axis_reads_logarithmically(self, metrics):
-        # 1.0 is even by construction; 2x is the first visibly uneven merge and
-        # 10x is past the point where one adapter carries the result.
-        assert metrics._dominance_score(1.0) == 0.0
-        assert metrics._dominance_score(0.5) == 0.0
-        assert metrics._classify(metrics._dominance_score(1.6)) == "low"
-        assert metrics._classify(metrics._dominance_score(2.0)) == "moderate"
-        assert metrics._classify(metrics._dominance_score(5.5)) == "moderate"
-        assert metrics._classify(metrics._dominance_score(10.0)) == "high"
-        assert metrics._dominance_score(10_000.0) == pytest.approx(1.0)
+    def test_independence_scores_nothing(self, metrics):
+        # Symmetric marginals: chance is 0.5, and a 0.5 rate is not conflict.
+        assert metrics._excess_over_chance(0.5, 1.0, 0.5, 0.5) == pytest.approx(0.0)
 
-    def test_severity_takes_the_worse_axis(self, metrics):
-        # No dominance: exactly the old number.
-        assert metrics._score(0.02, 0.5, 1.0) == pytest.approx(0.0)
-        # A 27x gap on an otherwise agreeing set - dominance alone is enough.
-        dominated = metrics._score(0.02, 0.5, 27.5)
-        assert metrics._classify(dominated) == "high"
-        # And a bad disagreement is still visible when the set is balanced.
-        assert metrics._score(-0.7, 0.6, 1.0) == pytest.approx(0.45)
+    def test_a_rate_below_the_baseline_is_not_negative_conflict(self, metrics):
+        # Agreement is a smaller amount of disagreement, not an amount of conflict.
+        assert metrics._excess_over_chance(0.2, 1.0, 0.5, 0.5) == pytest.approx(0.0)
+        assert metrics._excess_over_chance(0.0, 1.0, 0.5, 0.5) == pytest.approx(0.0)
 
-    def test_dominance_names_the_outranking_side(self, metrics):
+    def test_a_bias_made_rate_stops_reading_as_agreement_or_conflict(self, metrics):
+        # Both adapters positive on 80% of positions disagree on 32% by
+        # construction. The raw rate called that near-perfect agreement; the
+        # corrected one calls it what it is - chance.
+        baseline = 0.8 * 0.2 + 0.2 * 0.8
+        assert baseline == pytest.approx(0.32)
+        assert metrics._excess_over_chance(0.32, 1.0, 0.8, 0.8) == pytest.approx(0.0)
+        # Same marginals, and the pair genuinely disagrees more than they explain.
+        assert metrics._excess_over_chance(0.5, 1.0, 0.8, 0.8) == pytest.approx(
+            (0.5 - baseline) / (1.0 - baseline)
+        )
+
+    def test_full_disagreement_rescales_to_the_remaining_headroom(self, metrics):
+        assert metrics._excess_over_chance(1.0, 1.0, 0.5, 0.5) == pytest.approx(1.0)
+
+    def test_no_measurable_weight_has_no_signal(self, metrics):
+        assert metrics._excess_over_chance(0.0, 0.0, 0.0, 0.0) == 0.0
+
+    def test_a_baseline_that_covers_every_position_has_nothing_left(self, metrics):
+        # p1 = 1 and p2 = 0 predicts disagreement everywhere, so no observation
+        # can exceed it. Guarded rather than dividing by zero.
+        assert metrics._excess_over_chance(1.0, 1.0, 1.0, 0.0) == 0.0
+
+
+class TestMeanCosinePooling:
+    """The headline cosine, weighted by how much of the merge each pair covers (Gap 3)."""
+
+    def test_a_thin_overlap_cannot_decide_the_headline(self, metrics):
         pairs = [
-            {"a": "big", "b": "small", "shared_modules": 10, "norm_ratio": 5.5},
-            {"a": "even", "b": "small", "shared_modules": 10, "norm_ratio": 0.4},
+            {"cosine": 1.0, "shared_modules": 393},
+            {"cosine": -1.0, "shared_modules": 7},
         ]
-        # 0.4 is the other way round: small outranks even by 2.5x, but big still
-        # wins the maximum at 5.5x.
-        ratio, larger, smaller = metrics._dominance(pairs)
-        assert ratio == pytest.approx(5.5)
-        assert (larger, smaller) == ("big", "small")
-        # Pairs sharing no modules carry no ratio and must not read as even.
-        assert metrics._dominance(
-            [{"a": "x", "b": "y", "shared_modules": 0, "norm_ratio": 1.0}]
-        ) == (1.0, "", "")
+        # An unweighted mean would say 0.0 - "the set is unrelated" - for a set
+        # that agrees on 98% of its shared modules.
+        assert (pairs[0]["cosine"] + pairs[1]["cosine"]) / 2 == 0.0
+        assert metrics._mean_cosine(pairs) == pytest.approx(386 / 400)
 
-    def test_an_audio_style_gap_reads_high_while_agreeing(self, metrics):
-        # One adapter 5.5x the others with a near-zero cosine: nothing disagrees,
-        # yet the small one can barely contribute; shrinking it further to a 27x
-        # gap with a 0.2 weight only makes that worse.
-        assert metrics._classify(metrics._score(0.02, 0.5, 5.5)) == "moderate"
-        assert metrics._classify(metrics._score(0.02, 0.5, 27.5)) == "high"
+    def test_equal_pairs_pool_to_their_common_value(self, metrics):
+        pairs = [{"cosine": 0.4, "shared_modules": 10}] * 3
+        assert metrics._mean_cosine(pairs) == pytest.approx(0.4)
+
+    def test_pairs_that_share_nothing_contribute_no_weight(self, metrics):
+        assert metrics._mean_cosine([{"cosine": -1.0, "shared_modules": 0}]) == 0.0
+        assert metrics._mean_cosine([]) == 0.0
 
 
 class TestAnalyzeAdapters:

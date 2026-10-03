@@ -146,7 +146,7 @@ export function MergeTestPanel({
           </span>
         </div>
         <div>
-          <span className="text-muted-foreground">Worst sign conflict </span>
+          <span className="text-muted-foreground">Conflict beyond chance </span>
           <span className="font-medium text-foreground">
             {formatRate(report.max_sign_conflict_rate)}
           </span>
@@ -170,7 +170,7 @@ export function MergeTestPanel({
             </div>
             <div className="mt-0.5 flex flex-wrap gap-x-3 text-muted-foreground">
               <span>cosine {formatCosine(pair.cosine)}</span>
-              <span>sign conflict {formatRate(pair.sign_conflict_rate)}</span>
+              <span>beyond chance {formatRate(pair.sign_conflict_rate)}</span>
               {pair.norm_ratio > 1.01 || pair.norm_ratio < 0.99 ? (
                 <span>
                   norm ratio{" "}
