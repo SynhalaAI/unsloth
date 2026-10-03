@@ -91,3 +91,22 @@ test("the panel separates interference from accuracy", () => {
   assert.match(panelSource, /not how accurate the merged model will be/);
   assert.match(panelSource, /report\.sign_scan_truncated/);
 });
+
+test("the panel surfaces dominance, not just interference", () => {
+  // Dominance is the other way a merge goes wrong: two adapters can agree on
+  // direction (cosine 1, conflict 0, score 0) and still leave one carrying the
+  // result. The score now folds it in, so the panel has to name it rather than
+  // report "Low interference" for a set one adapter outweighs.
+  assert.match(apiSource, /dominance: \{/);
+  assert.match(apiSource, /ratio: number;/);
+  assert.match(apiSource, /adapter: string;/);
+  assert.match(apiSource, /against: string;/);
+  // Read defensively: a report from an older backend has no dominance key.
+  assert.match(panelSource, /report\.dominance \?\? \{/);
+  // The badge names the driver when dominance is what pushed the severity up.
+  assert.match(panelSource, /dominance\.score >= report\.score/);
+  assert.match(panelSource, /Dominance: \{dominance\.adapter\} outweighs \{dominance\.against\}/);
+  // And the headline stats line says which adapter outranks which.
+  assert.match(panelSource, /Dominance <\/span>/);
+  assert.match(panelSource, /over \$\{dominance\.against\}/);
+});
