@@ -387,6 +387,72 @@ class TestMeanCosinePooling:
         assert metrics._mean_cosine([]) == 0.0
 
 
+class TestWorstModules:
+    """Hotspot ranking: the layers the merge loses, not the noisiest samples (Gap 5)."""
+
+    def test_unrelated_adapters_report_no_hotspot(self, metrics):
+        # Every module sits near 0 cosine and at its own chance level. Ranking on
+        # cosine picked three of these at random and called them a conflict.
+        orthogonal = [
+            ("layers.0.q_proj", 0.01, 0.0, 0.0),
+            ("layers.1.q_proj", -0.02, 0.0, 0.0),
+            ("layers.2.q_proj", 0.0, 0.0, 0.0),
+        ]
+        assert metrics._rank_worst_modules(orthogonal) == []
+
+    def test_conflict_below_what_a_plain_sum_absorbs_is_not_named(self, metrics):
+        # A module the linear merge can absorb is not a hotspot, however low its
+        # cosine looks.
+        barely = [("a", -0.9, metrics._LINEAR_MAX_CONFLICT, 1000.0)]
+        assert metrics._rank_worst_modules(barely) == []
+
+    def test_a_hotspot_past_the_third_lowest_cosine_is_not_dropped(self, metrics):
+        # The old code sliced first and filtered after: these three all have the
+        # lowest cosine and the least conflict, so they were what got reported
+        # and the one module actually fighting was never shown.
+        entries = [
+            ("low_cos_quiet", -0.9, 0.05, 0.0),
+            ("low_cos_quiet2", -0.8, 0.02, 0.0),
+            ("low_cos_quiet3", -0.7, 0.01, 0.0),
+            ("fighting", 0.2, 0.5, 5.0),
+        ]
+        ranked = metrics._rank_worst_modules(entries)
+        assert [entry[0] for entry in ranked] == ["fighting"]
+
+    def test_a_module_is_ranked_by_what_it_costs_not_by_its_cosine(self, metrics):
+        # Conflict alone calls the first the bigger problem; it is fighting over
+        # almost no weight, while the second fights over a great deal.
+        entries = [
+            ("noisy_tiny", -0.5, 0.9, 1.0),
+            ("costly_large", -0.1, 0.3, 100.0),
+        ]
+        ranked = metrics._rank_worst_modules(entries)
+        assert [entry[0] for entry in ranked] == ["costly_large", "noisy_tiny"]
+
+    def test_unmeasured_modules_are_left_out_rather_than_guessed(self, metrics):
+        # conflict is None where the sign budget ran out first.
+        entries = [("unmeasured", -1.0, None, 0.0), ("measured", 0.4, 0.5, 2.0)]
+        assert [e[0] for e in metrics._rank_worst_modules(entries)] == ["measured"]
+
+    def test_the_list_is_capped(self, metrics):
+        entries = [
+            (f"m{i}", 0.0, 0.5, float(10 - i)) for i in range(6)
+        ]
+        ranked = metrics._rank_worst_modules(entries)
+        assert len(ranked) == metrics._WORST_MODULE_COUNT
+        assert [e[0] for e in ranked] == ["m0", "m1", "m2"]
+
+    def test_equal_impact_breaks_toward_the_more_opposed_module(self, metrics):
+        entries = [
+            ("aligned", 0.5, 0.5, 4.0),
+            ("opposed", -0.5, 0.5, 4.0),
+        ]
+        assert [e[0] for e in metrics._rank_worst_modules(entries)] == ["opposed", "aligned"]
+
+    def test_an_empty_model_reports_nothing(self, metrics):
+        assert metrics._rank_worst_modules([]) == []
+
+
 class TestAnalyzeAdapters:
     """End to end over adapter directories on disk, through the real core loader."""
 

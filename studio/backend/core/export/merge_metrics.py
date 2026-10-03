@@ -26,8 +26,11 @@ Reported per adapter pair, over the modules the two share:
   worth 1e-6 no longer counts as much as one on a coordinate worth 10.
 * ``norm_ratio`` - ||di|| / ||dj|| over the shared modules. A large ratio means
   one adapter dominates the merged model whatever the weights say.
-* ``worst_modules`` - the shared modules with the lowest cosine, so a conflict
-  can be traced to a layer instead of guessed at.
+* ``worst_modules`` - the shared modules where the merge loses the most: ranked
+  by conflict multiplied by the delta carried there, over modules that fight
+  more than a plain sum absorbs. Ranked on cosine alone, a set of unrelated
+  adapters reports its three noisiest modules instead of any hotspot, so a
+  conflict could not be traced to a layer.
 * ``dominance`` - how far the widest norm gap between two adapters reaches. This
   is a different failure from interference: two adapters can agree perfectly
   (cosine 1, conflict 0, score 0) and still leave one carrying the whole merge.
@@ -253,6 +256,32 @@ def _sign_scan(A1, B1, A2, B2, scaling1: float, scaling2: float) -> SignScan:
         positive1,
         positive2,
     )
+
+
+def _rank_worst_modules(per_module: Sequence[tuple]) -> List[tuple]:
+    """The shared modules this merge loses the most, worst first.
+
+    Filter, then rank, then cap - in that order, which the old code did not do:
+    it sorted by cosine ascending and filtered only afterwards. On a set of
+    unrelated adapters every module sits near 0 cosine, so the three reported
+    were the three smallest sample errors rather than any hotspot, and a module
+    genuinely fighting past the third-lowest cosine was dropped altogether.
+
+    ``entry`` is ``(key, cosine, conflict, impact)``. A module has to clear the
+    conflict a plain sum absorbs (``_LINEAR_MAX_CONFLICT``) to be named, and one
+    whose sign budget was spent before it was measured (``conflict is None``) is
+    left out rather than guessed about. Ties on impact break toward the module
+    that is more opposed, so the first entry is the worst of both readings.
+    """
+    ranked = sorted(
+        (
+            entry
+            for entry in per_module
+            if entry[2] is not None and entry[2] > _LINEAR_MAX_CONFLICT
+        ),
+        key=lambda entry: (-entry[3], entry[1]),
+    )
+    return ranked[:_WORST_MODULE_COUNT]
 
 
 def _mean_cosine(pairs: List[dict]) -> float:
@@ -487,8 +516,13 @@ def _pair_metrics(
             # layer itself, so there is nothing comparable to measure.
             continue
         dot += scaling1 * scaling2 * _factor_inner(A1, B1, A2, B2)
-        norm1_sq += (scaling1**2) * _factor_norm_sq(A1, B1)
-        norm2_sq += (scaling2**2) * _factor_norm_sq(A2, B2)
+        # Captured, not just accumulated: the ranking below needs to know how much
+        # delta each module carries, and _module_cosine recomputes the same two
+        # norms anyway, so this costs nothing extra.
+        module_n1 = (scaling1**2) * _factor_norm_sq(A1, B1)
+        module_n2 = (scaling2**2) * _factor_norm_sq(A2, B2)
+        norm1_sq += module_n1
+        norm2_sq += module_n2
         module_cosine = _module_cosine(A1, B1, A2, B2, scaling1, scaling2)
         module_conflict = None
         if comparable < sign_budget:
@@ -519,22 +553,30 @@ def _pair_metrics(
             # Per module, the same chance correction the pair gets, so a module
             # is never named as a conflict for disagreeing at its own baseline.
             module_conflict = _excess_over_chance(w_disc, w_tot, pos1, pos2)
-        per_module.append((key, module_cosine, module_conflict))
+        # What this module costs the merge: how much of it fights, times how much
+        # delta is at stake. A module losing 90% of a weight worth 1e-10 matters
+        # less than one losing 20% of a weight worth 100, and ranking on
+        # conflict alone would report the first as the bigger problem.
+        module_impact = (
+            module_conflict * (module_n1 + module_n2) ** 0.5
+            if module_conflict is not None
+            else None
+        )
+        per_module.append((key, module_cosine, module_conflict, module_impact))
 
     cosine = 0.0
     if norm1_sq > 0.0 and norm2_sq > 0.0:
         cosine = dot / ((norm1_sq**0.5) * (norm2_sq**0.5))
     norm_ratio = (norm1_sq / norm2_sq) ** 0.5 if norm2_sq > 0.0 else 1.0
 
-    ranked = sorted(per_module, key=lambda entry: entry[1])[:_WORST_MODULE_COUNT]
+    ranked = _rank_worst_modules(per_module)
     worst = [
         {
             "module": _module_name(key),
             "cosine": module_cosine,
             "sign_conflict_rate": module_conflict,
         }
-        for key, module_cosine, module_conflict in ranked
-        if module_cosine < _LINEAR_MAX_COSINE
+        for key, module_cosine, module_conflict, _module_impact in ranked
     ]
 
     return {
