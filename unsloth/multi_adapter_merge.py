@@ -115,6 +115,36 @@ def _peft_combination_kwargs(
     return kwargs
 
 
+def _normalize_peft_target_modules(peft_model, adapter_names: List[str]) -> None:
+    """Store every adapter's ``target_modules`` as a set of module names.
+
+    PEFT's ``add_weighted_adapter`` can only union ``set`` target modules: a
+    config saved with an explicit list is rejected outright, and one saved as a
+    string (``"all-linear"``) may not be mixed with the other form even though
+    both end up injecting the same layers. The modules an adapter actually
+    reached are already on the model as injected LoRA layers, so read them off
+    the model and store them as a set. Only the type and content of
+    ``peft_config`` change - the weights themselves are untouched.
+    """
+    from peft.tuners.lora.layer import LoraLayer
+
+    for adapter_name in adapter_names:
+        reached = set()
+        for key, module in peft_model.named_modules():
+            if not isinstance(module, LoraLayer):
+                continue
+            has_lora = adapter_name in module.lora_A
+            has_embedding = getattr(module, "lora_embedding_A", None) is not None and (
+                adapter_name in module.lora_embedding_A
+            )
+            if not (has_lora or has_embedding):
+                continue
+            reached.add(key.split(".")[-1])
+        if reached:
+            peft_model.peft_config[adapter_name].target_modules = reached
+
+
+
 @dataclass
 class MultiAdapterMergeConfig:
     """Holds validated parameters for a multi-adapter merge."""
@@ -553,6 +583,9 @@ def merge_adapters_into_model(
         config.method, config.density, config.target_rank
     )
     report(f"Merge: combining adapters with PEFT combination_type='{config.method}'")
+
+    # PEFT can only union set-valued target_modules, so align them first.
+    _normalize_peft_target_modules(peft_model, adapter_names)
 
     rng_state = torch.get_rng_state()
     cuda_rng_state = (

@@ -66,6 +66,12 @@ standard library at module level.
 5. PEFT requires every adapter to share one LoRA rank for `linear`, `ties`,
    `dare_*` and `magnitude_prune`; `svd` and `cat` accept mixed ranks. Keep
    that constraint visible to callers instead of working around it silently.
+6. PEFT can only union set-valued `target_modules`, so the core normalises each
+   loaded adapter to a set of the modules it actually reached
+   (`_normalize_peft_target_modules`) before combining. Keep that step when
+   adapters are re-laid onto the model: a checkpoint saved with an explicit list
+   and one saved as `"all-linear"` inject the same layers but PEFT refuses the
+   mix otherwise.
 
 ## When uncertain
 

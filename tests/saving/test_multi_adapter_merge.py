@@ -312,7 +312,7 @@ def _tiny_model(seed = 0):
     return LlamaForCausalLM(config)
 
 
-def _save_tiny_adapter_at(path, seed, rank = 8):
+def _save_tiny_adapter_at(path, seed, rank = 8, target_modules = None):
     """Save a real PEFT adapter (non-zero lora_B) at *path*."""
     pytest.importorskip("peft")
     from peft import LoraConfig, get_peft_model
@@ -322,7 +322,9 @@ def _save_tiny_adapter_at(path, seed, rank = 8):
         LoraConfig(
             r = rank,
             lora_alpha = rank * 2,
-            target_modules = ["q_proj", "v_proj"],
+            target_modules = (
+                target_modules if target_modules is not None else ["q_proj", "v_proj"]
+            ),
             task_type = "CAUSAL_LM",
         ),
     )
@@ -341,6 +343,21 @@ def _save_tiny_adapters(tmp_path, ranks = (8, 8)):
         _save_tiny_adapter_at(tmp_path / f"adapter{idx}", (1, 2)[idx], rank = rank)
         for idx, rank in enumerate(ranks)
     ]
+
+
+def _rewrite_target_modules(adapter_dir, value):
+    """Rewrite adapter_config.json's target_modules.
+
+    Older checkpoints store PEFT's ``"all-linear"`` shorthand where newer ones
+    store an explicit list, so the mixed form is produced on disk rather than
+    through LoraConfig (which normalises a list on save).
+    """
+    cfg_path = os.path.join(str(adapter_dir), "adapter_config.json")
+    with open(cfg_path) as fh:
+        cfg = json.load(fh)
+    cfg["target_modules"] = value
+    with open(cfg_path, "w") as fh:
+        json.dump(cfg, fh)
 
 
 def _base_state():
@@ -454,6 +471,108 @@ def test_report_names_the_adapters(tmp_path):
     assert "Loading adapter: math_lora (checkpoint-1000)" in joined
     assert "Merge progress: adapter 1 of 2" in joined
     assert "Merge progress: adapter 2 of 2" in joined
+
+
+def test_merge_handles_a_checkpoint_saved_with_the_all_linear_shorthand(tmp_path):
+    # Older checkpoints store PEFT's "all-linear" shorthand where newer ones
+    # store an explicit list. Both inject the same layers, so the merge works.
+    listed = _save_tiny_adapter_at(tmp_path / "listed", 1)
+    shorthand = _save_tiny_adapter_at(tmp_path / "shorthand", 2)
+    _rewrite_target_modules(shorthand, "all-linear")
+
+    base_state = _base_state()
+    merged = merge_adapters_into_model(
+        _tiny_model(),
+        adapter_paths = [listed, shorthand],
+        weights = [0.5, 0.5],
+        method = "linear",
+        normalize_weights = False,
+    )
+    merged_state = merged.state_dict()
+    assert any(
+        not torch.allclose(merged_state[key].float(), base_state[key].float())
+        for key in _touched_keys(base_state)
+    )
+
+
+def test_target_module_types_are_normalised_before_combining(tmp_path):
+    # PEFT can only union set-valued target_modules, so a config that keeps the
+    # string form (an older checkpoint, or a regex) would otherwise be refused
+    # next to a list-valued one. The core reads the reached modules off the
+    # model and stores them as a set.
+    pytest.importorskip("peft")
+    from peft import PeftModel
+
+    listed = _save_tiny_adapter_at(tmp_path / "listed", 1)
+    shorthand = _save_tiny_adapter_at(tmp_path / "shorthand", 2)
+    _rewrite_target_modules(shorthand, "all-linear")
+
+    peft_model = PeftModel.from_pretrained(
+        _tiny_model(), listed, adapter_name = "merge_adapter_0"
+    )
+    peft_model.load_adapter(shorthand, adapter_name = "merge_adapter_1")
+    # Whatever the loaded config looks like today, force the mixed form the
+    # combine step rejects so the normalisation is what makes it work.
+    peft_model.peft_config["merge_adapter_1"].target_modules = "all-linear"
+
+    _mod._normalize_peft_target_modules(
+        peft_model, ["merge_adapter_0", "merge_adapter_1"]
+    )
+    for adapter_name in ("merge_adapter_0", "merge_adapter_1"):
+        assert isinstance(
+            peft_model.peft_config[adapter_name].target_modules, set
+        )
+        assert {"q_proj", "v_proj"} <= peft_model.peft_config[
+            adapter_name
+        ].target_modules
+
+    # The mixed form is exactly what PEFT refuses, so this proves the point.
+    peft_model.add_weighted_adapter(
+        ["merge_adapter_0", "merge_adapter_1"],
+        [0.5, 0.5],
+        adapter_name = "merged",
+        combination_type = "linear",
+    )
+
+
+
+
+def test_merge_handles_a_regex_target_modules_string(tmp_path):
+    # The shape that failed in the field: one checkpoint records target_modules
+    # as a regex string (PEFT keeps that a string) and another as an explicit
+    # list (loaded as a set), and PEFT refuses to union the two types.
+    pytest.importorskip("peft")
+    from peft import PeftModel
+
+    listed = _save_tiny_adapter_at(tmp_path / "listed", 1)
+    regexed = _save_tiny_adapter_at(tmp_path / "regexed", 2)
+    _rewrite_target_modules(regexed, r".*\.(q_proj|v_proj)$")
+
+    peft_model = PeftModel.from_pretrained(
+        _tiny_model(), listed, adapter_name = "merge_adapter_0"
+    )
+    peft_model.load_adapter(regexed, adapter_name = "merge_adapter_1")
+    with pytest.raises(ValueError, match = "same target modules type"):
+        peft_model.add_weighted_adapter(
+            ["merge_adapter_0", "merge_adapter_1"],
+            [0.5, 0.5],
+            adapter_name = "merged",
+            combination_type = "linear",
+        )
+
+    base_state = _base_state()
+    merged = merge_adapters_into_model(
+        _tiny_model(),
+        adapter_paths = [listed, regexed],
+        weights = [0.5, 0.5],
+        method = "linear",
+        normalize_weights = False,
+    )
+    merged_state = merged.state_dict()
+    assert any(
+        not torch.allclose(merged_state[key].float(), base_state[key].float())
+        for key in _touched_keys(base_state)
+    )
 
 
 def test_mixed_ranks_are_rejected_for_factor_space_methods(tmp_path):
