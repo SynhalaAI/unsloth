@@ -250,8 +250,10 @@ test("auto-weight methods (sce, model_stock) disable the manual weight input", (
 
 test("the normalize_weights toggle drives the merge payload and the analysis", () => {
   // The Export page must let the user pick normalize_weights; a hardcoded
-  // true makes the backend False mode unreachable from the UI.
-  assert.match(exportPageSource, /const \[mergeNormalizeWeights, setMergeNormalizeWeights\] = useState\(true\);/);
+  // value makes the other backend mode unreachable from the UI. Default is
+  // off, so the entered weights are used raw unless normalization is asked for.
+  assert.match(exportPageSource, /const \[mergeNormalizeWeights, setMergeNormalizeWeights\] = useState\(false\);/);
+  assert.doesNotMatch(exportPageSource, /const \[mergeNormalizeWeights, setMergeNormalizeWeights\] = useState\(true\);/);
   assert.match(exportPageSource, /aria-label="Normalize merge weights"/);
   // The payload and the preflight analysis both carry the chosen value, so the
   // report describes the merge that is about to run.
@@ -262,4 +264,51 @@ test("the normalize_weights toggle drives the merge payload and the analysis", (
   // It round-trips through the saved/imported YAML config.
   assert.match(exportPageSource, /normalizeWeights: mergeNormalizeWeights,/);
   assert.match(exportPageSource, /if \(typeof config\.normalizeWeights === "boolean"\) \{/);
+});
+
+test("the normalize toggle is the last control in the merge toolbar row", () => {
+  // It used to sit between the method hint and the method-specific inputs, so a
+  // narrow panel pushed it into the middle of the row. It stays the last child
+  // of that row now, whatever controls the selected method adds.
+  const row = exportPageSource.slice(
+    exportPageSource.indexOf("flex flex-wrap items-center justify-end gap-2"),
+    exportPageSource.indexOf('ref={configFileInputRef}'),
+  );
+  assert.notEqual(row, "");
+  const toolbar = exportPageSource.slice(
+    exportPageSource.indexOf('ref={configFileInputRef}'),
+  );
+  const toggle = toolbar.indexOf('aria-label="Normalize merge weights"');
+  assert.ok(toggle > 0, "the toggle must still render");
+  for (const control of [
+    "aria-label=\"Merge method\"",
+    "aria-label=\"Merge density\"",
+    "aria-label=\"DARE drop rate\"",
+    "aria-label=\"CtM target rank\"",
+    "aria-label=\"DELLA epsilon\"",
+    "aria-label=\"Breadcrumbs gamma\"",
+    "aria-label=\"SCE select top-k\"",
+  ]) {
+    assert.ok(
+      toolbar.indexOf(control) < toggle,
+      `${control} must render before the normalize toggle`,
+    );
+  }
+});
+
+test("a single adapter is a runnable merge, not just a multi-adapter one", () => {
+  // The panel used to read as multi-adapter only, and the API schema demanded
+  // two paths. Base + a single LoRA is a valid merge end to end, so the export
+  // gate must accept exactly one filled adapter row.
+  assert.match(
+    exportPageSource,
+    /adapterMergeSelections\.length >= 1 &&\s*new Set\(adapterMergeSelections\.map\(\(item\) => item\.path\)\)\.size ===/,
+  );
+  // No gate may reintroduce a two-adapter floor on the merge itself.
+  assert.doesNotMatch(exportPageSource, /multiAdapterMerge[\s\S]{0,400}?length >= 2/);
+  assert.doesNotMatch(exportPageSource, /length < 2 && multiAdapterMerge/);
+  // The panel now presents one adapter as a supported amount.
+  assert.match(exportPageSource, /One\s*adapter is enough/);
+  // model_stock still needs three: it blends three models, not one.
+  assert.match(exportPageSource, /MERGE_METHODS_MIN_3_ADAPTERS\.has\(mergeMethod\) &&\s*adapterMergeSelections\.length < 3/);
 });

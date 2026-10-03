@@ -61,9 +61,16 @@ def _validate_gguf_shard_size(value: Optional[str]) -> Optional[str]:
 
 
 class MultiAdapterMergeRequest(BaseModel):
-    """Configuration for merging several LoRA adapters into the loaded model."""
+    """Configuration for merging LoRA adapters into the loaded model.
 
-    adapter_paths: List[Union[str, Dict[str, str]]] = Field(..., min_length = 2)
+    A single adapter is a valid merge: it is the plain base + one adapter case,
+    which the core merger supports (``MultiAdapterMergeConfig`` requires at
+    least one path). Only the methods that blend several adapters need more.
+    """
+
+    # One adapter is allowed: base + a single LoRA is the degenerate merge.
+    # model_stock still needs 3 (see _check_model_stock_adapters below).
+    adapter_paths: List[Union[str, Dict[str, str]]] = Field(..., min_length = 1)
     weights: Optional[List[float]] = None
     method: Literal[
         "linear", "ties", "dare_ties", "dare_linear", "magnitude_prune", "ctm",
@@ -100,6 +107,9 @@ class MergeAnalyzeRequest(BaseModel):
     Same ``adapter_paths`` shapes as :class:`MultiAdapterMergeRequest`, and the
     same weight semantics: the metrics describe the merge the user configured,
     so the weights are the ones that will be used.
+
+    Unlike the merge itself this stays at two or more: every number here is a
+    pairwise comparison between adapters, so one adapter has nothing to report.
     """
 
     adapter_paths: List[Union[str, Dict[str, str]]] = Field(..., min_length = 2)

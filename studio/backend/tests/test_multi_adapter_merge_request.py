@@ -122,3 +122,35 @@ class TestMultiAdapterMergeRequest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_a_single_adapter_is_a_valid_merge(self):
+        # Base + one LoRA is the degenerate merge. The schema used to demand two
+        # paths, so the UI could not express "just merge this one adapter".
+        model = self.schema(adapter_paths = ["only"])
+        self.assertEqual(model.adapter_paths, ["only"])
+        self.assertIsNone(model.weights)
+        self.assertEqual(model.method, "linear")
+        # The weight list, when given, still has to line up.
+        ok = self.schema(adapter_paths = ["only"], weights = [0.75])
+        self.assertEqual(ok.weights, [0.75])
+        with self.assertRaises(Exception):
+            self.schema(adapter_paths = ["only"], weights = [1.0, 1.0])
+
+    def test_every_method_accepts_a_single_adapter_except_model_stock(self):
+        # Each method is checked at its own minimum so a method that needs more
+        # cannot be silently reached with one adapter.
+        for method in (
+            "linear", "ties", "dare_ties", "dare_linear",
+            "magnitude_prune", "ctm", "cat", "sce", "della", "della_linear",
+            "breadcrumbs", "breadcrumbs_ties", "multislerp",
+        ):
+            model = self.schema(adapter_paths = ["only"], method = method)
+            self.assertEqual(model.method, method)
+        # model_stock blends three models and still needs three.
+        with self.assertRaises(Exception):
+            self.schema(adapter_paths = ["only"], method = "model_stock")
+
+    def test_an_empty_adapter_list_is_still_rejected(self):
+        # One adapter is the floor, not zero.
+        with self.assertRaises(Exception):
+            self.schema(adapter_paths = [])

@@ -461,9 +461,9 @@ export function ExportPage() {
   const [mergeDellaEpsilon, setMergeDellaEpsilon] = useState("0.15");
   const [mergeGamma, setMergeGamma] = useState("0.01");
   const [mergeSelectTopk, setMergeSelectTopk] = useState("1");
-  // Rescale the per-adapter weights to sum to 1 before merging. On by default,
-  // matching the core merger; turning it off uses the raw weights as entered.
-  const [mergeNormalizeWeights, setMergeNormalizeWeights] = useState(true);
+  // Rescale the per-adapter weights to sum to 1 before merging. Off by default,
+  // so the raw weights as entered are used unless normalization is asked for.
+  const [mergeNormalizeWeights, setMergeNormalizeWeights] = useState(false);
   const [mergeCategory, setMergeCategory] = useState<MergeMethodCategory>(
     "recommended",
   );
@@ -2246,13 +2246,13 @@ export function ExportPage() {
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="space-y-0.5">
                         <div className="text-sm font-medium">
-                          Multi-adapter merge
+                          Adapter merge
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          Blend LoRA checkpoints into one model.
+                          Blend one or more LoRA checkpoints into the base model.
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
                         <input
                           ref={configFileInputRef}
                           type="file"
@@ -2297,7 +2297,8 @@ export function ExportPage() {
                         <InfoHint>
                           Compares the selected adapters&apos; weights before
                           anything is loaded: how much they disagree, and which
-                          method fits. Needs at least two adapters.
+                          method fits. Needs at least two adapters, so it stays
+                          disabled for a single-adapter merge.
                         </InfoHint>
                         <Select
                           value={mergeCategory}
@@ -2378,25 +2379,6 @@ export function ExportPage() {
                             );
                           })()}
                         </InfoHint>
-                        <span className="flex items-center gap-1">
-                          <Switch
-                            checked={mergeNormalizeWeights}
-                            onCheckedChange={(checked) =>
-                              setMergeNormalizeWeights(checked)
-                            }
-                            disabled={MERGE_METHODS_AUTO_WEIGHTS.has(mergeMethod)}
-                            aria-label="Normalize merge weights"
-                          />
-                          <span className="text-xs text-muted-foreground">
-                            Normalize weights
-                          </span>
-                          <InfoHint>
-                            Rescales the per-adapter weights to sum to 1 before
-                            merging, keeping their ratios. Turn off to use the raw
-                            weights exactly as entered. Auto-weight methods (SCE,
-                            Model Stock) derive their own and ignore this.
-                          </InfoHint>
-                        </span>
                         {MERGE_METHODS_WITH_DENSITY.has(mergeMethod) && (
                           <span className="flex items-center gap-1">
                             <Input
@@ -2514,6 +2496,25 @@ export function ExportPage() {
                             </InfoHint>
                           </span>
                         )}
+                        <span className="flex items-center gap-1">
+                          <Switch
+                            checked={mergeNormalizeWeights}
+                            onCheckedChange={(checked) =>
+                              setMergeNormalizeWeights(checked)
+                            }
+                            disabled={MERGE_METHODS_AUTO_WEIGHTS.has(mergeMethod)}
+                            aria-label="Normalize merge weights"
+                          />
+                          <span className="text-xs text-muted-foreground">
+                            Normalize weights
+                          </span>
+                          <InfoHint>
+                            Rescales the per-adapter weights to sum to 1 before
+                            merging, keeping their ratios. Turn off to use the raw
+                            weights exactly as entered. Auto-weight methods (SCE,
+                            Model Stock) derive their own and ignore this.
+                          </InfoHint>
+                        </span>
                       </div>
                     </div>
 
@@ -2661,8 +2662,9 @@ export function ExportPage() {
                         </div>
                         {adapterMergeSelections.length < 1 && (
                           <p className="text-xs text-muted-foreground">
-                            Add an adapter to merge; leave this panel empty to
-                            merge the selected checkpoint on its own.
+                            Add an adapter to merge it into the base model. One
+                            adapter is enough; leave this panel empty to merge
+                            the selected checkpoint on its own.
                           </p>
                         )}
                         <MergeTestPanel
