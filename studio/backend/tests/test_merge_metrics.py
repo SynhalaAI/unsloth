@@ -154,6 +154,19 @@ class TestLowRankIdentities:
         found, comparable = metrics._sign_scan(A1, B1, A2, B2, 1.0, 1.0)
         assert (found, comparable) == (1, 1)
 
+    def test_sign_scan_drops_positions_below_the_delta_scale(self, metrics):
+        # A reconstructed delta is dense, so `!= 0` counted float noise at
+        # positions neither adapter really moved. Those signs are random and held
+        # the rate at the 0.5 chance level whatever the adapters did. Here only
+        # the first position is a real disagreement; the second is 1e-7 noise,
+        # which used to be counted too (comparable 2 instead of 1).
+        A1 = torch.tensor([[1.0, 1e-7]])
+        A2 = torch.tensor([[-1.0, 1e-7]])
+        B1 = torch.ones(1, 1)
+        B2 = torch.ones(1, 1)
+        found, comparable = metrics._sign_scan(A1, B1, A2, B2, 1.0, 1.0)
+        assert (found, comparable) == (1, 1)
+
 
 class TestRecommendation:
     """The thresholds that map metrics onto a method."""
@@ -175,6 +188,38 @@ class TestRecommendation:
 
     def test_weak_overlap_asks_for_ties(self, metrics):
         assert metrics._recommend(cosine = 0.2, conflict = 0.2, overlap = True)["method"] == "ties"
+
+    def test_chance_level_disagreement_does_not_ask_for_dare_ties(self, metrics):
+        # Two independent adapters disagree on half their positions by
+        # construction, so the threshold has to sit above 0.5 or DARE fires on
+        # every orthogonal pair - and at density 0.3 DARE sheds 70% of each
+        # delta, which is exactly the signal a non-conflicting pair should keep.
+        assert metrics._recommend(cosine = 0.02, conflict = 0.5, overlap = True)["method"] != "dare_ties"
+        assert metrics._recommend(cosine = 0.02, conflict = 0.55, overlap = True)["method"] != "dare_ties"
+        # Genuinely dense disagreement still reaches DARE.
+        assert metrics._recommend(cosine = 0.3, conflict = 0.65, overlap = True)["method"] == "dare_ties"
+
+    def test_orthogonal_adapters_do_not_read_low_and_dare_at_once(self, metrics):
+        # The Export page showed "Low interference" beside a dare_ties
+        # recommendation for this exact shape (cosine ~0.02, conflict ~0.5).
+        # Severity and the recommendation come off the same numbers, so they
+        # have to agree.
+        conflict = 0.5
+        score = 0.5 * max(0.0, -0.02) + 0.5 * max(0.0, 2.0 * conflict - 1.0)
+        assert metrics._classify(score) == "low"
+        assert metrics._recommend(cosine = 0.02, conflict = conflict, overlap = True)["method"] != "dare_ties"
+
+    def test_high_severity_is_reachable_at_a_realistic_opposition(self, metrics):
+        # "high" used to need a full -1.0 cosine or a 1.0 conflict rate, so a
+        # pair opposed on most weights could never reach it. Both of these are
+        # ordinary oppositions and both must now read as high.
+        opposed = 0.5 * max(0.0, -0.7) + 0.5 * max(0.0, 2.0 * 0.6 - 1.0)
+        assert metrics._classify(opposed) == "high"
+        dense = 0.5 * max(0.0, 0.0) + 0.5 * max(0.0, 2.0 * 0.85 - 1.0)
+        assert metrics._classify(dense) == "high"
+        # A modest opposition lands in the middle rather than at the floor.
+        modest = 0.5 * max(0.0, -0.3) + 0.5 * max(0.0, 0.0)
+        assert metrics._classify(modest) == "moderate"
 
     def test_severity_buckets_follow_the_score(self, metrics):
         assert metrics._classify(0.0) == "low"

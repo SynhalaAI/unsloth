@@ -16,9 +16,11 @@ Reported per adapter pair, over the modules the two share:
   other, which is what TIES sign election resolves. Computed from the low-rank
   factors through <B1 A1, B2 A2> = <B1^T B2, A1 A2^T> and
   ||B A||^2 = <B^T B, A A^T>, so no full-rank delta is materialised for it.
-* ``sign_conflict_rate`` - share of weight positions where both adapters are
-  non-zero and disagree in sign. 0.5 is the chance level for two independent
-  adapters, so a rate well below that means they agree.
+* ``sign_conflict_rate`` - share of weight positions where both adapters move
+  the weight (above a small fraction of the delta's own scale) and disagree in
+  sign. 0.5 is the chance level for two independent adapters, so a rate well
+  below that means they agree, while a rate at 0.5 means they are orthogonal
+  rather than opposed.
 * ``norm_ratio`` - ||di|| / ||dj|| over the shared modules. A large ratio means
   one adapter dominates the merged model whatever the weights say.
 * ``worst_modules`` - the shared modules with the lowest cosine, so a conflict
@@ -55,6 +57,13 @@ DEFAULT_MAX_SIGN_ELEMENTS = 64_000_000
 # keeps the working set in the low-MB range even for a 128k-row embedding.
 _SIGN_BLOCK_ROWS = 256
 
+# A reconstructed delta is dense, so `!= 0` counts float noise at positions the
+# adapter never moved. Those signs are random and hold the conflict rate at the
+# 0.5 chance level whatever the adapters did, which is what the docstring's
+# "untouched weight" filter was meant to skip. Positions below this fraction of
+# the block RMS delta are treated as untouched.
+_SIGN_REL_EPS = 1e-3
+
 # Per-pair verdicts, from the two numbers that carry the signal: how opposed the
 # two deltas are (cosine) and how often they disagree in sign. A linear sum is
 # safe while the deltas agree; TIES trims the weakest entries and elects one
@@ -63,11 +72,21 @@ _SIGN_BLOCK_ROWS = 256
 _LINEAR_MAX_COSINE = 0.5
 _LINEAR_MAX_CONFLICT = 0.15
 _TIES_MAX_CONFLICT = 0.30
-_DARE_MIN_CONFLICT = 0.45
+# Deliberately above the 0.5 chance level. Two independent adapters disagree on
+# half their positions by construction, so a threshold below 0.5 makes DARE fire
+# on every orthogonal pair - and DARE sheds 70% of each delta at density 0.3,
+# which is exactly the signal a pair that does not conflict should keep. 0.6 is
+# the first rate that is excess over chance rather than chance itself.
+_DARE_MIN_CONFLICT = 0.60
 
-# Severity buckets over the same score the recommendation derives from.
-_SCORE_LOW = 0.20
-_SCORE_HIGH = 0.50
+# Severity buckets over the same score the recommendation derives from. The
+# score halves each of its two terms, so a realistic opposition (cosine -0.3)
+# only reaches 0.15, and the old 0.50 bound left "high" unreachable barring a
+# full -1.0 cosine or a 1.0 conflict rate. These bounds sit where the blended
+# number actually lands: 0.10 for cosine -0.2 or a 0.55 conflict rate, 0.35 for
+# cosine -0.7 or 0.85.
+_SCORE_LOW = 0.10
+_SCORE_HIGH = 0.35
 
 # How many conflicting modules a pair names, worst first.
 _WORST_MODULE_COUNT = 3
@@ -141,8 +160,9 @@ def _sign_scan(A1, B1, A2, B2, scaling1: float, scaling2: float) -> Tuple[int, i
 
     Materialises the delta one row block at a time, so a 128k-row embedding
     costs the same memory as a small projection. Only positions where both
-    adapters are non-zero are comparable: a zero on one side is an untouched
-    weight, not a disagreement.
+    adapters move the weight are comparable: a position one adapter left alone
+    is not a disagreement, and `_SIGN_REL_EPS` is what makes that distinction
+    real for a dense reconstruction.
     """
     import torch
 
@@ -157,7 +177,12 @@ def _sign_scan(A1, B1, A2, B2, scaling1: float, scaling2: float) -> Tuple[int, i
         end = min(start + _SIGN_BLOCK_ROWS, rows)
         d1 = scaling1 * (B1[start:end] @ A1)
         d2 = scaling2 * (B2[start:end] @ A2)
-        both = (d1 != 0) & (d2 != 0)
+        # Relative to each delta's own scale, so the floor travels with the
+        # adapter (a rank-4 projection and a 128k embedding differ by orders of
+        # magnitude) instead of being an absolute epsilon that fits neither.
+        scale = max(float(d1.pow(2).mean().sqrt()), float(d2.pow(2).mean().sqrt()))
+        floor = _SIGN_REL_EPS * scale
+        both = (d1.abs() > floor) & (d2.abs() > floor)
         count = int(both.sum().item())
         if count == 0:
             continue
