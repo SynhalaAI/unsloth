@@ -291,8 +291,9 @@ test("a single-adapter merge offers only Linear", () => {
     exportPageSource,
     /singleAdapterMerge\s*\?\s*MERGE_METHODS\.filter\(\s*\(method\) => method\.value === "linear",?\s*\)/,
   );
-  // The category dropdown is hidden, since there is nothing to choose between.
-  assert.match(exportPageSource, /\{!singleAdapterMerge && \(\s*<Select\s*value=\{mergeCategory\}/);
+  // The category dropdown keeps its width but is disabled and invisible, so going from one to two adapters does not shift the row below.
+  assert.match(exportPageSource, /disabled={singleAdapterMerge}/);
+  assert.match(exportPageSource, /invisible/);
   // And the state is actually forced back to Linear, so an imported config or a
   // shrinking selection cannot leave a multi-adapter method selected.
   assert.match(

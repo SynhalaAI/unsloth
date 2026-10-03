@@ -312,13 +312,29 @@ def _tiny_model(seed = 0):
     return LlamaForCausalLM(config)
 
 
-def _save_tiny_adapter_at(path, seed, rank = 8, target_modules = None):
+def _tiny_model_with_extra_tower():
+    """_tiny_model plus a second tower that reuses the same leaf module names.
+
+    Multimodal checkpoints put same-named projections in every tower, so
+    recording a target by leaf name would pull in towers the adapter never
+    reached.
+    """
+    import torch.nn as nn
+
+    model = _tiny_model()
+    model.vision = nn.Module()
+    model.vision.q_proj = nn.Linear(32, 32, bias = False)      # reached by one adapter
+    model.vision.gate_proj = nn.Linear(32, 32, bias = False)   # reached by neither
+    return model
+
+
+def _save_tiny_adapter_at(path, seed, rank = 8, target_modules = None, model = None):
     """Save a real PEFT adapter (non-zero lora_B) at *path*."""
     pytest.importorskip("peft")
     from peft import LoraConfig, get_peft_model
 
     model = get_peft_model(
-        _tiny_model(),
+        _tiny_model() if model is None else model,
         LoraConfig(
             r = rank,
             lora_alpha = rank * 2,
@@ -519,12 +535,14 @@ def test_target_module_types_are_normalised_before_combining(tmp_path):
         peft_model, ["merge_adapter_0", "merge_adapter_1"]
     )
     for adapter_name in ("merge_adapter_0", "merge_adapter_1"):
-        assert isinstance(
-            peft_model.peft_config[adapter_name].target_modules, set
-        )
-        assert {"q_proj", "v_proj"} <= peft_model.peft_config[
-            adapter_name
-        ].target_modules
+        targets = peft_model.peft_config[adapter_name].target_modules
+        assert isinstance(targets, set)
+        # Exact module keys, not bare leaf names: PEFT falls back to a suffix
+        # match, so "q_proj" would also cover every other tower's q_proj.
+        assert targets
+        assert all("." in target for target in targets)
+        assert any(target.endswith("self_attn.q_proj") for target in targets)
+        assert any(target.endswith("self_attn.v_proj") for target in targets)
 
     # The mixed form is exactly what PEFT refuses, so this proves the point.
     peft_model.add_weighted_adapter(
@@ -535,6 +553,45 @@ def test_target_module_types_are_normalised_before_combining(tmp_path):
     )
 
 
+
+
+def test_normalisation_does_not_pull_in_same_named_modules(tmp_path):
+    # PEFT matches a set entry by exact key first and by suffix after, so a
+    # leaf name would inject the merged adapter into a module no source adapter
+    # reached, and PEFT then combines an empty list there (IndexError: list
+    # index out of range). These adapters share the text tower, reach different
+    # modules in the second tower, and leave one module to neither.
+    text_q_proj = "model.layers.0.self_attn.q_proj"
+    text_gate = "model.layers.0.mlp.gate_proj"
+    vision_q_proj = "vision.q_proj"
+
+    first = _save_tiny_adapter_at(
+        tmp_path / "first",
+        1,
+        target_modules = [text_q_proj, text_gate],
+        model = _tiny_model_with_extra_tower(),
+    )
+    second = _save_tiny_adapter_at(
+        tmp_path / "second",
+        2,
+        target_modules = [text_q_proj, vision_q_proj],
+        model = _tiny_model_with_extra_tower(),
+    )
+
+    base = _tiny_model_with_extra_tower().state_dict()
+    merged = merge_adapters_into_model(
+        _tiny_model_with_extra_tower(),
+        adapter_paths = [first, second],
+        weights = [0.5, 0.5],
+        method = "linear",
+        normalize_weights = False,
+    )
+    state = merged.state_dict()
+    assert not torch.allclose(
+        state[text_q_proj + ".weight"].float(), base[text_q_proj + ".weight"].float()
+    )
+    # The module neither adapter targeted stays exactly as the base had it.
+    assert torch.equal(state["vision.gate_proj.weight"], base["vision.gate_proj.weight"])
 
 
 def test_merge_handles_a_regex_target_modules_string(tmp_path):

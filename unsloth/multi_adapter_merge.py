@@ -116,21 +116,36 @@ def _peft_combination_kwargs(
 
 
 def _normalize_peft_target_modules(peft_model, adapter_names: List[str]) -> None:
-    """Store every adapter's ``target_modules`` as a set of module names.
+    """Store every adapter's ``target_modules`` as the set of modules it reached.
 
     PEFT's ``add_weighted_adapter`` can only union ``set`` target modules: a
     config saved with an explicit list is rejected outright, and one saved as a
-    string (``"all-linear"``) may not be mixed with the other form even though
-    both end up injecting the same layers. The modules an adapter actually
-    reached are already on the model as injected LoRA layers, so read them off
-    the model and store them as a set. Only the type and content of
-    ``peft_config`` change - the weights themselves are untouched.
+    string (a regex, or the ``"all-linear"`` shorthand in older releases) may not
+    be mixed with the other form. Every loaded adapter has already injected its
+    LoRA layers, so the modules it actually reached are on the model: record
+    their exact keys here and the union the merged adapter needs is exact.
+
+    Exact module keys matter as much as the type. PEFT matches a set entry by
+    ``key in target_modules`` first and only then by suffix, so a bare leaf name
+    ("q_proj") would pull in same-named modules in towers the source adapters
+    never touched - including towers with no adapter at all, which then leave
+    PEFT combining zero adapters on that module and indexing an empty list.
     """
     from peft.tuners.lora.layer import LoraLayer
 
+    # The tuner injects into ``LoraModel.model``, so its module keys are the ones
+    # ``add_weighted_adapter`` will match against; the PeftModel wrapper prefixes
+    # them with "base_model.".
+    tuned_model = getattr(getattr(peft_model, "base_model", None), "model", None)
+    # Materialised once: ``named_modules()`` returns a generator, so reusing it
+    # per adapter would silently normalise only the first one.
+    named_modules = list(
+        (tuned_model if tuned_model is not None else peft_model).named_modules()
+    )
+
     for adapter_name in adapter_names:
         reached = set()
-        for key, module in peft_model.named_modules():
+        for key, module in named_modules:
             if not isinstance(module, LoraLayer):
                 continue
             has_lora = adapter_name in module.lora_A
@@ -139,7 +154,7 @@ def _normalize_peft_target_modules(peft_model, adapter_names: List[str]) -> None
             )
             if not (has_lora or has_embedding):
                 continue
-            reached.add(key.split(".")[-1])
+            reached.add(key)
         if reached:
             peft_model.peft_config[adapter_name].target_modules = reached
 

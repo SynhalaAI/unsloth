@@ -2239,17 +2239,19 @@ export function ExportPage() {
                           method fits. Needs at least two adapters, so it stays
                           disabled for a single-adapter merge.
                         </InfoHint>
-                        {!singleAdapterMerge && (
-                          <Select
-                            value={mergeCategory}
-                            onValueChange={(value: MergeMethodCategory) =>
-                              handleMergeCategoryChange(value)
-                            }
+                        <Select
+                          value={mergeCategory}
+                          onValueChange={(value: MergeMethodCategory) =>
+                            handleMergeCategoryChange(value)
+                          }
+                          disabled={singleAdapterMerge}
+                        >
+                          <SelectTrigger
+                            className={"w-40" + (singleAdapterMerge ? " invisible" : "")}
+                            aria-label="Merge method category"
+                            aria-hidden={singleAdapterMerge || undefined}
+                            tabIndex={singleAdapterMerge ? -1 : undefined}
                           >
-                            <SelectTrigger
-                              className="w-40"
-                              aria-label="Merge method category"
-                            >
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
@@ -2260,7 +2262,6 @@ export function ExportPage() {
                               ))}
                             </SelectContent>
                           </Select>
-                        )}
                         <Select
                           value={mergeMethod}
                           onValueChange={(value: MergeMethodType) =>

@@ -70,8 +70,14 @@ standard library at module level.
    loaded adapter to a set of the modules it actually reached
    (`_normalize_peft_target_modules`) before combining. Keep that step when
    adapters are re-laid onto the model: a checkpoint saved with an explicit list
-   and one saved as `"all-linear"` inject the same layers but PEFT refuses the
-   mix otherwise.
+   and one saved as `"all-linear"` or a regex inject the same layers but PEFT
+   refuses the mix otherwise.
+7. Record those targets as exact module keys, never as leaf names. PEFT matches
+   a set entry by exact key first and by suffix afterwards, so `"q_proj"` would
+   pull same-named modules out of towers no adapter reached, and PEFT then
+   combines an empty list there and raises `IndexError: list index out of
+   range`. Multimodal checkpoints hit this whenever towers share projection
+   names.
 
 ## When uncertain
 
