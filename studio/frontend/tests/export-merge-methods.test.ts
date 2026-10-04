@@ -262,6 +262,26 @@ test("the normalize toggle is the last control in the merge toolbar row", () => 
   }
 });
 
+test("the export page warns when a multi-adapter merge will not average", () => {
+  // Raw weights summing to N blend N adapters' worth of change at once, and
+  // PEFT's linear only approximates the weighted sum: both are stated in the
+  // method hint so a distorted merge is not shipped blind.
+  assert.match(exportPageSource, /const mergeWeightSum = adapterMergeSelections/);
+  assert.match(
+    exportPageSource,
+    /mergeMethod === "linear" && filledAdapterCount >= 2/,
+  );
+  assert.match(
+    exportPageSource,
+    /!mergeNormalizeWeights &&\s*filledAdapterCount >= 2 &&\s*Math\.abs\(mergeWeightSum - 1\) > 0\.05/,
+  );
+  assert.match(
+    exportPageSource,
+    /turn on Normalize weights for a weighted/,
+  );
+});
+
+
 test("a single adapter is a runnable merge, not just a multi-adapter one", () => {
   // The panel used to read as multi-adapter only, and the API schema demanded
   // two paths. Base + a single LoRA is a valid merge end to end, so the export

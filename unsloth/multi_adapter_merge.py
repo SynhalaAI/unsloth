@@ -466,6 +466,36 @@ def _validate_adapters(
 
 
 
+def _report_merge_caveats(report, config: "MultiAdapterMergeConfig") -> None:
+    """Report the two ways a multi-adapter merge silently goes wrong.
+
+    PEFT applies the weights as they arrive, so weights that do not sum to one
+    scale the whole merged delta: four adapters entered as 1.0 each put four
+    adapters' worth of change on the base at once. And PEFT's own "linear"
+    blends the LoRA factors instead of the weight deltas, which it documents as
+    an approximation. Both are easy to miss in a UI that accepts the weights
+    raw, so they are said out loud in the merge log.
+    """
+    weight_total = sum(config.weights)
+    if (
+        not config.normalize_weights
+        and len(config.weights) > 1
+        and abs(weight_total - 1.0) > 0.05
+    ):
+        report(
+            f"Merge warning: weights sum to {weight_total:.4f} with "
+            f"normalize_weights=False, so the merged delta is scaled by "
+            f"{weight_total:.4f}x. Enable normalize weights (or scale them to "
+            f"sum to 1) for a weighted average."
+        )
+    if config.method == "linear" and len(config.weights) > 1:
+        report(
+            "Merge note: PEFT's 'linear' blends the LoRA factors rather than "
+            "the weight deltas, so it is an approximation; 'svd' (or 'cat') "
+            "gives the exact weighted sum."
+        )
+
+
 def merge_adapters_into_model(
     model: torch.nn.Module,
     adapter_paths: List[str],
@@ -555,6 +585,7 @@ def merge_adapters_into_model(
             for name, weight in zip(display_names, config.weights)
         )
     )
+    _report_merge_caveats(report, config)
 
     # 1. Load and validate the adapter configs before touching the model.
     adapter_configs: List[dict] = []

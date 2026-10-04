@@ -632,6 +632,65 @@ def test_merge_handles_a_regex_target_modules_string(tmp_path):
     )
 
 
+
+
+def test_core_warns_when_the_weights_are_not_normalised(tmp_path):
+    # Raw weights summing to N scale the whole merged delta by N, so the log has
+    # to say it rather than letting a full-strength merge ship silently.
+    paths = _save_tiny_adapters(tmp_path)
+    messages = []
+    merge_adapters_into_model(
+        _tiny_model(),
+        adapter_paths = paths,
+        weights = [1.0, 1.0],
+        method = "svd",
+        normalize_weights = False,
+        report_callback = messages.append,
+    )
+    joined = " ".join(messages)
+    assert "Merge warning" in joined
+    assert "weights sum to 2.0000" in joined
+    assert "scaled by 2.0000x" in joined
+
+
+def test_core_is_quiet_when_the_weights_sum_to_one(tmp_path):
+    paths = _save_tiny_adapters(tmp_path)
+    messages = []
+    merge_adapters_into_model(
+        _tiny_model(),
+        adapter_paths = paths,
+        weights = [0.7, 0.3],
+        method = "svd",
+        report_callback = messages.append,
+    )
+    assert "Merge warning" not in " ".join(messages)
+
+
+def test_core_notes_that_peft_linear_only_approximates(tmp_path):
+    # PEFT blends the LoRA factors for `linear`, so a multi-adapter run says so;
+    # a single adapter has no cross terms and needs no note.
+    paths = _save_tiny_adapters(tmp_path)
+    messages = []
+    merge_adapters_into_model(
+        _tiny_model(),
+        adapter_paths = paths,
+        weights = [0.5, 0.5],
+        method = "linear",
+        report_callback = messages.append,
+    )
+    assert "approximation" in " ".join(messages)
+
+    single = []
+    merge_adapters_into_model(
+        _tiny_model(),
+        adapter_paths = [paths[0]],
+        weights = [1.0],
+        method = "linear",
+        report_callback = single.append,
+    )
+    assert "approximation" not in " ".join(single)
+
+
 def test_mixed_ranks_are_rejected_for_factor_space_methods(tmp_path):
     paths = _save_tiny_adapters(tmp_path, ranks = (8, 16))
     with pytest.raises(ValueError, match = "PEFT could not combine"):

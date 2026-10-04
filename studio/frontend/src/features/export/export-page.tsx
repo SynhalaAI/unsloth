@@ -461,14 +461,17 @@ export function ExportPage() {
   >([]);
 
   // How many adapters the user has actually filled in. One adapter is the
-  // degenerate merge: the core short-circuits every method to `delta * weight`,
-  // so trimming, sign election and pruning never run and all the method knobs
-  // are inert. Linear is the only honest choice there, so the picker offers it
-  // alone rather than implying TIES/DELLA/SCE would do something.
+  // degenerate merge: PEFT falls back to `linear` for a single adapter, so the
+  // method knobs are inert there and the picker offers Linear alone.
   const filledAdapterCount = adapterMergeSelections.filter(
     (item) => item.path.trim() !== "",
   ).length;
   const singleAdapterMerge = filledAdapterCount === 1;
+  // The merge is a weighted average, so raw weights summing to N blend N
+  // adapters' worth of change at once. Surfaced next to the method hint.
+  const mergeWeightSum = adapterMergeSelections
+    .filter((item) => item.path.trim() !== "")
+    .reduce((total, item) => total + (Number(item.weight) || 0), 0);
 
   // Methods available in the currently selected category. The two dropdowns
   // stay in sync: changing the category resets the method to the category's
@@ -2314,6 +2317,29 @@ export function ExportPage() {
                                   </span>
                                   {selected.bestFor}
                                 </span>
+                                {mergeMethod === "linear" && filledAdapterCount >= 2 && (
+                                  <span className="block">
+                                    <span className="font-medium text-foreground">
+                                      Note:{" "}
+                                    </span>
+                                    Linear blends the LoRA factors, so several
+                                    adapters merge approximately — SVD gives the
+                                    exact weighted sum.
+                                  </span>
+                                )}
+                                {!mergeNormalizeWeights &&
+                                  filledAdapterCount >= 2 &&
+                                  Math.abs(mergeWeightSum - 1) > 0.05 && (
+                                    <span className="block">
+                                      <span className="font-medium text-foreground">
+                                        Note:{" "}
+                                      </span>
+                                      weights sum to {mergeWeightSum.toFixed(2)},
+                                      so the merged model is scaled by that factor —
+                                      turn on Normalize weights for a weighted
+                                      average.
+                                    </span>
+                                  )}
                               </span>
                             );
                           })()}
