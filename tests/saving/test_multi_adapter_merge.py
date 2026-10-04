@@ -691,6 +691,79 @@ def test_core_notes_that_peft_linear_only_approximates(tmp_path):
     assert "approximation" not in " ".join(single)
 
 
+
+
+def test_move_adapter_factors_preserves_values_and_returns_to_base_device(tmp_path):
+    pytest.importorskip("peft")
+    from peft import PeftModel
+    from peft.tuners.lora.layer import LoraLayer
+
+    path = _save_tiny_adapters(tmp_path)[0]
+    peft_model = PeftModel.from_pretrained(
+        _tiny_model(), path, adapter_name = "src"
+    )
+    before = {
+        key: module.lora_A["src"].weight.detach().clone()
+        for key, module in peft_model.named_modules()
+        if isinstance(module, LoraLayer) and "src" in module.lora_A
+    }
+    assert before
+
+    moved = _mod._move_adapter_factors(peft_model, ["src"], torch.device("cpu"))
+    assert moved == len(before)
+    # A second pass with device=None parks each factor back on its own module's
+    # base layer - the device merge_and_unload needs it on.
+    _mod._move_adapter_factors(peft_model, ["src"], None)
+    for key, module in peft_model.named_modules():
+        if not isinstance(module, LoraLayer) or "src" not in module.lora_A:
+            continue
+        base_device = module.get_base_layer().weight.device
+        assert module.lora_A["src"].weight.device == base_device
+        assert module.lora_B["src"].weight.device == base_device
+        assert torch.equal(module.lora_A["src"].weight.detach().cpu(), before[key].cpu())
+
+
+def test_combine_retries_on_cpu_after_a_cuda_oom(tmp_path, monkeypatch):
+    # The SVD combination materialises full weight deltas per module, which
+    # does not fit beside the base weights on a small GPU. The first attempt
+    # fails, and the retry on CPU must clear the partial "merged" adapter first
+    # (add_weighted_adapter returns early for a name it already knows).
+    pytest.importorskip("peft")
+    from peft.tuners.lora.model import LoraModel
+
+    real_add_weighted = LoraModel.add_weighted_adapter
+    attempts = {"n": 0}
+
+    def flaky_add_weighted(self, *args, **kwargs):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise torch.OutOfMemoryError(
+                "CUDA out of memory. Tried to allocate 144.00 MiB."
+            )
+        return real_add_weighted(self, *args, **kwargs)
+
+    monkeypatch.setattr(LoraModel, "add_weighted_adapter", flaky_add_weighted)
+
+    paths = _save_tiny_adapters(tmp_path)
+    base_state = _base_state()
+    messages = []
+    merged = merge_adapters_into_model(
+        _tiny_model(),
+        adapter_paths = paths,
+        weights = [0.5, 0.5],
+        method = "svd",
+        report_callback = messages.append,
+    )
+    assert attempts["n"] == 2
+    joined = " ".join(messages)
+    assert "combining on CPU instead" in joined
+    merged_state = merged.state_dict()
+    assert any(
+        not torch.allclose(merged_state[key].float(), base_state[key].float())
+        for key in _touched_keys(base_state)
+    )
+
+
 def test_mixed_ranks_are_rejected_for_factor_space_methods(tmp_path):
     paths = _save_tiny_adapters(tmp_path, ranks = (8, 16))
     with pytest.raises(ValueError, match = "PEFT could not combine"):

@@ -496,6 +496,50 @@ def _report_merge_caveats(report, config: "MultiAdapterMergeConfig") -> None:
         )
 
 
+def _move_adapter_factors(peft_model, adapter_names: List[str], device) -> int:
+    """Move the LoRA factors of *adapter_names* onto *device*.
+
+    ``device=None`` moves each module's factors to that module's own base-layer
+    device (what a combine-on-CPU run needs before merging back); any other
+    device - typically ``torch.device("cpu")`` - is applied to every module.
+    Only the small low-rank A/B factors move: the base weights never do, and
+    every value is preserved.
+
+    Returns the number of factors moved.
+    """
+    from peft.tuners.lora.layer import LoraLayer
+
+    moved = 0
+    for _, module in peft_model.named_modules():
+        if not isinstance(module, LoraLayer):
+            continue
+        target_device = device
+        if target_device is None:
+            base_layer = module.get_base_layer()
+            weight = getattr(base_layer, "weight", None)
+            if weight is None:
+                continue
+            target_device = weight.device
+        for adapter_name in adapter_names:
+            if adapter_name in module.lora_A:
+                module.lora_A[adapter_name].to(target_device)
+                module.lora_B[adapter_name].to(target_device)
+                moved += 1
+            embeddings_a = getattr(module, "lora_embedding_A", None)
+            if embeddings_a is not None and adapter_name in embeddings_a:
+                embeddings_a[adapter_name] = embeddings_a[adapter_name].to(target_device)
+                module.lora_embedding_B[adapter_name] = module.lora_embedding_B[
+                    adapter_name
+                ].to(target_device)
+    return moved
+
+
+def _free_cuda_memory() -> None:
+    """Release cached CUDA blocks so a retry has room to run."""
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
 def merge_adapters_into_model(
     model: torch.nn.Module,
     adapter_paths: List[str],
@@ -639,6 +683,7 @@ def merge_adapters_into_model(
     )
     if config.method in ("dare_ties", "dare_linear"):
         torch.manual_seed(config.seed)
+    combined_on_cpu = False
     try:
         try:
             peft_model.add_weighted_adapter(
@@ -647,6 +692,37 @@ def merge_adapters_into_model(
                 adapter_name="merged",
                 **kwargs,
             )
+        except (RuntimeError, torch.OutOfMemoryError) as exc:
+            if "out of memory" not in str(exc).lower():
+                raise
+            # The sparsifying and SVD combinations materialise full weight
+            # deltas per module, which does not fit beside a 10 GiB base model
+            # on a small GPU. The adapter factors are tiny, so redo the combine
+            # on CPU: the base weights never move, only the A/B factors do.
+            _free_cuda_memory()
+            if "merged" in peft_model.peft_config:
+                # The failed attempt may have injected a partial "merged"
+                # adapter, and add_weighted_adapter returns early for a name it
+                # already knows - clear it before retrying.
+                peft_model.delete_adapter("merged")
+            report(
+                "Merge: out of GPU memory, combining on CPU instead (only the "
+                "adapter factors move)"
+            )
+            _move_adapter_factors(peft_model, adapter_names, torch.device("cpu"))
+            combined_on_cpu = True
+            try:
+                peft_model.add_weighted_adapter(
+                    adapter_names,
+                    list(config.weights),
+                    adapter_name="merged",
+                    **kwargs,
+                )
+            except ValueError as retry_exc:
+                raise ValueError(
+                    f"Unsloth: PEFT could not combine the adapters with method "
+                    f"'{config.method}': {retry_exc}"
+                ) from retry_exc
         except ValueError as exc:
             # PEFT rejects, for example, mixed LoRA ranks for the factor-space
             # combinations, or two adapters saving the same modules. Say which
@@ -663,9 +739,21 @@ def merge_adapters_into_model(
             except Exception:
                 pass
 
+    if combined_on_cpu:
+        # PEFT adds each module's delta to that module's base weight, so the
+        # combined factors go back to the device their base layer lives on.
+        _move_adapter_factors(peft_model, ["merged"], device=None)
+
     peft_model.set_adapter("merged")
+    # The sources are combined now; dropping them frees their memory before the
+    # merge pass, which allocates per module.
+    for adapter_name in adapter_names:
+        try:
+            peft_model.delete_adapter(adapter_name)
+        except Exception:
+            pass
     report("Merge progress: merging the combined adapter into the base weights")
-    merged_model = peft_model.merge_and_unload()
+    merged_model = peft_model.merge_and_unload(adapter_names=["merged"])
 
     report(f"Merge complete: method={config.method}, adapters={total_adapters}")
     gc.collect()

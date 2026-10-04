@@ -78,6 +78,12 @@ standard library at module level.
    combines an empty list there and raises `IndexError: list index out of
    range`. Multimodal checkpoints hit this whenever towers share projection
    names.
+8. The sparsifying and SVD combinations materialise full weight deltas per
+   module, which does not fit beside a large base model on a small GPU. The core
+   retries that combine on CPU (`_move_adapter_factors`) when PEFT raises CUDA
+   OOM: only the low-rank factors move, never the base weights, and the partial
+   `merged` adapter from the failed attempt is deleted first because
+   `add_weighted_adapter` returns early for a name it already knows.
 
 ## When uncertain
 
