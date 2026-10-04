@@ -75,6 +75,8 @@ class MultiAdapterMergeRequest(BaseModel):
     method: Literal[
         "linear", "svd", "cat", "ties", "dare_ties", "dare_linear",
         "magnitude_prune",
+        "ties_svd", "dare_ties_svd", "dare_linear_svd",
+        "magnitude_prune_svd",
     ] = "linear"
     normalize_weights: bool = True
     density: float = Field(0.5, gt = 0.0, le = 1.0)

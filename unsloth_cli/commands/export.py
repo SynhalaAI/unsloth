@@ -190,7 +190,10 @@ def export(
         typer.echo(f"Saved to: {output_path}")
 
 
-MERGE_METHODS = ["linear", "svd", "cat", "ties", "dare_ties", "dare_linear", "magnitude_prune"]
+MERGE_METHODS = [
+    "linear", "svd", "cat", "ties", "dare_ties", "dare_linear", "magnitude_prune",
+    "ties_svd", "dare_ties_svd", "dare_linear_svd", "magnitude_prune_svd",
+]
 
 
 def merge_adapters(
@@ -210,10 +213,10 @@ def merge_adapters(
     ),
     normalize: bool = typer.Option(True, "--normalize/--no-normalize", help = "Normalize weights."),
     density: float = typer.Option(
-        0.5, "--density", help = "Fraction of weight deltas kept (TIES/DARE/magnitude-prune)."
+        0.5, "--density", help = "Fraction of weight deltas kept (TIES/DARE/magnitude-prune, incl. *_svd)."
     ),
     target_rank: Optional[int] = typer.Option(
-        None, "--target-rank", help = "Output adapter rank (svd only)."
+        None, "--target-rank", help = "Output adapter rank (svd and *_svd methods)."
     ),
     save_method: str = typer.Option(
         "merged_16bit",

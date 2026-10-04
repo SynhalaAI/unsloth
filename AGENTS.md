@@ -43,6 +43,10 @@ base weights with `merge_and_unload`.
 | `dare_ties` | `dare_ties` | [PEFT `merge_utils.dare_ties`](https://github.com/huggingface/peft/blob/main/src/peft/utils/merge_utils.py) |
 | `dare_linear` | `dare_linear` | [PEFT `merge_utils.dare_linear`](https://github.com/huggingface/peft/blob/main/src/peft/utils/merge_utils.py) |
 | `magnitude_prune` | `magnitude_prune` | [PEFT `merge_utils.magnitude_prune`](https://github.com/huggingface/peft/blob/main/src/peft/utils/merge_utils.py) |
+| `ties_svd` | `ties_svd`, with `density`; `svd_rank` from `target_rank` | [PEFT `add_weighted_adapter`](https://github.com/huggingface/peft/blob/main/src/peft/tuners/lora/model.py) |
+| `dare_ties_svd` | `dare_ties_svd`, with `density`; `svd_rank` from `target_rank` | same |
+| `dare_linear_svd` | `dare_linear_svd`, with `density`; `svd_rank` from `target_rank` | same |
+| `magnitude_prune_svd` | `magnitude_prune_svd`, with `density`; `svd_rank` from `target_rank` | same |
 
 The adapter I/O helpers (`_load_adapter_state_dict`, `_group_lora_factors`,
 `_reconstruct_deltas`) stay in that module: the Studio interference preflight
@@ -64,8 +68,9 @@ standard library at module level.
    reconstructed `ΔW = (α/r)·B·A` of an adapter - never against a mergekit
    reimplementation.
 5. PEFT requires every adapter to share one LoRA rank for `linear`, `ties`,
-   `dare_*` and `magnitude_prune`; `svd` and `cat` accept mixed ranks. Keep
-   that constraint visible to callers instead of working around it silently.
+   `dare_ties`, `dare_linear` and `magnitude_prune`; `svd`, `cat` and the
+   `*_svd` variants accept mixed ranks. Keep that constraint visible to
+   callers instead of working around it silently.
 6. PEFT can only union set-valued `target_modules`, so the core normalises each
    loaded adapter to a set of the modules it actually reached
    (`_normalize_peft_target_modules`) before combining. Keep that step when

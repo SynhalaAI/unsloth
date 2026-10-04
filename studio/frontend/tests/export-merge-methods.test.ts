@@ -5,7 +5,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { loadCheckpoint } from "../src/features/export/api/export-api.ts";
-import { MERGE_METHODS, type MergeMethodType } from "../src/features/export/constants.ts";
+import {
+  MERGE_METHODS,
+  MERGE_METHODS_WITH_RANK,
+  type MergeMethodType,
+} from "../src/features/export/constants.ts";
 import type { RunExportParams } from "../src/features/export/stores/export-runtime-store.ts";
 
 import { readSrc } from "./helpers/kit.ts";
@@ -22,13 +26,15 @@ test("the merge picker lists every method the core merger supports", () => {
     MERGE_METHODS.map((method) => method.value),
     [
       "linear", "svd", "cat", "ties", "dare_ties", "dare_linear",
-      "magnitude_prune",
+      "magnitude_prune", "ties_svd", "dare_ties_svd", "dare_linear_svd",
+      "magnitude_prune_svd",
     ],
   );
   assert.deepEqual(
     MERGE_METHODS.map((method) => method.label),
     [
       "Linear", "SVD", "CAT", "TIES", "DARE-TIES", "DARE-Linear", "Mag-Prune",
+      "TIES-SVD", "DARE-TIES-SVD", "DARE-Linear-SVD", "Mag-Prune-SVD",
     ],
   );
   for (const method of MERGE_METHODS) {
@@ -41,7 +47,7 @@ test("the merge picker lists every method the core merger supports", () => {
 test("the constants module keeps the picker type and list in one place", () => {
   assert.match(
     constantsSource,
-    /export type MergeMethodType =[\s\S]*"magnitude_prune";/,
+    /export type MergeMethodType =[\s\S]*"magnitude_prune_svd";/,
   );
   assert.match(constantsSource, /export const MERGE_METHODS:/);
   assert.match(constantsSource, /export type MergeMethodCategory/);
@@ -61,8 +67,8 @@ test("the export page picker renders from MERGE_METHODS, not hardcoded items", (
 });
 
 test("method-specific controls exist for the PEFT strategies", () => {
-  // Density covers TIES, DARE-TIES, DARE-Linear and Mag-Prune; the SVD
-  // combination additionally takes an output rank.
+  // Density covers TIES, DARE-TIES, DARE-Linear, Mag-Prune and the *_svd
+  // variants; every SVD combination additionally takes an output rank.
   assert.match(
     exportPageSource,
     /MERGE_METHODS_WITH_DENSITY\.has\(mergeMethod\)/,
@@ -157,7 +163,7 @@ test("the page-built merge payload satisfies the runtime request chain", () => {
   type ApiMerge = NonNullable<Parameters<typeof loadCheckpoint>[0]["merge_adapters"]>;
 
   const strategies: MergeMethodType[] = MERGE_METHODS.map((method) => method.value);
-  assert.equal(strategies.length, 7);
+  assert.equal(strategies.length, 11);
   for (const method of strategies) {
     // Mirrors export-page.tsx's mergeConfig, including the explicit-undefined
     // target_rank the non-svd strategies produce.
@@ -167,7 +173,7 @@ test("the page-built merge payload satisfies the runtime request chain", () => {
       method,
       normalize_weights: true,
       density: 0.5,
-      target_rank: method === "svd" ? 16 : undefined,
+      target_rank: MERGE_METHODS_WITH_RANK.has(method) ? 16 : undefined,
     };
     assert.equal(pagePayload.adapter_paths.length, pagePayload.weights.length);
     // The store param must flow into the load-checkpoint request unchanged.

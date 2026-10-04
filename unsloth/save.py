@@ -7313,14 +7313,17 @@ def _unsloth_merge_multi_adapters(
     weights : list[float] | None
         Per-adapter merge weights.  Defaults to equal weighting.
     method : ``"linear"`` | ``"svd"`` | ``"cat"`` | ``"ties"`` | ``"dare_ties"`` | ``"dare_linear"`` | ``"magnitude_prune"``
+                 | ``"ties_svd"`` | ``"dare_ties_svd"`` | ``"dare_linear_svd"`` |
+                 | ``"magnitude_prune_svd"``
         PEFT combination type used to combine the adapters.
     normalize_weights : bool
         If ``True``, weights are normalised to sum to 1.
     density : float
         PEFT density for ``ties``/``dare_ties``/``dare_linear``/
-        ``magnitude_prune``: fraction of weight deltas kept.
+        ``magnitude_prune`` and their ``*_svd`` variants: fraction of
+        weight deltas kept.
     target_rank : int | None
-        PEFT ``svd_rank`` for ``method="svd"``.
+        PEFT ``svd_rank`` for ``method="svd"`` and the ``*_svd`` variants.
 
     Returns
     -------

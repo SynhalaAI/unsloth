@@ -36,6 +36,8 @@ class TestMultiAdapterMergeRequest(unittest.TestCase):
         for method in (
             "linear", "svd", "cat", "ties", "dare_ties", "dare_linear",
             "magnitude_prune",
+            "ties_svd", "dare_ties_svd", "dare_linear_svd",
+            "magnitude_prune_svd",
         ):
             model = self.schema(
                 adapter_paths = ["a", "b"], weights = [1.0, 1.0], method = method
@@ -91,6 +93,8 @@ class TestMultiAdapterMergeRequest(unittest.TestCase):
         for method in (
             "linear", "svd", "cat", "ties", "dare_ties", "dare_linear",
             "magnitude_prune",
+            "ties_svd", "dare_ties_svd", "dare_linear_svd",
+            "magnitude_prune_svd",
         ):
             model = self.schema(adapter_paths = ["only"], method = method)
             self.assertEqual(model.method, method)

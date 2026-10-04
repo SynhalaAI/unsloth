@@ -2393,7 +2393,7 @@ export function ExportPage() {
                               Fraction of each adapter's strongest weight changes to
                               keep (0.01–1). Lower = cleaner merge, higher = more
                               detail preserved. Used by TIES, DARE-TIES,
-                              DARE-Linear and Mag-Prune.
+                              DARE-Linear, Mag-Prune and their SVD variants.
                             </InfoHint>
                           </span>
                         )}

@@ -1657,14 +1657,17 @@ class FastLanguageModel(FastLlamaModel):
         weights : list[float] | None
             Per-adapter merge weights (default: equal).
         method : ``"linear"`` | ``"svd"`` | ``"cat"`` | ``"ties"`` | ``"dare_ties"`` | ``"dare_linear"`` | ``"magnitude_prune"``
+                     | ``"ties_svd"`` | ``"dare_ties_svd"`` | ``"dare_linear_svd"`` |
+                     | ``"magnitude_prune_svd"``
             PEFT combination type used to combine the adapters.
         normalize_weights : bool
             Normalise weights to sum to 1.
         density : float
-            PEFT density for ``ties``/``dare_ties``/``dare_linear``/``magnitude_prune``:
-            fraction of weight deltas kept.  Ignored for the other methods.
+            PEFT density for ``ties``/``dare_ties``/``dare_linear``/
+            ``magnitude_prune`` and their ``*_svd`` variants: fraction of
+            weight deltas kept.  Ignored for the other methods.
         target_rank : int | None
-            PEFT ``svd_rank`` for ``"svd"``: rank of the output adapter.
+            PEFT ``svd_rank`` for ``"svd"`` and the ``*_svd`` variants: rank of the output adapter.
         max_seq_length, dtype, load_in_4bit, token, trust_remote_code :
             Forwarded to ``from_pretrained``.
         **from_pretrained_kwargs :

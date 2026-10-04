@@ -98,6 +98,8 @@ class TestMultiAdapterMergeConfig:
         assert SUPPORTED_METHODS == (
             "linear", "svd", "cat", "ties", "dare_ties", "dare_linear",
             "magnitude_prune",
+            "ties_svd", "dare_ties_svd", "dare_linear_svd",
+            "magnitude_prune_svd",
         )
 
     def test_valid_config(self):
@@ -762,6 +764,31 @@ def test_combine_retries_on_cpu_after_a_cuda_oom(tmp_path, monkeypatch):
         not torch.allclose(merged_state[key].float(), base_state[key].float())
         for key in _touched_keys(base_state)
     )
+
+
+def test_mixed_ranks_are_accepted_for_the_svd_variants(tmp_path):
+    # PEFT puts every combination type ending in "svd" on the delta-space
+    # path, which combines full weight deltas and so never needs matching
+    # source ranks (unlike the factor-space methods above).
+    pytest.importorskip("peft")
+    paths = _save_tiny_adapters(tmp_path, ranks = (8, 16))
+    base_state = _base_state()
+    for method in (
+        "ties_svd", "dare_ties_svd", "dare_linear_svd", "magnitude_prune_svd",
+    ):
+        merged = merge_adapters_into_model(
+            _tiny_model(),
+            adapter_paths = paths,
+            weights = [0.5, 0.5],
+            method = method,
+            density = 0.5,
+            target_rank = 8,
+        )
+        merged_state = merged.state_dict()
+        assert any(
+            not torch.allclose(merged_state[key].float(), base_state[key].float())
+            for key in _touched_keys(base_state)
+        ), method
 
 
 def test_mixed_ranks_are_rejected_for_factor_space_methods(tmp_path):

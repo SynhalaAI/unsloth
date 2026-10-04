@@ -350,7 +350,11 @@ export type MergeMethodType =
   | "ties"
   | "dare_ties"
   | "dare_linear"
-  | "magnitude_prune";
+  | "magnitude_prune"
+  | "ties_svd"
+  | "dare_ties_svd"
+  | "dare_linear_svd"
+  | "magnitude_prune_svd";
 
 export type MergeMethodCategory =
   | "recommended"
@@ -390,6 +394,11 @@ export const MERGE_METHODS: {
     params: ["rank"],
   },
   {
+    value: "cat", label: "CAT", category: "export",
+    description: "Factor concatenation — lossless, exports as valid LoRA adapter.",
+    bestFor: "Saving merged result as a reusable LoRA adapter.",
+  },
+  {
     value: "ties", label: "TIES", category: "recommended",
     description: "Trim Elect Interpolate Sign — resolves conflicting weight signs.",
     bestFor: "Adapters from different domains that may conflict.",
@@ -414,19 +423,41 @@ export const MERGE_METHODS: {
     params: ["density"],
   },
   {
-    value: "cat", label: "CAT", category: "export",
-    description: "Factor concatenation — lossless, exports as valid LoRA adapter.",
-    bestFor: "Saving merged result as a reusable LoRA adapter.",
+    value: "ties_svd", label: "TIES-SVD", category: "basic",
+    description: "TIES resolved on the full weight deltas, then re-factored through an SVD.",
+    bestFor: "Conflicting adapters where the delta-space blend must be exact.",
+    params: ["density", "rank"],
+  },
+  {
+    value: "dare_ties_svd", label: "DARE-TIES-SVD", category: "basic",
+    description: "DARE-TIES applied to the full weight deltas, then re-factored through an SVD.",
+    bestFor: "Noisy adapters whose deltas should be resolved before compression.",
+    params: ["density", "rank"],
+  },
+  {
+    value: "dare_linear_svd", label: "DARE-Linear-SVD", category: "basic",
+    description: "DARE dropout on the full weight deltas, then a weighted sum re-factored by SVD.",
+    bestFor: "Related noisy adapters needing an exact delta-space blend.",
+    params: ["density", "rank"],
+  },
+  {
+    value: "magnitude_prune_svd", label: "Mag-Prune-SVD", category: "basic",
+    description: "Keeps the top-density magnitudes of the weight deltas, then re-factored by SVD.",
+    bestFor: "Sparse deltas that should stay sparse after compression.",
+    params: ["density", "rank"],
   },
 ];
 
 /** Methods that use the density parameter (fraction of weight deltas kept). */
 export const MERGE_METHODS_WITH_DENSITY: Set<MergeMethodType> = new Set([
   "ties", "dare_ties", "dare_linear", "magnitude_prune",
+  "ties_svd", "dare_ties_svd", "dare_linear_svd", "magnitude_prune_svd",
 ]);
 
 /** Methods that use the SVD output rank. */
-export const MERGE_METHODS_WITH_RANK: Set<MergeMethodType> = new Set(["svd"]);
+export const MERGE_METHODS_WITH_RANK: Set<MergeMethodType> = new Set([
+  "svd", "ties_svd", "dare_ties_svd", "dare_linear_svd", "magnitude_prune_svd",
+]);
 
 export const GUIDE_STEPS = [
   "Select a training checkpoint to export from",

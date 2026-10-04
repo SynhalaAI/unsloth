@@ -34,12 +34,19 @@ Supported methods (all are PEFT ``combination_type`` names):
   * **dare_ties** — DARE drop-and-rescale, then TIES.
   * **dare_linear** — DARE drop-and-rescale, then a weighted sum.
   * **magnitude_prune** — keep the top-density magnitudes, then weighted sum.
+  * **ties_svd** — TIES resolved on the full weight deltas, then the result
+    re-factorised by SVD: the exact-delta counterpart of ``ties``.
+  * **dare_ties_svd** — DARE drop-and-rescale, then TIES, then SVD.
+  * **dare_linear_svd** — DARE drop-and-rescale, then a weighted sum, then SVD.
+  * **magnitude_prune_svd** — keep the top-density magnitudes, weighted sum,
+    then SVD.
 
 ``density`` is PEFT's keep fraction for ``ties``, ``dare_ties``,
-``dare_linear`` and ``magnitude_prune``. ``target_rank`` is PEFT's
-``svd_rank`` for ``svd``. The ``linear``, ``ties``, ``dare_*`` and
+``dare_linear``, ``magnitude_prune`` and their ``*_svd`` variants.
+``target_rank`` is PEFT's ``svd_rank`` for ``svd`` and the ``*_svd``
+variants. The ``linear``, ``ties``, ``dare_ties``, ``dare_linear`` and
 ``magnitude_prune`` combination types require every adapter to share the same
-LoRA rank; ``svd`` and ``cat`` accept mixed ranks.
+LoRA rank; ``svd``, ``cat`` and the ``*_svd`` variants accept mixed ranks.
 
 After merging, the model is a plain base model and can be saved via the usual
 ``model.save_pretrained_merged(...)`` path.
@@ -81,6 +88,7 @@ import torch
 
 SUPPORTED_METHODS = (
     "linear", "svd", "cat", "ties", "dare_ties", "dare_linear", "magnitude_prune",
+    "ties_svd", "dare_ties_svd", "dare_linear_svd", "magnitude_prune_svd",
 )
 
 # Accepted aliases mapped onto a supported method (kept for backward
@@ -93,7 +101,14 @@ _METHOD_ALIASES = {
 }
 
 # PEFT combination types that read the ``density`` knob (fraction kept).
-_DENSITY_METHODS = ("ties", "dare_ties", "dare_linear", "magnitude_prune")
+_DENSITY_METHODS = (
+    "ties", "dare_ties", "dare_linear", "magnitude_prune",
+    "ties_svd", "dare_ties_svd", "dare_linear_svd", "magnitude_prune_svd",
+)
+
+_SVD_METHODS = (
+    "svd", "ties_svd", "dare_ties_svd", "dare_linear_svd", "magnitude_prune_svd",
+)
 
 
 def _peft_combination_kwargs(
@@ -110,7 +125,7 @@ def _peft_combination_kwargs(
     kwargs: dict = {"combination_type": method}
     if method in _DENSITY_METHODS:
         kwargs["density"] = float(density)
-    if method == "svd" and target_rank is not None:
+    if method in _SVD_METHODS and target_rank is not None:
         kwargs["svd_rank"] = int(target_rank)
     return kwargs
 
@@ -168,11 +183,12 @@ class MultiAdapterMergeConfig:
     weights: List[float]
     method: str = "linear"
     normalize_weights: bool = True
-    # TIES / DARE / magnitude-prune: fraction of each adapter's weight deltas to
-    # keep (PEFT ``density``; 1.0 keeps everything).
+    # TIES / DARE / magnitude-prune (including the ``*_svd`` variants):
+    # fraction of each adapter's weight deltas to keep
+    # (PEFT ``density``; 1.0 keeps everything).
     density: float = 0.5
-    # ``svd`` only: rank of the re-factorised output adapter (None = the widest
-    # source adapter's rank).
+    # ``svd`` and the ``*_svd`` variants only: rank of the re-factorised
+    # output adapter (None = the widest source adapter's rank).
     target_rank: Optional[int] = None
     # Deterministic seed for the DARE random drop.
     seed: int = 42
@@ -571,17 +587,20 @@ def merge_adapters_into_model(
         Per-adapter merge weights (default: equal). Normalised to sum to one
         unless *normalize_weights* is ``False``.
     method : ``"linear"`` | ``"svd"`` | ``"cat"`` | ``"ties"`` | \
-``"dare_ties"`` | ``"dare_linear"`` | ``"magnitude_prune"``
+``"dare_ties"`` | ``"dare_linear"`` | ``"magnitude_prune"`` | \
+``"ties_svd"`` | ``"dare_ties_svd"`` | ``"dare_linear_svd"`` | \
+``"magnitude_prune_svd"``
         PEFT combination type. ``"dare"`` and ``"ctm"`` are accepted as
         aliases for ``"dare_ties"`` and ``"svd"``.
     normalize_weights : bool
         Normalise the weights to sum to 1 (what PEFT recommends).
     density : float
         PEFT ``density`` for ``ties``/``dare_ties``/``dare_linear``/
-        ``magnitude_prune``: the fraction of weight deltas kept (1.0 keeps
-        everything).
+        ``magnitude_prune`` and their ``*_svd`` variants: the fraction of
+        weight deltas kept (1.0 keeps everything).
     target_rank : int | None
-        PEFT ``svd_rank`` for ``svd``: the rank of the output adapter.
+        PEFT ``svd_rank`` for ``svd`` and the ``*_svd`` variants: the rank
+        of the output adapter.
     seed : int
         Seed for the DARE random drop, so a merge is reproducible.
     hf_token, report_callback :
@@ -681,7 +700,7 @@ def merge_adapters_into_model(
     cuda_rng_state = (
         torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
     )
-    if config.method in ("dare_ties", "dare_linear"):
+    if config.method in ("dare_ties", "dare_linear", "dare_ties_svd", "dare_linear_svd"):
         torch.manual_seed(config.seed)
     combined_on_cpu = False
     try:

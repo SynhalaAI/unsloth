@@ -40,11 +40,16 @@ class TestPeftMethodMapping(unittest.TestCase):
             (
                 "linear", "svd", "cat", "ties", "dare_ties", "dare_linear",
                 "magnitude_prune",
+                "ties_svd", "dare_ties_svd", "dare_linear_svd",
+                "magnitude_prune_svd",
             ),
         )
 
     def test_density_is_forwarded_for_sparsifying_methods(self):
-        for method in ("ties", "dare_ties", "dare_linear", "magnitude_prune"):
+        for method in (
+            "ties", "dare_ties", "dare_linear", "magnitude_prune",
+            "ties_svd", "dare_ties_svd", "dare_linear_svd", "magnitude_prune_svd",
+        ):
             kwargs = self.core._peft_combination_kwargs(method, density = 0.25)
             self.assertEqual(
                 kwargs, {"combination_type": method, "density": 0.25}, method
@@ -56,16 +61,53 @@ class TestPeftMethodMapping(unittest.TestCase):
             self.assertEqual(kwargs, {"combination_type": method}, method)
 
     def test_svd_forwards_the_target_rank(self):
-        kwargs = self.core._peft_combination_kwargs("svd", target_rank = 32)
-        self.assertEqual(kwargs, {"combination_type": "svd", "svd_rank": 32})
+        expected = {
+            "svd": {"svd_rank": 32},
+            # The sparsifying variants read density too, so the core's
+            # default travels along with the rank.
+            "ties_svd": {"density": 0.5, "svd_rank": 32},
+            "dare_ties_svd": {"density": 0.5, "svd_rank": 32},
+            "dare_linear_svd": {"density": 0.5, "svd_rank": 32},
+            "magnitude_prune_svd": {"density": 0.5, "svd_rank": 32},
+        }
+        for method, extra in expected.items():
+            kwargs = self.core._peft_combination_kwargs(method, target_rank = 32)
+            self.assertEqual(
+                kwargs,
+                {"combination_type": method, **extra},
+                method,
+            )
 
     def test_svd_without_a_target_rank_uses_pefts_default(self):
-        kwargs = self.core._peft_combination_kwargs("svd")
-        self.assertEqual(kwargs, {"combination_type": "svd"})
+        expected = {
+            "svd": {},
+            "ties_svd": {"density": 0.5},
+            "dare_ties_svd": {"density": 0.5},
+            "dare_linear_svd": {"density": 0.5},
+            "magnitude_prune_svd": {"density": 0.5},
+        }
+        for method, extra in expected.items():
+            kwargs = self.core._peft_combination_kwargs(method)
+            self.assertEqual(
+                kwargs, {"combination_type": method, **extra}, method
+            )
 
     def test_svd_ignores_density(self):
         kwargs = self.core._peft_combination_kwargs("svd", density = 0.25)
         self.assertNotIn("density", kwargs)
+
+    def test_svd_variants_take_both_knobs(self):
+        for method in (
+            "ties_svd", "dare_ties_svd", "dare_linear_svd", "magnitude_prune_svd",
+        ):
+            kwargs = self.core._peft_combination_kwargs(
+                method, density = 0.25, target_rank = 32
+            )
+            self.assertEqual(
+                kwargs,
+                {"combination_type": method, "density": 0.25, "svd_rank": 32},
+                method,
+            )
 
 
 class TestConfigAliases(unittest.TestCase):
