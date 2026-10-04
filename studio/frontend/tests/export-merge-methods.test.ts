@@ -247,7 +247,7 @@ test("the normalize toggle is the last control in the merge toolbar row", () => 
   // narrow panel left it stranded; whatever controls the selected method adds
   // has to render before it.
   const row = exportPageSource.slice(
-    exportPageSource.indexOf("flex flex-wrap items-center justify-end gap-2"),
+    exportPageSource.indexOf('data-testid="merge-toolbar-row"'),
     exportPageSource.indexOf('ref={configFileInputRef}'),
   );
   assert.notEqual(row, "");

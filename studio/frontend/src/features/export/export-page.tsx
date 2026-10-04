@@ -2227,7 +2227,7 @@ export function ExportPage() {
                           Blend one or more LoRA checkpoints into the base model.
                         </div>
                       </div>
-                      <div className="flex flex-wrap items-center justify-end gap-2">
+                      <div className="flex min-w-0 max-w-full flex-nowrap items-center gap-2 overflow-x-auto [&>*]:shrink-0" data-testid="merge-toolbar-row">
                         <input
                           ref={configFileInputRef}
                           type="file"
