@@ -42,11 +42,38 @@ test("model-audio recorder is visible only for audio-input models", () => {
   assert.match(thread, /<ChatDictationBar[\s\S]*modelRecording=\{isRecordingModelAudio\}/);
 });
 
-test("stopping a recording creates the existing pending-audio attachment", () => {
+test("stopping a recording attaches the clip where the send can carry it", () => {
   assert.match(recorder, /new PcmRecorder\(stream\)/);
   assert.match(recorder, /new File\(chunks, recordedAudioName\(contentType\), \{/);
   assert.match(recorder, /contentType === "audio\/wav"\) return "recording\.wav"/);
-  assert.match(thread, /setPendingAudio\(await fileToBase64\(file\), file\.name\)/);
+  // A composer ATTACHMENT, not the runtime store. composer().send() dispatches
+  // nothing while the composer is empty, so a store-only clip produced no run at
+  // all and leaked the pre-stream reservation, which then refused every later
+  // submit as a running response on an idle chat.
+  assert.match(thread, /await aui\.composer\(\)\.addAttachment\(file\)/);
+  assert.doesNotMatch(thread, /setPendingAudio\(await fileToBase64\(file\)/);
+});
+
+test("an empty composer gives the pre-stream reservation back", () => {
+  // Without this the reservation is never consumed (no run) and never released,
+  // so every later submit reads it as a live run and is refused with "Wait for
+  // the current response to finish" while nothing is generating.
+  const sendStart = thread.indexOf("const sendReservedComposer = useCallback");
+  assert.ok(sendStart > 0, "sendReservedComposer moved");
+  const send = thread.slice(
+    sendStart,
+    thread.indexOf("const interceptSend", sendStart),
+  );
+  const reserve = send.indexOf("reservePreStreamRun(preStreamThreadIds, {");
+  const guard = send.indexOf("if (!sentText.trim()");
+  const release = send.indexOf("releasePreStreamRunReservation(reservationToken);", guard);
+  const dispatched = send.indexOf("aui.composer().send();");
+  assert.ok(reserve >= 0 && guard > reserve, "the guard reads the reserved composer");
+  assert.ok(release > guard, "an empty composer releases the reservation");
+  assert.ok(
+    release < dispatched,
+    "the reservation is given back before composer().send() is called",
+  );
 });
 
 test("cancelling a recording neither attaches nor sends audio", () => {

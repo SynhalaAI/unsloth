@@ -229,7 +229,7 @@ test("main cancels an audio upload only after a normal send reservation succeeds
       aui: {
         threads: () => ({ __internal_getAssistantRuntime: () => undefined }),
         composer: () => ({
-          getState: () => ({ text: "Draft" }),
+          getState: () => ({ text: "Draft", attachments: [] }),
           send: () => calls.push("send"),
         }),
       },
@@ -265,6 +265,99 @@ test("main cancels an audio upload only after a normal send reservation succeeds
     "send",
     "arm",
   ]);
+});
+
+test("an empty composer returns the reservation instead of leaking it", () => {
+  // composer().send() dispatches nothing while the composer is empty, so the run
+  // this reservation stands in for never starts and nothing releases it. Held, it
+  // reads as a live run forever: every later submit is refused with "Wait for
+  // the current response to finish" while the chat sits idle.
+  const calls: string[] = [];
+  const deps = {
+    aui: {
+      threads: () => ({ __internal_getAssistantRuntime: () => undefined }),
+      composer: () => ({
+        getState: () => ({ text: "", attachments: [] }),
+        send: () => calls.push("send"),
+      }),
+    },
+    reservePreStreamRun: () => Symbol("reservation"),
+    preStreamThreadIds: ["chat"],
+    parseExternalModelId: () => null,
+    useChatRuntimeStore: {
+      getState: () => ({
+        params: { checkpoint: "local/model" },
+        incognito: false,
+        activeGgufVariant: null,
+      }),
+    },
+    preStreamRunReservationRef: { current: null },
+    toast: { error: (message: string) => calls.push(`toast:${message}`) },
+    cancelAudioUpload: () => calls.push("cancel-upload"),
+    claimThreadCreation: () => calls.push("claim"),
+    projectScope: null,
+    armJustSent: () => calls.push("arm"),
+    releasePreStreamRunReservation: () => {
+      calls.push("release");
+      return true;
+    },
+    notifyPromptQueueRunFailed: () => undefined,
+    referenceThreadId: "chat",
+  };
+
+  createCallback(reservedSendCallback, deps)();
+
+  // The reservation comes back, nothing is dispatched, and the ref is cleared so
+  // a later release cannot re-adopt a reservation this composer no longer holds.
+  assert.deepEqual(calls, [
+    "cancel-upload",
+    "release",
+    "toast:Nothing to send",
+  ]);
+  assert.equal(deps.preStreamRunReservationRef.current, null);
+});
+
+test("an audio-only composer still dispatches, because the clip is an attachment", () => {
+  // The regression this guards: the recorded clip used to be staged in the
+  // runtime store, invisible to composer().send(), so an audio-only send started
+  // no run and stranded the reservation. It now rides as a composer attachment.
+  const calls: string[] = [];
+  const deps = {
+    aui: {
+      threads: () => ({ __internal_getAssistantRuntime: () => undefined }),
+      composer: () => ({
+        getState: () => ({ text: "", attachments: [{ id: "clip" }] }),
+        send: () => calls.push("send"),
+      }),
+    },
+    reservePreStreamRun: () => Symbol("reservation"),
+    preStreamThreadIds: ["chat"],
+    parseExternalModelId: () => null,
+    useChatRuntimeStore: {
+      getState: () => ({
+        params: { checkpoint: "local/model" },
+        incognito: false,
+        activeGgufVariant: null,
+      }),
+    },
+    preStreamRunReservationRef: { current: null },
+    toast: { error: (message: string) => calls.push(`toast:${message}`) },
+    cancelAudioUpload: () => calls.push("cancel-upload"),
+    claimThreadCreation: () => calls.push("claim"),
+    projectScope: null,
+    armJustSent: () => calls.push("arm"),
+    releasePreStreamRunReservation: () => {
+      calls.push("release");
+      return true;
+    },
+    notifyPromptQueueRunFailed: () => undefined,
+    referenceThreadId: "chat",
+  };
+
+  createCallback(reservedSendCallback, deps)();
+
+  assert.deepEqual(calls, ["cancel-upload", "claim", "send", "arm"]);
+  assert.ok(!calls.includes("release"), "a live send keeps its reservation");
 });
 
 test("main, edit and comparison composers use the setting and expose settings access", () => {

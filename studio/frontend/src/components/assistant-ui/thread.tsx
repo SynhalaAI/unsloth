@@ -96,7 +96,6 @@ import {
 } from "@/features/chat";
 import { useModelAudioRecording } from "@/features/chat/model-audio-recording";
 import { modelAcceptsAudioInput } from "@/features/chat/types/runtime";
-import { fileToBase64 } from "@/lib/audio-utils";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import {
   IntentAwareScrollProvider,
@@ -4711,7 +4710,19 @@ const Composer: FC<{
     try {
       // Only after reservation succeeds: a refused send keeps the in-flight transcript.
       cancelAudioUpload();
-      const sentText = aui.composer().getState().text;
+      const composerState = aui.composer().getState();
+      const sentText = composerState.text;
+      // An empty composer dispatches nothing (composer().send() returns early),
+      // so the run this reservation stands in for would never start and nothing
+      // would ever release it. Left in place it reads as a live run forever and
+      // every later submit is refused with "Wait for the current response to
+      // finish" on an idle chat, so give it back and say what was wrong.
+      if (!sentText.trim() && composerState.attachments.length === 0) {
+        releasePreStreamRunReservation(reservationToken);
+        preStreamRunReservationRef.current = null;
+        toast.error("Nothing to send");
+        return;
+      }
       // Stamp the send BEFORE send() starts awaiting every incomplete attachment: a document
       // send reaches initialize() seconds later, by which time navigation may have moved the
       // project and cleared the temporary flag. See utils/chat-thread-creation-claim.ts.
@@ -4919,16 +4930,23 @@ const Composer: FC<{
     s.models.find((model) => model.id === s.params.checkpoint),
   );
   const isAudioInputModel = modelAcceptsAudioInput(activeModel);
-  const setPendingAudio = useChatRuntimeStore((s) => s.setPendingAudio);
   const attachRecordedAudio = useCallback(
     async (file: File) => {
-      setPendingAudio(await fileToBase64(file), file.name);
+      // Into the COMPOSER, not the runtime store. composer().send() dispatches
+      // nothing while the composer is empty (isEmpty in
+      // BaseComposerRuntimeCore), so a clip staged only in the store started no
+      // run at all: no reply, and the pre-stream reservation sendReservedComposer
+      // had already taken was never consumed and never released, which left every
+      // later submit refusing with "Wait for the current response to finish" on
+      // an idle chat. An attachment is what the send can carry, and the adapter
+      // reads it back as audio_base64 for the turn.
+      await aui.composer().addAttachment(file);
       if (modelSendAfterRecordingRef.current) {
         modelSendAfterRecordingRef.current = false;
         queueMicrotask(() => formRef.current?.requestSubmit());
       }
     },
-    [setPendingAudio],
+    [aui],
   );
   const {
     isRecording: isRecordingModelAudio,
