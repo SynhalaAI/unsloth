@@ -40,9 +40,11 @@ from .export import (
     ExportMergedModelRequest,
     ExportBaseModelRequest,
     ExportGGUFRequest,
+    ConvertQ4NXRequest,
     ExportLoRAAdapterRequest,
     MergeAnalyzeRequest,
     MergeAnalyzeResponse,
+    LlmCompressorExportProbeResponse,
 )
 from .users import Token
 from .inference import (
@@ -99,9 +101,11 @@ __all__ = [
     "ExportMergedModelRequest",
     "ExportBaseModelRequest",
     "ExportGGUFRequest",
+    "ConvertQ4NXRequest",
     "ExportLoRAAdapterRequest",
     "MergeAnalyzeRequest",
     "MergeAnalyzeResponse",
+    "LlmCompressorExportProbeResponse",
     "Token",
     "LoadRequest",
     "UnloadRequest",

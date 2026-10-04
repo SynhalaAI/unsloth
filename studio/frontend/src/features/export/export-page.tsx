@@ -84,6 +84,7 @@ import { adapterCompatibilityTip, type AdapterFormat } from "./constants";
 import { ExportRunPanel } from "./components/export-run-panel";
 import { MergeTestPanel } from "./components/merge-test-panel";
 import { MethodPicker } from "./components/method-picker";
+import { Q4nxConvertCard } from "./components/q4nx-convert-card";
 import { QuantPicker } from "./components/quant-picker";
 import {
   EXPORT_METHODS,
@@ -98,6 +99,7 @@ import {
   MERGE_METHODS_WITH_RANK,
   type MergeMethodCategory,
   type MergeMethodType,
+  Q4NX_SOURCE_QUANTS,
   QUANT_OPTIONS,
   buildQuantSizeLabels,
   getEstimatedSize,
@@ -109,6 +111,7 @@ import {
   refreshCheckpoints,
   refreshLocalModels,
 } from "./export-navigation-cache";
+import { confirmLlmCompressorInstallIfNeeded } from "./hooks/use-llm-compressor-consent";
 import { useExportSizeEstimate } from "./hooks/use-export-size-estimate";
 import {
   isExportPanelActive,
@@ -430,6 +433,8 @@ export function ExportPage() {
   });
   // GGUF importance matrix (required for the IQ quants) and merged-export precision.
   const [useImatrix, setUseImatrix] = useState(false);
+  const [npuQ4nx, setNpuQ4nx] = useState(false);
+  const [customImatrix, setCustomImatrix] = useState({ sourceKey: "", path: "" });
   // Merged precision: one or more MERGED_FORMATS values exported in one run; seeded like exportMethod.
   const [selectedFormats, setSelectedFormats] = useState<string[]>(() => {
     const s = useExportRuntimeStore.getState();
@@ -580,12 +585,18 @@ export function ExportPage() {
     (q) => QUANT_OPTIONS.find((o) => o.value === q)?.imatrix,
   );
   const effectiveImatrix = useImatrix || requiresImatrix;
+  const q4nxSourceSelected = quantLevels.some((q) =>
+    Q4NX_SOURCE_QUANTS.includes(q),
+  );
 
   // Whether the inline export panel is expanded. The panel also shows itself whenever a run is
   // active/terminal (see `panelActive`), so it survives navigation even though this flag resets.
   const [panelOpen, setPanelOpen] = useState(false);
 
   const [destination, setDestination] = useState<"local" | "hub">("local");
+  // The converter writes beside the GGUFs, so a Hub-only export has nowhere to put it.
+  const effectiveNpuQ4nx =
+    npuQ4nx && q4nxSourceSelected && destination === "local";
   const [customSaveDirectory, setCustomSaveDirectory] = useState<string | null>(
     null,
   );
@@ -959,6 +970,14 @@ export function ExportPage() {
   const estimatedSize = getEstimatedSize(exportMethod, quantLevels, fp16Bytes);
   const selectedExportSource =
     sourceMode === "checkpoint" ? checkpoint : selectedSourceModel;
+  // Derived, not reset in an effect: an imatrix is calibrated for one model, so another source must not inherit it.
+  const imatrixSourceKey = JSON.stringify([
+    sourceTab,
+    sourceMode === "checkpoint" ? selectedModelIdx : null,
+    selectedExportSource,
+  ]);
+  const imatrixPath =
+    customImatrix.sourceKey === imatrixSourceKey ? customImatrix.path : "";
   const defaultSaveDirectory = useMemo(() => {
     const relative = buildRelativeSaveDirectory(
       exportMethod,
@@ -1403,6 +1422,15 @@ export function ExportPage() {
       }
     }
 
+    let installMissingDependencies = false;
+    if (effectiveMethod === "merged") {
+      const llmCompressor = await confirmLlmCompressorInstallIfNeeded(
+        selectedFormats,
+      );
+      if (!llmCompressor.ok) return;
+      installMissingDependencies = llmCompressor.installMissingDependencies;
+    }
+
     void runExport({
       sourceMode,
       checkpointPath,
@@ -1416,6 +1444,8 @@ export function ExportPage() {
       isAdapter: adapterExport,
       quantLevels,
       useImatrix: effectiveImatrix,
+      imatrixPath,
+      npuQ4nx: effectiveNpuQ4nx,
       mergedSelections: selectedFormats.map((v) => ({
         ...mergedFormatPayload(v),
         label: MERGED_FORMATS.find((f) => f.value === v)?.label ?? v,
@@ -1428,6 +1458,7 @@ export function ExportPage() {
       repoId,
       token,
       privateRepo,
+      installMissingDependencies,
       baseModelId: selectedModelData?.base_model ?? undefined,
       summary: {
         baseModelName: sourceBaseModelName,
@@ -1451,6 +1482,8 @@ export function ExportPage() {
     isAdapter,
     quantLevels,
     effectiveImatrix,
+    imatrixPath,
+    effectiveNpuQ4nx,
     selectedFormats,
     hubMultiFormat,
     ggufAsLora,
@@ -2740,6 +2773,59 @@ export function ExportPage() {
                           disabled={requiresImatrix}
                         />
                       </div>
+                      {effectiveImatrix && (
+                        <div className="space-y-1.5">
+                          <label
+                            htmlFor="export-imatrix-path"
+                            className="text-sm font-medium"
+                          >
+                            Local imatrix file (optional)
+                          </label>
+                          <InputGroup>
+                            <InputGroupInput
+                              id="export-imatrix-path"
+                              aria-describedby="export-imatrix-path-help"
+                              placeholder="/path/to/imatrix.gguf"
+                              value={imatrixPath}
+                              onChange={(e) =>
+                                setCustomImatrix({
+                                  sourceKey: imatrixSourceKey,
+                                  path: e.target.value,
+                                })
+                              }
+                            />
+                          </InputGroup>
+                          <p
+                            id="export-imatrix-path-help"
+                            className="text-xs text-muted-foreground"
+                          >
+                            Absolute path to a .dat or .gguf imatrix file on the
+                            machine running Unsloth. Leave blank to
+                            auto-download the upstream Unsloth imatrix for the
+                            base model, if one exists.
+                          </p>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                        <div className="space-y-0.5">
+                          <div className="text-sm font-medium">
+                            Also convert to Q4NX (AMD NPU)
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {destination !== "local"
+                              ? "Saves locally only: pick a local destination."
+                              : q4nxSourceSelected
+                                ? "Converts the Q4 GGUF into a FastFlowLM folder for Ryzen AI NPUs (XDNA 2), next to the GGUFs."
+                                : "Needs Q4_0, Q4_1 or Q4_K_M in the selection."}
+                          </div>
+                        </div>
+                        <Switch
+                          aria-label="Also convert to Q4NX (AMD NPU)"
+                          checked={effectiveNpuQ4nx}
+                          onCheckedChange={setNpuQ4nx}
+                          disabled={!q4nxSourceSelected || destination !== "local"}
+                        />
+                      </div>
                     </>
                   )}
                 </div>
@@ -2820,6 +2906,7 @@ export function ExportPage() {
             </>
           )}
         </SectionCard>
+        <Q4nxConvertCard />
       </main>
     </div>
   );
