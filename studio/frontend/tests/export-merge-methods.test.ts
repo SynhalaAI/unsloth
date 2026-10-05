@@ -268,6 +268,43 @@ test("the normalize toggle is the last control in the merge toolbar row", () => 
   }
 });
 
+test("the merge heading and the toolbar share one non-wrapping row", () => {
+  // The outer strip used to flex-wrap, so once the *_svd variants added both
+  // a density and a rank knob the whole control strip dropped below the
+  // Adapter merge heading. The strip stays on one line instead: the toolbar
+  // row takes the leftover space (flex-1) so the heading keeps its natural
+  // width, and the row scrolls its own overflow.
+  const outer = "flex flex-nowrap items-center justify-between gap-3";
+  assert.equal(
+    exportPageSource.split(outer).length - 1,
+    1,
+    "the heading strip must exist exactly once",
+  );
+  const stripStart = exportPageSource.indexOf(outer);
+  const toolbarAt = exportPageSource.indexOf('data-testid="merge-toolbar-row"');
+  assert.ok(
+    stripStart >= 0 && stripStart < toolbarAt,
+    "the heading strip must open before the toolbar row",
+  );
+  const strip = exportPageSource.slice(stripStart, toolbarAt);
+  assert.doesNotMatch(strip, /flex-wrap/);
+  assert.ok(
+    strip.indexOf("Adapter merge") > 0,
+    "the heading must sit inside that strip, ahead of the controls",
+  );
+  const rowStart = exportPageSource.lastIndexOf(
+    '<div className="flex min-w-0',
+    toolbarAt,
+  );
+  assert.ok(rowStart > stripStart, "the toolbar row must follow the heading");
+  const row = exportPageSource.slice(
+    rowStart,
+    exportPageSource.indexOf("ref={configFileInputRef}"),
+  );
+  assert.match(row, /flex min-w-0 max-w-full flex-1 flex-nowrap/);
+  assert.match(row, /overflow-x-auto/);
+});
+
 test("the export page warns when a multi-adapter merge will not average", () => {
   // Raw weights summing to N blend N adapters' worth of change at once, and
   // PEFT's linear only approximates the weighted sum: both are stated in the

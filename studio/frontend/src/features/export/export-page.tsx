@@ -2218,7 +2218,7 @@ export function ExportPage() {
                 (sourceMode === "model" || effectiveIsAdapter) &&
                 !exportUnsupported && (
                   <div className="space-y-3 rounded-lg border p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-nowrap items-center justify-between gap-3">
                       <div className="space-y-0.5">
                         <div className="text-sm font-medium">
                           Adapter merge
@@ -2227,7 +2227,7 @@ export function ExportPage() {
                           Blend one or more LoRA checkpoints into the base model.
                         </div>
                       </div>
-                      <div className="flex min-w-0 max-w-full flex-nowrap items-center gap-2 overflow-x-auto [&>*]:shrink-0" data-testid="merge-toolbar-row">
+                      <div className="flex min-w-0 max-w-full flex-1 flex-nowrap items-center gap-2 overflow-x-auto [&>*]:shrink-0" data-testid="merge-toolbar-row">
                         <input
                           ref={configFileInputRef}
                           type="file"
