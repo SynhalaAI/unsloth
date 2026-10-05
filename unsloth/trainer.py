@@ -41,6 +41,7 @@ from unsloth_zoo.vision_utils import (
     UnslothVisionDataCollator as _UnslothVisionDataCollatorBase,
 )
 from unsloth.models.vision import check_dataset_for_missing_videos
+from unsloth.utils.lazy_image import resolve_lazy_images
 from unsloth_zoo.hf_utils import get_transformers_model_type
 from unsloth_zoo.utils import Version
 import dataclasses
@@ -64,6 +65,11 @@ class UnslothVisionDataCollator(_UnslothVisionDataCollatorBase):
     (deduped across batches), applying formatting_func first so formatter-made
     paths are checked too. Raises FileNotFoundError on missing files instead
     of silently training on empty video tensors (issue #5085).
+
+    Also decodes the deferred images a dataset may carry (``LazyImage``, the shape
+    the Studio converters emit when they keep images compressed to stay out of
+    RAM). The zoo base collator still receives ordinary PIL images, so such a
+    dataset trains on exactly the same pixels as an eagerly decoded one.
     """
 
     __slots__ = ("_checked_video_paths",)
@@ -73,6 +79,10 @@ class UnslothVisionDataCollator(_UnslothVisionDataCollatorBase):
         self._checked_video_paths = set()
 
     def __call__(self, examples):
+        # A no-op unless the batch carries deferred images. Decoding here keeps the
+        # zoo base collator on ordinary PIL images, exactly as before.
+        examples = resolve_lazy_images(examples)
+
         formatting_func = self.formatting_func
         if formatting_func is not None:
             examples = [formatting_func(example) for example in examples]

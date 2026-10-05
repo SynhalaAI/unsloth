@@ -389,13 +389,26 @@ def convert_to_vlm_format(
     image_column = "image",
     dataset_name = None,
     progress_callback = None,
+    lazy_images = False,
 ):
     """Convert simple {image, text} format to VLM messages format.
 
     Returns a LIST of dicts with a 'messages' field, not a HuggingFace Dataset, to preserve PIL Images. For URL-based datasets, runs a 200-sample parallel probe first to estimate speed and failure rate via progress_callback, an optional callable(status_message=str).
+
+    ``lazy_images`` keeps each image as its compressed bytes or its path instead of a
+    decoded PIL object, which is what the whole dataset otherwise becomes in RAM: a
+    1.7GB dataset of JPEGs decodes to tens of gigabytes and kills the worker before the
+    first step. The bytes are untouched and the collator decodes them, so the images the
+    model trains on are identical - only WHEN they are decoded changes.
     """
     from PIL import Image
     from .vlm_processing import generate_smart_vlm_instruction
+
+    LazyImage = None
+    if lazy_images:
+        # Imported here, not at module scope: this package is also imported by the
+        # dataset preview, which has no training worker and no use for it.
+        from unsloth.utils.lazy_image import LazyImage
 
     def _notify(msg):
         """Send a status update to the training overlay if callback set."""
@@ -424,31 +437,48 @@ def convert_to_vlm_format(
         instruction_column = None
         uses_dynamic = False
 
+    def _resolve_image_now(image_data):
+        """Decode now, exactly as the eager path always did.
+
+        Reached for whatever ``LazyImage.from_value`` declines: a remote string, whose
+        bytes must be fetched now, and a path that is not on disk, which raises here as
+        it always has. A cell that is already a PIL image is handed back untouched.
+        """
+        if not isinstance(image_data, str):
+            return image_data
+        if image_data.startswith(("http://", "https://")):
+            import fsspec
+            from io import BytesIO
+            with fsspec.open(image_data, "rb", expand = True) as f:
+                data = f.read()
+            if LazyImage is not None:
+                # The download has to happen now; the decode need not.
+                return LazyImage(bytes = data, to_rgb = True)
+            return Image.open(BytesIO(data)).convert("RGB")
+        if _image_lookup is not None and image_data in _image_lookup:
+            # Bare filename → resolve via HF repo lookup. Stays eager: that cache is
+            # Hub-managed and may be pruned mid-run, so the pixels are taken now.
+            from huggingface_hub import hf_hub_download
+            from utils.hf_cache_settings import active_hf_hub_cache
+
+            local_path = hf_hub_download(
+                dataset_name,
+                _image_lookup[image_data],
+                repo_type = "dataset",
+                cache_dir = active_hf_hub_cache(),
+            )
+            return Image.open(local_path).convert("RGB")
+        return Image.open(image_data).convert("RGB")
+
     def _convert_single_sample(sample):
         """Convert a single sample to VLM format."""
         # Image may be a PIL Image, local path, URL, or bare filename
         image_data = sample[image_column]
 
-        if isinstance(image_data, str):
-            if image_data.startswith(("http://", "https://")):
-                import fsspec
-                from io import BytesIO
-                with fsspec.open(image_data, "rb", expand = True) as f:
-                    image_data = Image.open(BytesIO(f.read())).convert("RGB")
-            elif _image_lookup is not None and image_data in _image_lookup:
-                # Bare filename → resolve via HF repo lookup
-                from huggingface_hub import hf_hub_download
-                from utils.hf_cache_settings import active_hf_hub_cache
-
-                local_path = hf_hub_download(
-                    dataset_name,
-                    _image_lookup[image_data],
-                    repo_type = "dataset",
-                    cache_dir = active_hf_hub_cache(),
-                )
-                image_data = Image.open(local_path).convert("RGB")
-            else:
-                image_data = Image.open(image_data).convert("RGB")
+        if LazyImage is None:
+            image_data = _resolve_image_now(image_data)
+        else:
+            image_data = LazyImage.from_value(image_data) or _resolve_image_now(image_data)
 
         text_data = sample[text_column]
         if isinstance(text_data, list) and len(text_data) > 0:
@@ -472,6 +502,14 @@ def convert_to_vlm_format(
         ]
 
         return {"messages": messages}
+
+    if LazyImage is not None:
+        # Read the cells undecoded, or datasets decodes every image in the dataset while
+        # the conversion below walks the rows. Deliberately after the instruction
+        # heuristics above: they read the image column as a sample value.
+        from .vlm_lazy import undecoded_image_columns
+
+        dataset = undecoded_image_columns(dataset, [image_column])
 
     total = len(dataset)
     first_image = next(iter(dataset))[image_column]
@@ -722,10 +760,19 @@ def convert_sharegpt_with_images_to_vlm_format(
     messages_column = "conversations",
     dataset_name = None,
     progress_callback = None,
+    lazy_images = False,
 ):
-    """Convert ShareGPT/ChatML datasets carrying a separate image column and ``<image>`` placeholders in the conversation text, e.g. {"image": "sam/images/sa_545504.jpg", "conversations": [{"from": "human", "value": "<image> What is this photo about?"}, ...]}. Returns a list of dicts in standard VLM messages format, PIL Images inline."""
+    """Convert ShareGPT/ChatML datasets carrying a separate image column and ``<image>`` placeholders in the conversation text, e.g. {"image": "sam/images/sa_545504.jpg", "conversations": [{"from": "human", "value": "<image> What is this photo about?"}, ...]}. Returns a list of dicts in standard VLM messages format, PIL Images inline (deferred references instead when ``lazy_images`` is set, which is what keeps the whole dataset out of RAM)."""
     from PIL import Image
     from tqdm import tqdm
+
+    LazyImage = None
+    if lazy_images:
+        from unsloth.utils.lazy_image import LazyImage
+
+        from .vlm_lazy import undecoded_image_columns
+
+        dataset = undecoded_image_columns(dataset, [image_column])
 
     _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff")
     _ROLE_MAP = {
@@ -782,7 +829,11 @@ def convert_sharegpt_with_images_to_vlm_format(
             _image_lookup = None
 
     def _resolve_image(image_data):
-        """Resolve image data to a PIL Image."""
+        """Resolve image data to a PIL Image, or to the reference that stands in for one."""
+        if LazyImage is not None:
+            lazy = LazyImage.from_value(image_data)
+            if lazy is not None:
+                return lazy
         if hasattr(image_data, "size") and hasattr(image_data, "mode"):
             return image_data
         if isinstance(image_data, str):
@@ -876,11 +927,25 @@ def convert_sharegpt_with_images_to_vlm_format(
     return converted_list
 
 
-def convert_llava_to_vlm_format(dataset):
+def convert_llava_to_vlm_format(dataset, lazy_images = False):
     """Convert Llava format to standard VLM format: Llava carries messages whose content blocks name an image by {'type': 'image', 'index': 0} plus a parallel images list, while the standard form inlines the PIL object as {'type': 'image', 'image': PIL_Image}."""
     from PIL import Image
 
     is_iterable = is_streaming_dataset(dataset)
+
+    LazyImage = None
+    if lazy_images and not is_iterable:
+        # Only the list branch materialises the dataset, so it is the only one that
+        # needs deferring: a streaming map already decodes row by row, and it could
+        # not write a deferred reference into Arrow in any case.
+        from unsloth.utils.lazy_image import LazyImage
+
+        from .vlm_lazy import undecoded_image_columns
+
+        dataset = undecoded_image_columns(dataset, ["images"])
+
+    accepted_image_types = (Image.Image,) if LazyImage is None else (Image.Image, LazyImage)
+
     if is_iterable:
         logger.info("🔄 Converting streaming samples from Llava format to standard VLM format...")
     else:
@@ -936,9 +1001,15 @@ def convert_llava_to_vlm_format(dataset):
                         )
 
                     pil_image = images[img_idx]
-                    if isinstance(pil_image, str):
+                    if LazyImage is not None:
+                        lazy = LazyImage.from_value(pil_image)
+                        if lazy is not None:
+                            pil_image = lazy
+                        elif isinstance(pil_image, str):
+                            pil_image = Image.open(pil_image).convert("RGB")
+                    elif isinstance(pil_image, str):
                         pil_image = Image.open(pil_image).convert("RGB")
-                    elif not isinstance(pil_image, Image.Image):
+                    if not isinstance(pil_image, accepted_image_types):
                         raise ValueError(
                             f"Unsupported Llava image value at index {img_idx}: "
                             f"{type(pil_image).__name__}"
