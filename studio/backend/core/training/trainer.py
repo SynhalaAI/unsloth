@@ -3416,6 +3416,10 @@ class UnslothTrainer:
                     dataset_name = dataset_source,
                     custom_format_mapping = custom_format_mapping,
                     progress_callback = self._update_progress,
+                    # VLM only. Images stay compressed until the collator needs
+                    # them, which is what keeps a dataset of any size off the RAM
+                    # budget; the trainer's collator decodes them per batch.
+                    lazy_images = True,
                 )
 
             if self.should_stop:
@@ -3453,6 +3457,7 @@ class UnslothTrainer:
                     format_type = format_type,
                     dataset_name = dataset_source,
                     custom_format_mapping = custom_format_mapping,
+                    lazy_images = True,
                 )
                 if not eval_info.get("success", True):
                     eval_errors = eval_info.get("errors", [])

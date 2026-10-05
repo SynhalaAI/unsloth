@@ -823,8 +823,14 @@ def format_and_template_dataset(
     num_proc = None,
     progress_callback = None,
     split_name = None,
+    lazy_images = False,
 ):
-    """Combines format_dataset and apply_chat_template_to_dataset, for UI workflows where one call does everything. custom_prompt_template is retained for signature compatibility; non-None values are rejected because Studio cannot persist a matching inference template. Returns {dataset (with a 'text' column), detected_format, final_format, success, requires_manual_mapping, warnings, errors, summary}."""
+    """Combines format_dataset and apply_chat_template_to_dataset, for UI workflows where one call does everything. custom_prompt_template is retained for signature compatibility; non-None values are rejected because Studio cannot persist a matching inference template. Returns {dataset (with a 'text' column), detected_format, final_format, success, requires_manual_mapping, warnings, errors, summary}.
+
+    ``lazy_images`` (VLM only) defers image decoding to the data collator instead of
+    decoding the whole dataset into RAM during the conversion. The images themselves are
+    unchanged; only when they are decoded moves, from load time to batch time.
+    """
 
     custom_prompt_error = _custom_prompt_template_error(custom_prompt_template)
     if custom_prompt_error:
@@ -866,6 +872,7 @@ def format_and_template_dataset(
                         image_column = user_vlm_image_column,
                         dataset_name = dataset_name,
                         progress_callback = progress_callback,
+                        lazy_images = lazy_images,
                     )
                     warnings.append(
                         f"Applied user VLM mapping: image='{user_vlm_image_column}', text='{user_vlm_text_column}'"
@@ -912,7 +919,7 @@ def format_and_template_dataset(
 
         if vlm_structure["format"] == "vlm_messages_llava":
             try:
-                dataset = convert_llava_to_vlm_format(dataset)
+                dataset = convert_llava_to_vlm_format(dataset, lazy_images = lazy_images)
                 warnings.append(
                     "Converted from Llava format (image indices) to standard VLM format"
                 )
@@ -941,6 +948,7 @@ def format_and_template_dataset(
                     messages_column = vlm_structure["messages_column"],
                     dataset_name = dataset_name,
                     progress_callback = progress_callback,
+                    lazy_images = lazy_images,
                 )
                 warnings.append("Converted from ShareGPT+image format to standard VLM format")
             except Exception as e:
@@ -1006,6 +1014,7 @@ def format_and_template_dataset(
                     image_column = vlm_image_column,
                     dataset_name = dataset_name,
                     progress_callback = progress_callback,
+                    lazy_images = lazy_images,
                 )
 
                 if vlm_instruction:
@@ -1031,7 +1040,12 @@ def format_and_template_dataset(
                 }
 
         elif vlm_structure["format"] == "vlm_messages":
-            dataset = [sample for sample in dataset]
+            if lazy_images:
+                from .vlm_lazy import wrap_lazy_images_in_messages
+
+                dataset = wrap_lazy_images_in_messages(dataset)
+            else:
+                dataset = [sample for sample in dataset]
             warnings.append("Dataset already in standard VLM messages format")
 
         return {
