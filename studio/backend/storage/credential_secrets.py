@@ -19,6 +19,7 @@ from typing import Optional
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from auth.storage import get_or_create_credential_encryption_key
+from storage.studio_db import connect_studio_db
 from utils.paths import ensure_dir, studio_db_path
 
 logger = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ def get_connection() -> sqlite3.Connection:
     ensure_dir(db_path.parent)
     from storage.db_snapshot import restore_snapshot_if_needed
     restore_snapshot_if_needed(db_path)
-    conn = sqlite3.connect(str(db_path), timeout = 5.0)
+    conn = connect_studio_db(db_path, timeout = 5.0)
     conn.row_factory = sqlite3.Row
     try:
         os.chmod(db_path.parent, 0o700)

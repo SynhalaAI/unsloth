@@ -9,8 +9,11 @@ import { registerBundlerResolver } from "./helpers/kit.ts";
 
 registerBundlerResolver();
 
-const { hasIncompatibleTrainingModalities, validateTrainingConfig } =
-  await import("../src/features/training/lib/validation.ts");
+const {
+  hasIncompatibleTrainingModalities,
+  validateS3Source,
+  validateTrainingConfig,
+} = await import("../src/features/training/lib/validation.ts");
 
 const validConfig = {
   selectedModel: "org/model",
@@ -335,5 +338,28 @@ test("training validation keeps CPT and embedding training available off MLX", (
       "linux",
     ),
     { ok: true, errorKey: null },
+  );
+});
+
+const s3Config = {
+  ...validConfig,
+  datasetSource: "s3" as const,
+  s3Config: { bucket: "my-bucket", region: "us-east-1", useIamRole: true },
+};
+
+test("an audio model can start from S3 (#4539: the audio is downloaded beside its manifest)", () => {
+  assert.deepEqual(
+    validateS3Source({ ...s3Config, modelType: "audio", isAudioModel: true }),
+    { ok: true, errorKey: null },
+  );
+});
+
+test("a vision model still cannot start from S3", () => {
+  assert.deepEqual(
+    validateS3Source({ ...s3Config, modelType: "vision", isVisionModel: true }),
+    {
+      ok: false,
+      errorKey: "studio.training.validation.s3MultimodalUnsupported",
+    },
   );
 });
