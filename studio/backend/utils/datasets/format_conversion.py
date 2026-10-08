@@ -475,6 +475,8 @@ def convert_to_vlm_format(
         # Image may be a PIL Image, local path, URL, or bare filename
         image_data = sample[image_column]
 
+        if image_data is None:
+            raise ValueError("Row has no image")
         if LazyImage is None:
             image_data = _resolve_image_now(image_data)
         else:
@@ -487,6 +489,8 @@ def convert_to_vlm_format(
 
         if uses_dynamic and instruction_column:
             current_instruction = sample[instruction_column]
+            if not isinstance(current_instruction, str) or not current_instruction.strip():
+                current_instruction = "Describe this image in detail."
         else:
             current_instruction = instruction
 
@@ -512,10 +516,18 @@ def convert_to_vlm_format(
         dataset = undecoded_image_columns(dataset, [image_column])
 
     total = len(dataset)
-    first_image = next(iter(dataset))[image_column]
+    first_image = next(
+        (row[image_column] for row in dataset if row[image_column] is not None), None
+    )
     has_urls = isinstance(first_image, str) and first_image.startswith(("http://", "https://"))
 
-    # Bare-filename detection: build a basename to repo_path lookup so filename-only images resolve via hf_hub_download during conversion.
+    if has_urls:
+        with_image = [i for i, url in enumerate(dataset[image_column]) if url is not None]
+        if len(with_image) < total:
+            logger.info(f"Skipping {total - len(with_image)}/{total} rows without an image")
+            dataset = dataset.select(with_image)
+            total = len(with_image)
+
     _image_lookup = None
     _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tiff")
     if (

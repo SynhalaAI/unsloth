@@ -45,6 +45,8 @@ from .export import (
     MergeAnalyzeRequest,
     MergeAnalyzeResponse,
     LlmCompressorExportProbeResponse,
+    DecisionExportInfo,
+    ExportDecisionInfoResponse,
 )
 from .users import Token
 from .inference import (
@@ -106,6 +108,8 @@ __all__ = [
     "MergeAnalyzeRequest",
     "MergeAnalyzeResponse",
     "LlmCompressorExportProbeResponse",
+    "DecisionExportInfo",
+    "ExportDecisionInfoResponse",
     "Token",
     "LoadRequest",
     "UnloadRequest",

@@ -173,6 +173,7 @@ import {
   reconcileOrdinarySavedMessagesInView,
 } from "./utils/saved-history-reconciliation";
 import { createGenerationToolRecovery } from "./utils/generation-tool-recovery";
+import { providerCompactionConnectionKey } from "./utils/provider-compaction";
 import { mergeContextTruncation } from "./utils/context-truncation";
 import { registerLiveThreadView } from "./utils/live-thread-head";
 import {
@@ -221,14 +222,10 @@ import {
 import { syncExportedRepositoryToBackend } from "./utils/delete-thread-message";
 import { getImageInputUnavailableReason } from "./utils/image-input-support";
 import {
-  attachmentContentText,
   attachmentsSample,
-  isPastedTextFile,
 } from "./utils/pasted-text";
-import {
-  annotationsContentText,
-  annotationsOfFile,
-} from "./utils/document-annotations";
+import { annotationsOfFile } from "./utils/document-annotations";
+import { completeTextAttachment } from "./utils/queued-text-attachments";
 import {
   adoptPreStreamRunReservation,
   claimPreStreamRunReservation,
@@ -679,28 +676,7 @@ class TextAttachmentAdapter implements AttachmentAdapter {
   async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
     const annotations = annotationsOfFile(attachment.file);
     const text = annotations ? "" : await readTextAttachmentOnce(attachment.file);
-    return {
-      id: attachment.id,
-      type: "document",
-      name: attachment.name,
-      contentType: attachment.contentType,
-      content: [
-        {
-          type: "text",
-          // A pasted file gets its own tag and size, the markers that outlive the File once the message is stored.
-          // Annotations carry their own tag, which the chip reads back once the File is gone.
-          text: annotations
-            ? annotationsContentText(annotations)
-            : attachmentContentText(
-                attachment.name,
-                text,
-                isPastedTextFile(attachment.file),
-                attachment.file.size,
-              ),
-        },
-      ],
-      status: { type: "complete" },
-    };
+    return completeTextAttachment(attachment, text);
   }
 
   remove(): Promise<void> {
@@ -988,8 +964,9 @@ class OpenDocumentAttachmentAdapter implements AttachmentAdapter {
 const MAX_TOOL_ONLY_ATTACHMENT_BYTES = 200 * 1024 * 1024;
 
 /** Whether this turn's python tool runs in Studio's sandbox; chat-adapter.ts decides it the same way. */
-function pythonToolRunsInStudio(): boolean {
-  const state = useChatRuntimeStore.getState();
+export function pythonToolRunsInStudio(
+  state: Parameters<typeof codeToolsOn>[0] = useChatRuntimeStore.getState(),
+): boolean {
   // The effective Code state, as the send path computes it: Full access turns it on locally.
   const codeToolsEnabled = codeToolsOn(state);
   const external = parseExternalModelId(state.params.checkpoint);
@@ -1539,8 +1516,11 @@ function scheduleGenerationRecovery(
           }
           // Replay from 0 re-delivers already-saved chunks: apply them, but publish nothing.
           let advanced = false;
+          let recoveredProviderCompaction: ReturnType<
+            typeof toolRecovery.apply
+          >;
           if (update.event?.type === "chunk") {
-            toolRecovery.apply(
+            recoveredProviderCompaction = toolRecovery.apply(
               update.event.payload,
               raw.length,
               update.event.seq,
@@ -1595,6 +1575,30 @@ function scheduleGenerationRecovery(
                     currentMetadata.contextTruncation as OpenAIChatChunk["context_truncated"],
                     chunk.context_truncated,
                   ),
+                };
+              }
+              if (recoveredProviderCompaction) {
+                const sourceProviderType = update.run.requestPayload.provider_type;
+                const sourceModelId =
+                  update.run.requestPayload.external_model ??
+                  update.run.requestPayload.model;
+                currentMetadata = {
+                  ...currentMetadata,
+                  ...recoveredProviderCompaction,
+                  providerCompactionProviderType:
+                    typeof sourceProviderType === "string"
+                      ? sourceProviderType
+                      : undefined,
+                  providerCompactionModelId:
+                    typeof sourceModelId === "string"
+                      ? sourceModelId
+                      : undefined,
+                  providerCompactionConnectionKey:
+                    providerCompactionConnectionKey(
+                      update.run.requestPayload.provider_id,
+                      update.run.requestPayload.provider_base_url,
+                      update.run.requestPayload.provider_api_type,
+                    ),
                 };
               }
               if (chunk.quote_cut === true) quoteCut = true;
@@ -2672,6 +2676,7 @@ function useStudioRuntimeAdapters(
               promptTokens: number;
               completionTokens: number;
               totalTokens: number;
+              contextTokens?: number;
               cachedTokens: number;
               cacheWriteTokens?: number;
               modelId?: string;
@@ -2683,7 +2688,7 @@ function useStudioRuntimeAdapters(
         // MLX runs past it by design, and a thread whose recount is unsupported would never get another.
         const localLimit = store.loadedIsGguf ? store.loadedContextLength : null;
         const withinLocalLimit =
-          !localLimit || (savedUsage?.totalTokens ?? 0) <= localLimit;
+          !localLimit || (savedUsage?.contextTokens ?? savedUsage?.totalTokens ?? 0) <= localLimit;
         // Legacy unscoped usage (no modelId) is trusted only when a known local
         // window bounds the totals, so an old local turn can't be misattributed
         // to a newly-selected external provider.

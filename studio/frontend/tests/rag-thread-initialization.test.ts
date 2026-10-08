@@ -132,11 +132,15 @@ function harness(
       "@hugeicons/react": {},
       "@hugeicons/core-free-icons": {},
       "@/lib/tick-icon": {},
+      "@/lib/chevron-icons": {},
       "@assistant-ui/react": { useAui: () => ({ threadListItem: () => item }) },
       "@/lib/utils": { cn: () => "" },
       "@/features/chat/stores/chat-runtime-store": {
         useChatRuntimeStore: store,
         readPendingAttachmentTargetClaim: () => null,
+      },
+      "@/features/chat/hooks/use-rag-tool-disabled": {
+        useRagToolDisabled: () => false,
       },
       "@/features/chat": {
         chatHistoryClearBoundary: { capture: () => 0 },

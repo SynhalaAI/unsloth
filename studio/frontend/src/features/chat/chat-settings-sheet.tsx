@@ -78,11 +78,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { OpenAICodeExecSection } from "./components/openai-code-exec-section";
-import {
-  PermissionModeDropdown,
-  pickSandboxedMode,
-} from "./permission-mode-select";
-import { useSandboxSetupDialogStore } from "./sandbox-setup-dialog";
+import { PermissionModeDropdown } from "./permission-mode-select";
 import { resyncInferenceStatusAfterServerModelChange } from "./hooks/use-chat-model-runtime";
 import {
   type ExternalProviderConfig,
@@ -630,9 +626,7 @@ export function ChatSettingsPanel({
         `llama.cpp updated to ${result.tag ?? "the latest build"}.${reloadHint}`,
       );
     } else {
-      toast.error(
-        `llama.cpp update failed: ${result.error ?? "unknown error"}`,
-      );
+      toast.error(`Update failed: ${result.error ?? "unknown error"}`);
     }
   }, [applyLlamaUpdate, speculativeDrafterLabel]);
   const loadedEffectiveContext = customContextLength ?? loadedContextLength;
@@ -1169,10 +1163,10 @@ export function ChatSettingsPanel({
                       reason: specFallbackReason,
                       drafter: speculativeDrafterLabel,
                       isLocalGguf,
-                      updateAvailable: Boolean(llamaUpdateStatus?.update_available),
+                      updateAvailable: Boolean(llamaUpdateStatus?.llama.update_available),
                     })}
                   </p>
-                  {mtpUpdatable && llamaUpdateStatus?.update_available && (
+                  {mtpUpdatable && llamaUpdateStatus?.llama.update_available && (
                     <Button
                       size="sm"
                       className="corner-squircle mt-2 h-7 text-ui-12"
@@ -2038,7 +2032,6 @@ function ConfirmToolCallsToggle() {
   const setConfirmToolCalls = useChatRuntimeStore((s) => s.setConfirmToolCalls);
   const setPermissionMode = useChatRuntimeStore((s) => s.setPermissionMode);
   const permissionMode = useChatRuntimeStore((s) => s.permissionMode);
-  const setSandboxSetupOpen = useSandboxSetupDialogStore((s) => s.setOpen);
 
   return (
     <div className="flex min-h-8 items-center justify-between gap-3">
@@ -2069,11 +2062,8 @@ function ConfirmToolCallsToggle() {
           if (checked) {
             setConfirmToolCalls(true);
           } else {
-            // Same path as picking "Run automatically": offer the setup when there is no
-            // working OS sandbox instead of switching silently.
-            void pickSandboxedMode(setPermissionMode, () =>
-              setSandboxSetupOpen(true),
-            );
+            // Same as picking "Run automatically".
+            setPermissionMode("off");
           }
         }}
         disabled={permissionMode === "full"}

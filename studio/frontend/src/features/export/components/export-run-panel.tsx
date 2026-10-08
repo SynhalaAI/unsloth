@@ -121,6 +121,8 @@ export interface ExportRunPanelProps {
   startRequestInFlight?: boolean;
   /** Collapse the panel; only offered before a run or after a terminal one. */
   onClose: () => void;
+  /** Decision model: output goes to the run folder's gguf/ only; this note replaces the destination picker. */
+  decisionNote?: string;
 }
 
 export function ExportRunPanel(props: ExportRunPanelProps) {
@@ -136,6 +138,7 @@ export function ExportRunPanel(props: ExportRunPanelProps) {
     defaultSaveDirectory,
     saveDirectoryOverridden,
     onSaveDirectoryChange,
+    decisionNote,
     hfUsername,
     onHfUsernameChange,
     modelName,
@@ -246,7 +249,12 @@ export function ExportRunPanel(props: ExportRunPanelProps) {
       </div>
 
       {/* Destination configuration (only before a run starts) */}
-      {showConfig && (
+      {showConfig && decisionNote && (
+        <p className="break-all rounded-lg border p-3 text-xs text-muted-foreground">
+          {decisionNote}
+        </p>
+      )}
+      {showConfig && !decisionNote && (
         <>
           <div className="flex gap-2">
             <Button
@@ -421,7 +429,7 @@ export function ExportRunPanel(props: ExportRunPanelProps) {
                   : run.result?.outputPath
                     ? [{ label: "", path: run.result.outputPath }]
                     : [];
-              const showLabels = items.length > 1;
+              const showLabels = items.length > 1 || !!decisionNote;
               return items.map((o, i) => (
                 <div
                   key={`${o.path}-${i}`}

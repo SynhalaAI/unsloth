@@ -199,10 +199,12 @@ export function DatasetPreviewDialog({
   const effectiveIsVlm = !effectiveIsAudio && (isVlm || !!data?.is_image);
 
   const isRawFormat = isRawTextDatasetFormat(datasetFormat);
+  const isDecisionModel = modelType === "decision";
   const hasHeuristicMapping =
     !data?.requires_manual_mapping && !!data?.suggested_mapping;
   const mappingEnabled =
-    !isRawFormat && (!!data?.requires_manual_mapping || hasHeuristicMapping);
+    !(isRawFormat || isDecisionModel) &&
+    (!!data?.requires_manual_mapping || hasHeuristicMapping);
   const showMappingFooter = mode === "mapping" && mappingEnabled;
   const mappingOk =
     isRawFormat ||
@@ -409,7 +411,7 @@ export function DatasetPreviewDialog({
 
   // Pre-fill mapping from suggested_mapping when data arrives (never overwriting existing entries).
   useEffect(() => {
-    if (!open || !datasetName) return;
+    if (!open || !datasetName || isDecisionModel) return;
     const shouldPreserveAudioVlmInstruction =
       isAudioVlm && !!data?.detected_instruction_column;
     if (
@@ -432,6 +434,7 @@ export function DatasetPreviewDialog({
   }, [
     open,
     datasetName,
+    isDecisionModel,
     data,
     effectiveIsVlm,
     datasetFormat,
@@ -710,7 +713,7 @@ export function DatasetPreviewDialog({
                 </div>
               )}
 
-              {data.warning && !isRawFormat && (
+              {data.warning && !isRawFormat && !isDecisionModel && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400 mb-4 flex items-start gap-2.5">
                   <HugeiconsIcon
                     icon={AlertCircleIcon}
