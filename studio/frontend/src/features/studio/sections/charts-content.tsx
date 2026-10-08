@@ -7,7 +7,6 @@ import { useChartPreferencesStore } from "./charts/chart-preferences-store";
 import { EvalLossChartCard } from "./charts/eval-loss-chart-card";
 import { GradNormChartCard } from "./charts/grad-norm-chart-card";
 import { LearningRateChartCard } from "./charts/learning-rate-chart-card";
-import { OcrMetricsChartCard } from "./charts/ocr-metrics-chart-card";
 import { PreferenceMetricsChartCard } from "./charts/preference-metrics-chart-card";
 import { TrainingLossChartCard } from "./charts/training-loss-chart-card";
 import type { TrainingChartSeries } from "./charts/types";
@@ -26,12 +25,6 @@ type LossDisplayPoint = {
   step: number;
   displayLoss: number;
   displaySmoothed: number;
-};
-
-type OcrMetricPoint = {
-  step: number;
-  cer: number;
-  wer: number;
 };
 
 function isStepVisible(step: number, domain: [number, number]): boolean {
@@ -65,12 +58,10 @@ function collectLossValues(
 export function ChartsContent({
   metrics,
   isTraining,
-  isOcrTraining,
   evalEnabled,
 }: {
   metrics: TrainingChartSeries;
   isTraining: boolean;
-  isOcrTraining: boolean;
   evalEnabled: boolean;
 }): ReactElement {
   const {
@@ -147,15 +138,6 @@ export function ChartsContent({
     }
     return compressSeries(Array.from(points.values()), MAX_RENDER_POINTS);
   }, [metrics.evalRewardAccuracyHistory, metrics.evalRewardMarginHistory]);
-  const reducedCerData = useMemo(
-    () => compressSeries(metrics.cerHistory, MAX_RENDER_POINTS),
-    [metrics.cerHistory],
-  );
-  const reducedWerData = useMemo(
-    () => compressSeries(metrics.werHistory, MAX_RENDER_POINTS),
-    [metrics.werHistory],
-  );
-
   const allSteps = useMemo(() => {
     const set = new Set<number>();
     for (const point of metrics.lossHistory) {
@@ -167,14 +149,8 @@ export function ChartsContent({
     for (const point of metrics.lrHistory) {
       set.add(point.step);
     }
-    for (const point of metrics.cerHistory) {
-      set.add(point.step);
-    }
-    for (const point of metrics.werHistory) {
-      set.add(point.step);
-    }
     return Array.from(set).sort((a, b) => a - b);
-  }, [metrics.cerHistory, metrics.gradNormHistory, metrics.lossHistory, metrics.lrHistory, metrics.werHistory]);
+  }, [metrics.gradNormHistory, metrics.lossHistory, metrics.lrHistory]);
 
   useEffect(() => {
     setAvailableSteps(allSteps.length);
@@ -307,26 +283,6 @@ export function ChartsContent({
     return buildYDomain(vals);
   }, [reducedEvalLossData]);
 
-  const ocrDomain = useMemo(() => {
-    const values = [...reducedCerData.map((point) => point.cer), ...reducedWerData.map((point) => point.wer)].filter(
-      (value) => Number.isFinite(value),
-    );
-    return buildYDomain(values);
-  }, [reducedCerData, reducedWerData]);
-
-  const ocrStepTicks = useMemo(() => {
-    const steps = [
-      ...reducedCerData.map((point) => point.step),
-      ...reducedWerData.map((point) => point.step),
-    ];
-    if (steps.length < 2) {
-      return undefined;
-    }
-    const min = Math.min(...steps);
-    const max = Math.max(...steps);
-    return buildStepTicks(min, max);
-  }, [reducedCerData, reducedWerData]);
-
   const evalLossStepTicks = useMemo(() => {
     if (reducedEvalLossData.length < 2) {
       return undefined;
@@ -344,26 +300,6 @@ export function ChartsContent({
         ).toFixed(4)
       : 0;
   const avgDisplay = lossScale === "log" ? toLog1p(avgRaw) : avgRaw;
-  const ocrData = useMemo<OcrMetricPoint[]>(() => {
-    const points = new Map<number, OcrMetricPoint>();
-    for (const point of reducedCerData) {
-      points.set(point.step, {
-        step: point.step,
-        cer: point.cer,
-        wer: Number.NaN,
-      });
-    }
-    for (const point of reducedWerData) {
-      const current = points.get(point.step);
-      points.set(point.step, {
-        step: point.step,
-        cer: current?.cer ?? Number.NaN,
-        wer: point.wer,
-      });
-    }
-    return Array.from(points.values()).sort((a, b) => a.step - b.step);
-  }, [reducedCerData, reducedWerData]);
-
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <TrainingLossChartCard
@@ -403,15 +339,6 @@ export function ChartsContent({
         <PreferenceMetricsChartCard
           trainData={reducedPreferenceData}
           evalData={reducedEvalPreferenceData}
-        />
-      )}
-      {(isOcrTraining || ocrData.length > 0) && (
-        <OcrMetricsChartCard
-          data={ocrData}
-          domain={ocrDomain}
-          ticks={ocrStepTicks}
-          isTraining={isTraining}
-          evalEnabled={evalEnabled}
         />
       )}
     </div>

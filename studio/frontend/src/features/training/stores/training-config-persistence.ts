@@ -26,7 +26,7 @@ import {
 } from "./training-config-policy";
 
 export const TRAINING_CONFIG_PERSISTENCE_NAME = "unsloth_training_config_v1";
-export const TRAINING_CONFIG_PERSISTENCE_VERSION = 22;
+export const TRAINING_CONFIG_PERSISTENCE_VERSION = 23;
 
 const NON_PERSISTED_STATE_KEYS: ReadonlySet<keyof TrainingConfigState> =
   new Set([
@@ -251,12 +251,6 @@ function migrateThroughVersion22(
   state: PersistedTrainingConfig,
   version: number,
 ): void {
-  if (version < 22) {
-    state.isOcrTraining =
-      typeof state.isOcrTraining === "boolean"
-        ? state.isOcrTraining
-        : false;
-  }
   if (version >= 22 || state.trainingMethod !== "cpt") return;
   const provenance = state.trainingMethodProvenance;
   if (typeof provenance !== "object" || provenance === null) return;
@@ -294,6 +288,16 @@ function migrateThroughVersion22(
     record.loraVariantBeforeCpt = isLoraVariant(loraVariant)
       ? loraVariant
       : null;
+  }
+}
+
+// Drop the OCR training flag: the feature was removed from the training dashboard.
+function migrateThroughVersion23(
+  state: PersistedTrainingConfig,
+  version: number,
+): void {
+  if (version < 23) {
+    Reflect.deleteProperty(state, "isOcrTraining");
   }
 }
 
@@ -397,6 +401,7 @@ export function migrateTrainingConfig(
   migrateThroughVersion19(state, version);
   migrateThroughVersion21(state, version);
   migrateThroughVersion22(state, version);
+  migrateThroughVersion23(state, version);
   return state as unknown as TrainingConfigStore;
 }
 

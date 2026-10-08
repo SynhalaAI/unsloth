@@ -31,7 +31,6 @@ export const MODEL_DEFAULT_STATE_KEYS = [
   "enableTensorboard",
   "tensorboardDir",
   "logFrequency",
-  "isOcrTraining",
   "finetuneVisionLayers",
   "trustRemoteCode",
   "finetuneLanguageLayers",

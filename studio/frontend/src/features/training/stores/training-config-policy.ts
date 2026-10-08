@@ -109,7 +109,6 @@ export const initialTrainingConfigState: TrainingConfigState = {
   isPreferenceDataset: false,
   isDatasetImage: null,
   isDatasetAudio: false,
-  isOcrTraining: false,
   datasetCheckFailed: false,
   maxPositionEmbeddings: null,
   checkpointBackup: {

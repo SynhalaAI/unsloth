@@ -43,10 +43,6 @@ export interface TrainingStatusResponse {
     grad_norm_steps?: number[];
     eval_loss?: number[];
     eval_steps?: number[];
-    cer?: number[];
-    cer_steps?: number[];
-    wer?: number[];
-    wer_steps?: number[];
   } | null;
 }
 
@@ -57,10 +53,6 @@ export interface TrainingMetricsResponse {
   step_history: number[];
   grad_norm_history: number[];
   grad_norm_step_history: number[];
-  cer_history?: number[];
-  cer_step_history?: number[];
-  wer_history?: number[];
-  wer_step_history?: number[];
   current_loss: number | null;
   current_lr: number | null;
   current_step: number | null;
@@ -80,8 +72,6 @@ export interface TrainingProgressPayload {
   grad_norm: number | null;
   num_tokens: number | null;
   eval_loss: number | null;
-  cer: number | null;
-  wer: number | null;
   rewards_chosen: number | null;
   rewards_rejected: number | null;
   rewards_accuracies: number | null;
@@ -138,8 +128,6 @@ export interface TrainingRuntimeState {
   rewardMarginHistory: TrainingSeriesPoint[];
   evalRewardAccuracyHistory: TrainingSeriesPoint[];
   evalRewardMarginHistory: TrainingSeriesPoint[];
-  cerHistory: TrainingSeriesPoint[];
-  werHistory: TrainingSeriesPoint[];
   resetGeneration: number;
   stopRequested: boolean;
   configureRequest: number;
@@ -216,6 +204,4 @@ export interface TrainingViewData {
   rewardMarginHistory: TrainingSeriesPoint[];
   evalRewardAccuracyHistory: TrainingSeriesPoint[];
   evalRewardMarginHistory: TrainingSeriesPoint[];
-  cerHistory: TrainingSeriesPoint[];
-  werHistory: TrainingSeriesPoint[];
 }

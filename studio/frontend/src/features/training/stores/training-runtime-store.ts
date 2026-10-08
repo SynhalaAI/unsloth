@@ -92,8 +92,6 @@ const initialState: TrainingRuntimeState = {
   rewardMarginHistory: [],
   evalRewardAccuracyHistory: [],
   evalRewardMarginHistory: [],
-  cerHistory: [],
-  werHistory: [],
   resetGeneration: 0,
   stopRequested: false,
   configureRequest: 0,
@@ -218,8 +216,6 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
   rewardMarginHistory: TrainingSeriesPoint[] | null;
   evalRewardAccuracyHistory: TrainingSeriesPoint[] | null;
   evalRewardMarginHistory: TrainingSeriesPoint[] | null;
-  cerHistory: TrainingSeriesPoint[] | null;
-  werHistory: TrainingSeriesPoint[] | null;
 } {
   const history = payload.metric_history;
   if (!history || !history.steps?.length) {
@@ -232,8 +228,6 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
       rewardMarginHistory: null,
       evalRewardAccuracyHistory: null,
       evalRewardMarginHistory: null,
-      cerHistory: null,
-      werHistory: null,
     };
   }
 
@@ -248,11 +242,6 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
     history.eval_loss && history.eval_steps
       ? toSeries(history.eval_steps, history.eval_loss)
       : null;
-  const cerHistory =
-    history.cer && history.cer_steps ? toSeries(history.cer_steps, history.cer) : null;
-  const werHistory =
-    history.wer && history.wer_steps ? toSeries(history.wer_steps, history.wer) : null;
-
   return {
     lossHistory,
     lrHistory,
@@ -262,8 +251,6 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
     rewardMarginHistory: null,
     evalRewardAccuracyHistory: null,
     evalRewardMarginHistory: null,
-    cerHistory,
-    werHistory,
   };
 }
 
@@ -329,8 +316,6 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
         rewardMarginHistory: [],
         evalRewardAccuracyHistory: [],
         evalRewardMarginHistory: [],
-        cerHistory: [],
-        werHistory: [],
         resetGeneration: state.resetGeneration + 1,
       })),
 
@@ -377,8 +362,6 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
           rewardMarginHistory: [],
           evalRewardAccuracyHistory: [],
           evalRewardMarginHistory: [],
-          cerHistory: [],
-          werHistory: [],
           resetGeneration: state.resetGeneration + 1,
         };
       }),
@@ -463,8 +446,6 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
               rewardMarginHistory: [],
               evalRewardAccuracyHistory: [],
               evalRewardMarginHistory: [],
-              cerHistory: [],
-              werHistory: [],
               resetGeneration: state.resetGeneration + 1,
               stopRequested: false,
             }
@@ -543,12 +524,6 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
           rewardMarginHistory: runtimeState.rewardMarginHistory,
           evalRewardAccuracyHistory: runtimeState.evalRewardAccuracyHistory,
           evalRewardMarginHistory: runtimeState.evalRewardMarginHistory,
-          cerHistory: metricHistory.cerHistory
-            ? mergeSeries(runtimeState.cerHistory, metricHistory.cerHistory)
-            : runtimeState.cerHistory,
-          werHistory: metricHistory.werHistory
-            ? mergeSeries(runtimeState.werHistory, metricHistory.werHistory)
-            : runtimeState.werHistory,
         };
       }),
 
@@ -566,14 +541,6 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
           payload.grad_norm_step_history,
           payload.grad_norm_history,
         );
-        const cerHistory =
-          payload.cer_step_history && payload.cer_history
-            ? toSeries(payload.cer_step_history, payload.cer_history)
-            : [];
-        const werHistory =
-          payload.wer_step_history && payload.wer_history
-            ? toSeries(payload.wer_step_history, payload.wer_history)
-            : [];
         const latestStep =
           payload.current_step ??
           (payload.step_history.length > 0
@@ -591,8 +558,6 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
           lossHistory: mergeSeries(state.lossHistory, lossHistory),
           lrHistory: mergeSeries(state.lrHistory, lrHistory),
           gradNormHistory: mergeSeries(state.gradNormHistory, gradNormHistory),
-          cerHistory: cerHistory.length ? mergeSeries(state.cerHistory, cerHistory) : state.cerHistory,
-          werHistory: werHistory.length ? mergeSeries(state.werHistory, werHistory) : state.werHistory,
           currentStep:
             normalizedLatestStep !== null
               ? Math.max(normalizedLatestStep, state.currentStep)
@@ -629,8 +594,6 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
         const currentLearningRate = toFiniteNumber(payload.learning_rate);
         const currentGradNorm = toFiniteNumber(payload.grad_norm);
         const evalLoss = toFiniteNumber(payload.eval_loss);
-        const cer = toFiniteNumber(payload.cer);
-        const wer = toFiniteNumber(payload.wer);
         const rewardAccuracy = toFiniteNumber(payload.rewards_accuracies);
         const rewardMargin = toFiniteNumber(payload.rewards_margins);
         const evalRewardAccuracy = toFiniteNumber(payload.eval_rewards_accuracies);
@@ -691,14 +654,6 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
             step > 0 && evalLoss !== null
               ? upsertPoint(state.evalLossHistory, step, evalLoss)
               : state.evalLossHistory,
-          cerHistory:
-            step > 0 && cer !== null
-              ? upsertPoint(state.cerHistory, step, cer)
-              : state.cerHistory,
-          werHistory:
-            step > 0 && wer !== null
-              ? upsertPoint(state.werHistory, step, wer)
-              : state.werHistory,
           rewardAccuracyHistory:
             step > 0 && rewardAccuracy !== null
               ? upsertPoint(state.rewardAccuracyHistory, step, rewardAccuracy)

@@ -54,14 +54,6 @@ function mapToViewData(
     .map((step, i) => ({ step, value: metrics.eval_loss_history[i] }))
     .filter((p): p is { step: number; value: number } => p.value != null);
 
-  const cerHistory = (metrics.cer_step_history ?? [])
-    .map((step, i) => ({ step, value: metrics.cer_history?.[i] ?? null }))
-    .filter((p): p is { step: number; value: number } => p.value != null);
-
-  const werHistory = (metrics.wer_step_history ?? [])
-    .map((step, i) => ({ step, value: metrics.wer_history?.[i] ?? null }))
-    .filter((p): p is { step: number; value: number } => p.value != null);
-
   const phase =
     run.status === "completed"
       ? "completed"
@@ -117,8 +109,6 @@ function mapToViewData(
     rewardMarginHistory: [],
     evalRewardAccuracyHistory: [],
     evalRewardMarginHistory: [],
-    cerHistory,
-    werHistory,
   };
 }
 
@@ -245,14 +235,11 @@ export function HistoricalTrainingView({
         currentStep={viewData.currentStep}
         totalSteps={viewData.totalSteps}
         isTraining={false}
-        isOcrTraining={Boolean(detail.config?.is_ocr_training ?? detail.config?.isOcrTraining)}
         evalEnabled={viewData.evalEnabled}
         lossHistory={viewData.lossHistory}
         lrHistory={viewData.lrHistory}
         gradNormHistory={viewData.gradNormHistory}
         evalLossHistory={viewData.evalLossHistory}
-        cerHistory={viewData.cerHistory}
-        werHistory={viewData.werHistory}
       />
     </div>
   );

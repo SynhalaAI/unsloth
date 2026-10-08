@@ -24,7 +24,6 @@ const { initialTrainingConfigState } = await import(
 
 const CONFIG: TrainingConfigState = {
   ...initialTrainingConfigState,
-  isOcrTraining: false,
   modelType: "text",
   selectedModel: "unsloth/gemma-3-270m-it",
   projectName: "grad-norm",
@@ -92,22 +91,6 @@ const CONFIG: TrainingConfigState = {
   visionImageSize: null,
   s3Config: null,
 };
-
-test("the payload carries the OCR training flag on the wire", () => {
-  const payload = buildTrainingStartPayload({
-    ...CONFIG,
-    isVisionModel: true,
-    isDatasetImage: true,
-    isOcrTraining: true,
-  }, null);
-
-  assert.equal(payload.is_ocr_training, true);
-  assert.equal(
-    JSON.parse(JSON.stringify(payload)).is_ocr_training,
-    true,
-    "OCR training must be serialized on the request payload",
-  );
-});
 
 test("the payload leaves max_grad_norm unset so the backend default governs", () => {
   const payload = buildTrainingStartPayload(CONFIG, null);

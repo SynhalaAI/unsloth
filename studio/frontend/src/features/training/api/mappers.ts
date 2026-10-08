@@ -215,7 +215,6 @@ export function buildTrainingStartPayload(
     finetune_mlp_modules: config.finetuneMLPModules,
     is_dataset_image: isEmbedding ? false : !!config.isDatasetImage,
     is_dataset_audio: isEmbedding ? false : config.isDatasetAudio,
-    is_ocr_training: isEmbedding ? false : !!config.isOcrTraining,
     is_embedding: isEmbedding && !isDecision,
     is_decision: isDecision,
     model_subfolder: isDecision ? config.modelSubfolder : null,

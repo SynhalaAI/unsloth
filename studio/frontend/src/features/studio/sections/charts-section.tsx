@@ -20,7 +20,6 @@ interface ChartsSectionProps {
   currentStep: number;
   totalSteps: number;
   isTraining: boolean;
-  isOcrTraining?: boolean;
   evalEnabled: boolean;
   lossHistory: TrainingSeriesPoint[];
   lrHistory: TrainingSeriesPoint[];
@@ -30,15 +29,12 @@ interface ChartsSectionProps {
   rewardMarginHistory?: TrainingSeriesPoint[];
   evalRewardAccuracyHistory?: TrainingSeriesPoint[];
   evalRewardMarginHistory?: TrainingSeriesPoint[];
-  cerHistory?: TrainingSeriesPoint[];
-  werHistory?: TrainingSeriesPoint[];
 }
 
 export function ChartsSection({
   currentStep,
   totalSteps,
   isTraining,
-  isOcrTraining = false,
   evalEnabled,
   lossHistory,
   lrHistory,
@@ -48,8 +44,6 @@ export function ChartsSection({
   rewardMarginHistory = [],
   evalRewardAccuracyHistory = [],
   evalRewardMarginHistory = [],
-  cerHistory = [],
-  werHistory = [],
 }: ChartsSectionProps): ReactElement | null {
   const series = useMemo(
     () => ({
@@ -87,16 +81,8 @@ export function ChartsSection({
         step: point.step,
         margin: point.value,
       })),
-      cerHistory: cerHistory.map((point) => ({
-        step: point.step,
-        cer: point.value,
-      })),
-      werHistory: werHistory.map((point) => ({
-        step: point.step,
-        wer: point.value,
-      })),
     }),
-    [cerHistory, currentStep, evalLossHistory, evalRewardAccuracyHistory, evalRewardMarginHistory, gradNormHistory, lossHistory, lrHistory, rewardAccuracyHistory, rewardMarginHistory, totalSteps, werHistory],
+    [currentStep, evalLossHistory, evalRewardAccuracyHistory, evalRewardMarginHistory, gradNormHistory, lossHistory, lrHistory, rewardAccuracyHistory, rewardMarginHistory, totalSteps],
   );
 
   if (
@@ -107,10 +93,7 @@ export function ChartsSection({
     series.rewardAccuracyHistory.length === 0 &&
     series.rewardMarginHistory.length === 0 &&
     series.evalRewardAccuracyHistory.length === 0 &&
-    series.evalRewardMarginHistory.length === 0 &&
-    series.cerHistory.length === 0 &&
-    series.werHistory.length === 0 &&
-    !isOcrTraining
+    series.evalRewardMarginHistory.length === 0
   ) {
     return null;
   }
@@ -131,7 +114,6 @@ export function ChartsSection({
       <ChartsContent
         metrics={series}
         isTraining={isTraining}
-        isOcrTraining={isOcrTraining}
         evalEnabled={evalEnabled}
       />
     </Suspense>

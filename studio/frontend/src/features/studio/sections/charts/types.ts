@@ -16,6 +16,4 @@ export interface TrainingChartSeries {
   rewardMarginHistory: { step: number; margin: number }[];
   evalRewardAccuracyHistory: { step: number; accuracy: number }[];
   evalRewardMarginHistory: { step: number; margin: number }[];
-  cerHistory: { step: number; cer: number }[];
-  werHistory: { step: number; wer: number }[];
 }
