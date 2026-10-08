@@ -8,6 +8,7 @@ separately in auth.db and the credential kind/scope are authenticated so ciphert
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import sqlite3
@@ -36,6 +37,12 @@ _NONCE_BYTES = 12
 
 _schema_lock = threading.Lock()
 _schema_ready: set[Path] = set()
+
+# (kind, scope, sha256-of-row) entries that already emitted the unreadable-credential
+# warning. A decrypt failure is permanent for a given row, so warn once per unreadable
+# value instead of on every read.
+_unreadable_warning_lock = threading.Lock()
+_unreadable_warning_fingerprints: set[tuple[str, str, str]] = set()
 
 
 def _associated_data(credential_kind: str, scope_id: str) -> bytes:
@@ -143,6 +150,7 @@ def upsert_secret(
         )
         if owns_connection:
             conn.commit()
+        _forget_unreadable_warning(credential_kind, scope_id)
     finally:
         if owns_connection:
             conn.close()
@@ -187,11 +195,38 @@ def get_secret_with_presence(credential_kind: str, scope_id: str) -> "tuple[Opti
         )
         return (plaintext.decode("utf-8"), True)
     except Exception:
-        logger.warning(
-            "Saved credential is unreadable; re-entry is required (kind=%s)",
-            credential_kind,
-        )
+        _warn_unreadable_credential_once(credential_kind, scope_id, row)
         return (None, True)
+
+
+def _row_fingerprint(credential_kind: str, scope_id: str, row: sqlite3.Row) -> tuple[str, str, str]:
+    row_digest = hashlib.sha256()
+    row_digest.update(bytes(row["nonce"]))
+    row_digest.update(b"\0")
+    row_digest.update(bytes(row["ciphertext"]))
+    return (credential_kind, scope_id, row_digest.hexdigest())
+
+
+def _warn_unreadable_credential_once(credential_kind: str, scope_id: str, row: sqlite3.Row) -> None:
+    fingerprint = _row_fingerprint(credential_kind, scope_id, row)
+    with _unreadable_warning_lock:
+        if fingerprint in _unreadable_warning_fingerprints:
+            return
+        _unreadable_warning_fingerprints.add(fingerprint)
+    logger.warning(
+        "Saved credential is unreadable; re-entry is required (kind=%s)",
+        credential_kind,
+    )
+
+
+def _forget_unreadable_warning(credential_kind: str, scope_id: str) -> None:
+    with _unreadable_warning_lock:
+        global _unreadable_warning_fingerprints
+        _unreadable_warning_fingerprints = {
+            fingerprint
+            for fingerprint in _unreadable_warning_fingerprints
+            if (fingerprint[0], fingerprint[1]) != (credential_kind, scope_id)
+        }
 
 
 def get_secret(credential_kind: str, scope_id: str) -> Optional[str]:
@@ -238,7 +273,10 @@ def delete_secret(
         )
         if owns_connection:
             conn.commit()
-        return cursor.rowcount > 0
+        deleted = cursor.rowcount > 0
+        if deleted:
+            _forget_unreadable_warning(credential_kind, scope_id)
+        return deleted
     finally:
         if owns_connection:
             conn.close()

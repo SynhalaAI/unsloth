@@ -400,3 +400,27 @@ def test_envelope_parts_are_decoded_strictly():
 def test_an_unknown_version_is_rejected_rather_than_read_as_legacy():
     with pytest.raises(ValueError, match = "Unsupported"):
         decrypt_api_key(encrypt_envelope("sk-future", version = "v2"))
+
+def test_unreadable_credential_warns_only_once(isolated_databases, caplog):
+    """A permanently unreadable row must not spam one warning per read."""
+    credential_secrets.save_hf_token("hf_saved")
+    conn = sqlite3.connect(isolated_databases)
+    try:
+        row = conn.execute("SELECT ciphertext FROM credential_secrets").fetchone()
+        damaged = bytearray(row[0])
+        damaged[-1] ^= 1
+        conn.execute("UPDATE credential_secrets SET ciphertext = ?", (bytes(damaged),))
+        conn.commit()
+    finally:
+        conn.close()
+    with caplog.at_level("WARNING", logger = "storage.credential_secrets"):
+        assert credential_secrets.get_hf_token() is None
+        assert credential_secrets.get_hf_token() is None
+        assert credential_secrets.get_hf_token() is None
+    warnings = [
+        record
+        for record in caplog.records
+        if record.name == "storage.credential_secrets"
+        and "re-entry is required" in record.message
+    ]
+    assert len(warnings) == 1
