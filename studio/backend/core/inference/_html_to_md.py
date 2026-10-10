@@ -399,6 +399,106 @@ class _TableFrame:
         self.parts: list[str] = []
 
 
+class _TitleButtonScan:
+    """Find buttons that hold their heading's whole title (``<h3><button>Question</button></h3>``, an accordion
+    trigger): the heading's first visible button with text, with no visible heading text outside it. Fed the
+    renderer's own tokens, so it parses exactly as the renderer does; the kept buttons render on a second pass."""
+
+    def __init__(self) -> None:
+        self.keep: set[tuple[int, int]] = set()  # HTMLParser.getpos() of each kept <button>
+        self._open: list[str] = []
+        self._closable_open = (
+            0  # open tags with an optional end tag, as _MarkdownRenderer counts them
+        )
+        self._muted: list[int] = []  # open-tag indices of hidden / skipped subtrees
+        self._button_at: int | None = None
+        self._button_frame: list | None = None  # heading whose candidate is the open button
+        # visible text outside any button, counted so a heading reads "text since I opened" in O(1)
+        self._text_seq = 0
+        # per open heading: [open-tag index, candidate position or None, candidate has text, _text_seq at open]
+        self._headings: list[list] = []
+
+    def starttag(self, tag: str, attrs: list[tuple[str, str | None]], pos: tuple[int, int]) -> None:
+        self._close_implicit(tag)
+        if tag in _VOID_TAGS:
+            return
+        attr_dict = dict(attrs)
+        self._open.append(tag)
+        if tag in _IMPLICIT_CLOSERS:
+            self._closable_open += 1
+        index = len(self._open) - 1
+        if _is_hidden_element(attr_dict) or (tag in _SKIP_TAGS and tag != "button"):
+            self._muted.append(index)
+        if tag in _HEADING_TAGS or _is_aria_heading(attr_dict):
+            self._headings.append([index, None, False, self._text_seq])
+        elif tag == "button" and self._button_at is None:
+            self._button_at = index
+            frame = self._headings[-1] if self._headings else None
+            if frame is not None and frame[1] is None and not self._muted:
+                frame[1] = pos
+                self._button_frame = frame
+
+    def endtag(self, tag: str) -> None:
+        for i in range(len(self._open) - 1, -1, -1):
+            if self._open[i] == tag:
+                self._pop_to(i)
+                return
+
+    def data(self, data: str) -> None:
+        if self._muted or not data.strip():
+            return
+        if self._button_at is None:
+            self._text_seq += 1
+        elif self._button_frame is not None:
+            self._button_frame[2] = True
+
+    def finish(self) -> None:
+        # a page cut inside a heading (the fetch cap) still keeps its title
+        self._close_headings(0)
+
+    def _close_implicit(self, tag: str) -> None:
+        """The renderer's optional-end-tag recovery (``_MarkdownRenderer._close_implicit``), so both see one tree."""
+        if not self._closable_open:
+            return
+        barriers = _CLOSE_BARRIERS.get(tag, ())
+        while True:
+            close_at = None
+            for i in range(len(self._open) - 1, -1, -1):
+                name = self._open[i]
+                if tag in _IMPLICIT_CLOSERS.get(name, ()):
+                    close_at = i
+                    break
+                if name in barriers:
+                    break
+            if close_at is None:
+                return
+            self._pop_to(close_at)
+
+    def _pop_to(self, i: int) -> None:
+        if self._button_at is not None and self._button_at >= i:
+            self._button_at = None
+            # an icon-only control releases the slot for the trigger after it
+            if self._button_frame is not None and not self._button_frame[2]:
+                self._button_frame[1] = None
+            self._button_frame = None
+        while self._muted and self._muted[-1] >= i:
+            self._muted.pop()
+        self._close_headings(i)
+        self._closable_open -= sum(1 for name in self._open[i:] if name in _IMPLICIT_CLOSERS)
+        del self._open[i:]
+
+    def _close_headings(self, i: int) -> None:
+        while self._headings and self._headings[-1][0] >= i:
+            _, button, has_text, seq = self._headings.pop()
+            if button is not None and has_text and self._text_seq == seq:
+                self.keep.add(button)
+
+
+# (len, hash) of recent pages -> their title buttons, so main-content passes over one page scan it once
+_TITLE_BUTTON_CACHE: dict[tuple[int, int], frozenset[tuple[int, int]]] = {}
+_TITLE_BUTTON_CACHE_SIZE = 4
+
+
 class _MarkdownRenderer(HTMLParser):
     """HTMLParser subclass that emits Markdown tokens into a list.
 
@@ -417,6 +517,9 @@ class _MarkdownRenderer(HTMLParser):
         page_span_limit: int | None = None,
     ):
         super().__init__(convert_charrefs = False)
+        # getpos() of buttons that carry their heading's title, found by _TitleButtonScan
+        self.title_buttons: frozenset[tuple[int, int]] = frozenset()
+        self._title_scan: _TitleButtonScan | None = None
         self._site_links = site_links
         self._out: list[str] = []
         self._skip_depth: int = 0
@@ -972,6 +1075,11 @@ class _MarkdownRenderer(HTMLParser):
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag = tag.lower()
+        if self._title_scan is not None:
+            self._title_scan.starttag(tag, attrs, self.getpos())
+        title_button = (
+            tag == "button" and bool(self.title_buttons) and self.getpos() in self.title_buttons
+        )
 
         if self._skip_depth:
             if tag in _SKIP_TAGS:
@@ -982,7 +1090,7 @@ class _MarkdownRenderer(HTMLParser):
         # <p>, releasing its hidden mark so following siblings render.
         self._close_implicit(tag)
 
-        if tag in _SKIP_TAGS:
+        if tag in _SKIP_TAGS and not (title_button and self._heading_marks):
             self._skip_depth += 1
             return
 
@@ -1083,8 +1191,11 @@ class _MarkdownRenderer(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
+        if self._title_scan is not None:
+            self._title_scan.endtag(tag)
 
-        if tag in _SKIP_TAGS:
+        # a kept title button closes through _exit_tag; skipped ones always raised _skip_depth
+        if tag in _SKIP_TAGS and (self._skip_depth or tag != "button"):
             self._skip_depth = max(0, self._skip_depth - 1)
             return
         if self._skip_depth:
@@ -1155,6 +1266,8 @@ class _MarkdownRenderer(HTMLParser):
         return self._scope_tags is not None and self._scope_depth == 0
 
     def handle_data(self, data: str) -> None:
+        if self._title_scan is not None:
+            self._title_scan.data(data)
         if self._text_suppressed():
             return
         if self._in_pre:
@@ -1180,16 +1293,20 @@ class _MarkdownRenderer(HTMLParser):
         self._emit(text)
 
     def handle_entityref(self, name: str) -> None:
+        text = html.unescape(f"&{name};")
+        if self._title_scan is not None:
+            self._title_scan.data(text)
         if self._text_suppressed():
             return
-        text = html.unescape(f"&{name};")
         self._count_header_text(text)
         self._emit(text)
 
     def handle_charref(self, name: str) -> None:
+        text = html.unescape(f"&#{name};")
+        if self._title_scan is not None:
+            self._title_scan.data(text)
         if self._text_suppressed():
             return
-        text = html.unescape(f"&#{name};")
         self._count_header_text(text)
         self._emit(text)
 
@@ -1356,18 +1473,37 @@ def _new_renderer(
     span_char_limit: int | None = None,
     header_decisions: list[bool] | None = None,
 ) -> _MarkdownRenderer:
-    renderer = _MarkdownRenderer(
-        scope_tags = scope_tags,
-        strip_header = strip_header,
-        site_links = site_links,
-        span_char_limit = 2 * len(source_html) if span_char_limit is None else span_char_limit,
-        header_decisions = header_decisions,
-        page_span_limit = 2 * len(source_html),
-    )
-    renderer.feed(source_html)
-    renderer.close()
-    renderer.flush_pending()
-    return renderer
+    def build(
+        title_buttons: frozenset[tuple[int, int]], scan: _TitleButtonScan | None
+    ) -> _MarkdownRenderer:
+        renderer = _MarkdownRenderer(
+            scope_tags = scope_tags,
+            strip_header = strip_header,
+            site_links = site_links,
+            span_char_limit = 2 * len(source_html) if span_char_limit is None else span_char_limit,
+            header_decisions = header_decisions,
+            page_span_limit = 2 * len(source_html),
+        )
+        renderer.title_buttons = title_buttons
+        renderer._title_scan = scan
+        renderer.feed(source_html)
+        renderer.close()
+        renderer.flush_pending()
+        return renderer
+
+    key = (len(source_html), hash(source_html))
+    known = _TITLE_BUTTON_CACHE.get(key)
+    if known is not None:
+        return build(known, None)
+    scan = _TitleButtonScan()
+    renderer = build(frozenset(), scan)
+    scan.finish()
+    keep = frozenset(scan.keep)
+    if len(_TITLE_BUTTON_CACHE) >= _TITLE_BUTTON_CACHE_SIZE:
+        _TITLE_BUTTON_CACHE.clear()  # safe under concurrent fetches, unlike evicting one by one
+    _TITLE_BUTTON_CACHE[key] = keep
+    # only a page that has accordion titles pays a second pass
+    return build(keep, None) if keep else renderer
 
 
 def _render(
@@ -1386,20 +1522,8 @@ def _select_main_scope_render(
     tag: str,
     site_links: SiteLinks | None,
     span_char_limit: int | None = None,
-) -> tuple[int, str]:
-    """Length and boilerplate-stripped render of the largest single ``<tag>``
-    subtree. Sizing candidates one at a time stops many tiny sibling cards from
-    clearing the threshold together, and returning that one subtree keeps
-    unrelated siblings (related cards, comment threads) out of the output.
-
-    A candidate earns its place on the prose it RETAINED, then gets its dropped
-    header furniture added back to rank against siblings. Furniture must not buy
-    eligibility: a card whose header was the only bulk would otherwise clear the
-    gate on deleted bytes and suppress the ``<main>`` holding the real page.
-
-    Nor may it dominate: the credit is capped at the retained render, so removed
-    furniture can never be the majority of a score. Uncapped, a teaser with a
-    1000 link header outranked a sibling holding five times its real text."""
+) -> tuple[int, str, int, int]:
+    """return the best eligible score, subtree, count, and visible length; cap header credit at retained prose."""
     renderer = _new_renderer(
         source_html,
         frozenset({tag}),
@@ -1421,28 +1545,53 @@ def _select_main_scope_render(
     )
     best_len = 0
     best_render = ""
+    best_visible = 0
     for i, seg in enumerate(renderer.scope_segments):
         rendered = _strip_boilerplate_lines(_cleanup(seg), site_links)
         scored = _strip_boilerplate_lines(_cleanup(scoring.scope_segments[i]), site_links)
         if site_links is not None:
             scored = site_links.clean(scored)
-        prose = _visible_chars(scored) - scoring.scope_heading_prose[i]
+        visible = _visible_chars(scored)
+        prose = visible - scoring.scope_heading_prose[i]
         if prose < _MIN_MAIN_CONTENT_CHARS:
             continue
         size = len(scored) + min(scoring.scope_dropped[i], len(scored))
         if size > best_len:
             best_len = size
             best_render = rendered
-    return best_len, best_render
+            best_visible = visible
+    return (
+        best_len,
+        best_render,
+        sum(1 for seg in renderer.scope_segments if seg.strip()),
+        best_visible,
+    )
+
+
+def _render_main_document(
+    source_html: str, site_links: SiteLinks | None, span_char_limit: int
+) -> tuple[int, str]:
+    renderer = _new_renderer(source_html, None, True, site_links, span_char_limit)
+    rendered = _strip_boilerplate_lines(_cleanup("".join(renderer._out)), site_links)
+    scoring = (
+        _new_renderer(
+            source_html,
+            None,
+            True,
+            span_char_limit = 0,
+            header_decisions = renderer.header_decisions,
+        )
+        if renderer._has_generated_spans
+        else renderer
+    )
+    scored = _strip_boilerplate_lines(_cleanup("".join(scoring._out)), site_links)
+    if site_links is not None:
+        scored = site_links.clean(scored)
+    return _visible_chars(scored), rendered
 
 
 def _visible_chars(text: str) -> int:
-    """Visible characters in *text*, ignoring blank lines and link destinations.
-
-    Headings are NOT discounted here. The renderer already tallies what it marked
-    as a heading (``_seg_heading_prose``), which sees ``role="heading"``, hgroup
-    and a linked ``h1``; re-deriving that from ATX syntax could not, and running
-    both meant two answers to one question."""
+    """count visible nonblank characters without link targets; callers subtract tracked heading prose."""
     return sum(_visible_len(line) for line in text.split("\n") if line.strip())
 
 
@@ -1504,46 +1653,35 @@ def html_to_markdown(
     site_links: SiteLinks | None = None,
     max_span_chars: int | None = None,
 ) -> str:
-    """Convert HTML to Markdown (headings, links, emphasis, lists, tables, blockquotes, code, entities).
-
-    ``<script>``, ``<style>``, and ``<head>`` are stripped entirely, as are
-    subtrees hidden from rendering (``hidden`` / ``aria-hidden="true"``).
-
-    ``main_content=True`` applies a readability-style heuristic for page
-    fetches: prefer the ``<article>`` subtree (GitHub renders READMEs there),
-    then ``<main>``, falling back to the whole document, reduce a link-only
-    ``<header>`` to the heading it carries, and strip known boilerplate
-    fragments from the result.
-
-    ``site_links`` records the links back into the page's own site; the output is unchanged.
-
-    ``max_span_chars`` caps the cells generated for ``rowspan``/``colspan``, so a caller with a
-    smaller result budget keeps room for the text after a table.
-    """
+    """convert HTML to Markdown; main_content prefers a dominant article or main subtree, site_links records same-site links without changing output, and max_span_chars limits generated table cells."""
     source_html = source_html.replace("\r\n", "\n").replace("\r", "\n")
     span_limit = 2 * len(source_html)
     if max_span_chars is not None:
         span_limit = min(span_limit, max_span_chars)
     rendered = ""
+    full_rendered = ""
     if main_content:
-        for scope_tag in ("article", "main"):
-            # Render only the chosen subtree so sibling <article>/<main> elements do not leak in.
-            length, rendered = _select_main_scope_render(
-                source_html, scope_tag, site_links, span_limit
+        length, rendered, articles, article_visible = _select_main_scope_render(
+            source_html, "article", site_links, span_limit
+        )
+        if length < _MIN_MAIN_CONTENT_CHARS or articles > 1:
+            main_length, main_rendered, _, main_visible = _select_main_scope_render(
+                source_html, "main", site_links, span_limit
             )
-            if length >= _MIN_MAIN_CONTENT_CHARS:
-                break
-        else:
-            rendered = _strip_boilerplate_lines(
-                _render(
-                    source_html,
-                    None,
-                    strip_header = True,
-                    site_links = site_links,
-                    span_char_limit = span_limit,
-                ),
-                site_links,
-            )
+            if articles > 2 and main_length < _MIN_MAIN_CONTENT_CHARS:
+                main_length, full_rendered = _render_main_document(
+                    source_html, site_links, span_limit
+                )
+                main_rendered = full_rendered
+                main_visible = main_length
+            if main_length >= _MIN_MAIN_CONTENT_CHARS and (
+                length < _MIN_MAIN_CONTENT_CHARS or main_visible > 2 * article_visible
+            ):
+                length, rendered = main_length, main_rendered
+        if length < _MIN_MAIN_CONTENT_CHARS:
+            if not full_rendered:
+                _, full_rendered = _render_main_document(source_html, site_links, span_limit)
+            rendered = full_rendered
     else:
         rendered = _render(source_html, None, site_links = site_links, span_char_limit = span_limit)
     return site_links.finish(rendered) if site_links is not None else rendered
