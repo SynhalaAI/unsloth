@@ -3332,6 +3332,7 @@ export function SharedComposer({
                     reasoningLockedOn
                       ? "This model requires reasoning to stay on."
                       : undefined
+                  }
                   onClick={() => {
                     if (reasoningLockedOn) return;
                     const next = !reasoningEnabled;
