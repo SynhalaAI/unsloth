@@ -10,6 +10,7 @@ export function resolveStartTrainingButtonLabelKey({
   isCheckingDataset,
   hasModel,
   hasDataset,
+  hasResumeCheckpoint,
 }: {
   stopRequested: boolean;
   startBlocked: boolean;
@@ -17,6 +18,8 @@ export function resolveStartTrainingButtonLabelKey({
   isCheckingDataset: boolean;
   hasModel: boolean;
   hasDataset: boolean;
+  /** A checkpoint is chosen in the Resume Training section, so the CTA resumes. */
+  hasResumeCheckpoint?: boolean;
 }): TranslationKey {
   if (stopRequested) {
     return "studio.training.stopping";
@@ -36,7 +39,10 @@ export function resolveStartTrainingButtonLabelKey({
   if (!hasModel) {
     return "studio.training.chooseModel";
   }
-  return hasDataset
-    ? "studio.training.startTraining"
-    : "studio.training.chooseDataset";
+  if (!hasDataset) {
+    return "studio.training.chooseDataset";
+  }
+  return hasResumeCheckpoint
+    ? "studio.training.resumeTraining"
+    : "studio.training.startTraining";
 }

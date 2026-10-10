@@ -74,12 +74,16 @@ export function StartTrainingCta() {
     isAudioModel,
     isDatasetAudio,
     datasetSource,
+    resumeCheckpointPath,
+    resumeTrainingEnabled,
     ensureModelDefaultsLoaded,
   } = useTrainingConfigStore(
     useShallow((state) => ({
       isAudioModel: state.isAudioModel,
       isDatasetAudio: state.isDatasetAudio,
       datasetSource: state.datasetSource,
+      resumeCheckpointPath: state.resumeCheckpointPath,
+      resumeTrainingEnabled: state.resumeTrainingEnabled,
       ensureModelDefaultsLoaded: state.ensureModelDefaultsLoaded,
     })),
   );
@@ -106,6 +110,8 @@ export function StartTrainingCta() {
       isCheckingDataset,
       hasModel,
       hasDataset,
+      // The switch is the arming control: an unarmed checkpoint still starts fresh.
+      hasResumeCheckpoint: !!resumeCheckpointPath && resumeTrainingEnabled,
     }),
   );
   const errorMessage = resolveStartTrainingError({

@@ -29,6 +29,7 @@ import {
   isTrainingMethodSupportedOnDevice,
   useTrainingConfigStore,
 } from "@/features/training";
+import { ResumeCheckpointPicker } from "@/features/training/components/resume-checkpoint-picker";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import type { TrainingMethod } from "@/types/training";
@@ -36,6 +37,7 @@ import {
   AiBrain01Icon,
   Database02Icon,
   FloppyDiskIcon,
+  Refresh01Icon,
   Settings05Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
@@ -449,6 +451,15 @@ export function TrainingWizard({
         }
       >
         <ParamsSection mode={paramMode} />
+      </SectionBox>
+
+      <SectionBox
+        title={t("studio.wizard.resumeTitle")}
+        description={t("studio.wizard.resumeDescription")}
+        icon={Refresh01Icon}
+        chipTint="var(--chart-2)"
+      >
+        <ResumeCheckpointPicker />
       </SectionBox>
 
       <SectionBox
