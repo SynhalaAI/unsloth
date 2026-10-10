@@ -121,6 +121,10 @@ export const initialTrainingConfigState: TrainingConfigState = {
     uploadOnStop: true,
     uploadOnComplete: true,
   },
+  resumeCheckpointRun: null,
+  resumeCheckpointName: null,
+  resumeCheckpointPath: null,
+  resumeTrainingEnabled: false,
   ...DEFAULT_HYPERPARAMS,
 };
 export function hasSeparateStreamingEvalSplit(

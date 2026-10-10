@@ -337,5 +337,10 @@ export function buildTrainingStartPayload(
     tensorboard_dir: config.enableTensorboard
       ? config.tensorboardDir.trim() || null
       : null,
+    // Only an armed checkpoint resumes: the Resume Training switch decides,
+    // so a merely chosen checkpoint still starts a fresh run.
+    resume_from_checkpoint: config.resumeTrainingEnabled
+      ? (config.resumeCheckpointPath ?? null)
+      : null,
   };
 }

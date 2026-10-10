@@ -1644,6 +1644,17 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
           setUserEdit({ targetModules });
         },
         setS3Config: (s3Config) => setUserEdit({ s3Config }),
+        setResumeCheckpoint: (run, name, path) =>
+          setUserEdit({
+            resumeCheckpointRun: run,
+            resumeCheckpointName: name,
+            resumeCheckpointPath: path,
+            // The switch, not the picker, is what makes a choice authoritative:
+            // picking a checkpoint arms resume and clearing it disarms resume.
+            resumeTrainingEnabled: path !== null,
+          }),
+        setResumeTrainingEnabled: (value) =>
+          setUserEdit({ resumeTrainingEnabled: value }),
         restoreRunConfig: (config) => {
           const selections = runConfigDraftSelections(config);
           const hyperparameters = mapBackendModelConfigToTrainingPatch({

@@ -44,6 +44,10 @@ const NON_PERSISTED_STATE_KEYS: ReadonlySet<keyof TrainingConfigState> =
     "decisionCheckpoints",
     "decisionLayout",
     "s3Config",
+    "resumeCheckpointRun",
+    "resumeCheckpointName",
+    "resumeCheckpointPath",
+    "resumeTrainingEnabled",
     "wandbToken",
   ]);
 
