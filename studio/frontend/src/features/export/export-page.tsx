@@ -85,6 +85,7 @@ import {
 } from "./api/export-api";
 import { adapterCompatibilityTip, type AdapterFormat } from "./constants";
 import { ExportRunPanel } from "./components/export-run-panel";
+import { ImageLoraExportCard } from "./components/image-lora-export-card";
 import { MergeTestPanel } from "./components/merge-test-panel";
 import { MethodPicker } from "./components/method-picker";
 import { Q4nxConvertCard } from "./components/q4nx-convert-card";
@@ -3050,6 +3051,7 @@ export function ExportPage() {
             </>
           )}
         </SectionCard>
+        <ImageLoraExportCard />
         <Q4nxConvertCard />
       </main>
     </div>
