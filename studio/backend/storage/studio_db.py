@@ -1865,6 +1865,157 @@ def get_resumable_run_by_output_dir(output_dir: str) -> Optional[dict]:
         conn.close()
 
 
+def get_latest_run_by_output_dir(output_dir: str) -> Optional[dict]:
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT r.*,
+                   0 AS resumed_later
+            FROM training_runs r
+            WHERE r.output_dir = ?
+            ORDER BY r.started_at DESC
+            LIMIT 1
+            """,
+            (output_dir,),
+        ).fetchone()
+        if row is None:
+            folder_name = Path(output_dir).name
+            rows = conn.execute(
+                """
+                SELECT r.*,
+                   0 AS resumed_later
+                FROM training_runs r
+                ORDER BY r.started_at DESC
+                """
+            ).fetchall()
+            for candidate in rows:
+                candidate_out = candidate["output_dir"]
+                if candidate_out:
+                    try:
+                        if (
+                            candidate_out == output_dir
+                            or str(Path(candidate_out).resolve()) == str(Path(output_dir).resolve())
+                            or Path(candidate_out).name == folder_name
+                        ):
+                            row = candidate
+                            break
+                    except Exception:
+                        pass
+                cfg_json = candidate["config_json"]
+                if cfg_json and folder_name:
+                    try:
+                        cfg = json.loads(cfg_json) if isinstance(cfg_json, str) else cfg_json
+                        if isinstance(cfg, dict):
+                            cfg_out = cfg.get("output_dir")
+                            proj_name = cfg.get("project_name")
+                            if (
+                                (cfg_out and (
+                                    cfg_out == output_dir
+                                    or str(Path(cfg_out).resolve()) == str(Path(output_dir).resolve())
+                                    or Path(cfg_out).name == folder_name
+                                ))
+                                or proj_name == folder_name
+                            ):
+                                row = candidate
+                                break
+                    except Exception:
+                        pass
+        if row is None:
+            return None
+        run = dict(row)
+        sparkline = run.get("loss_sparkline")
+        if sparkline:
+            try:
+                run["loss_sparkline"] = json.loads(sparkline)
+            except (json.JSONDecodeError, TypeError):
+                run["loss_sparkline"] = None
+        return run
+    finally:
+        conn.close()
+
+
+def repair_run_for_resume(
+    id: str,
+    output_dir: str,
+    config_json: Optional[str] = None,
+    total_steps: Optional[int] = None,
+    final_step: Optional[int] = None,
+) -> Optional[dict]:
+    conn = get_connection()
+    try:
+        conn.execute(
+            """
+            UPDATE training_runs
+            SET output_dir = ?,
+                resume_blocked = 0,
+                status = CASE WHEN status = 'running' THEN 'stopped' ELSE status END,
+                config_json = COALESCE(?, config_json),
+                total_steps = COALESCE(?, total_steps),
+                final_step = COALESCE(?, final_step)
+            WHERE id = ?
+            """,
+            (output_dir, config_json, total_steps, final_step, id),
+        )
+        conn.commit()
+        from storage.db_snapshot import request_snapshot
+        request_snapshot(studio_db_path())
+    finally:
+        conn.close()
+    return get_run(id)
+
+
+def create_recovered_run(
+    output_dir: str,
+    final_step: int,
+    model_name: str,
+    dataset_name: str,
+    config_json: str,
+    total_steps: Optional[int] = None,
+    display_name: Optional[str] = None,
+) -> dict:
+    import uuid
+
+    conn = get_connection()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    recovered_id = f"recovered-{uuid.uuid4().hex[:12]}"
+    steps = total_steps if (total_steps is not None and total_steps > final_step) else (final_step + 100)
+    name = display_name or Path(output_dir).name
+    try:
+        conn.execute(
+            """
+            INSERT INTO training_runs (
+                id, model_name, dataset_name, config_json, status,
+                started_at, ended_at, total_steps, final_step,
+                output_dir, display_name, resume_blocked
+            )
+            VALUES (?, ?, ?, ?, 'stopped', ?, ?, ?, ?, ?, ?, 0)
+            """,
+            (
+                recovered_id,
+                model_name,
+                dataset_name,
+                config_json,
+                now_iso,
+                now_iso,
+                steps,
+                final_step,
+                output_dir,
+                name,
+            ),
+        )
+        conn.commit()
+        from storage.db_snapshot import request_snapshot
+        request_snapshot(studio_db_path())
+    finally:
+        conn.close()
+    run = get_run(recovered_id)
+    if run is None:
+        raise RuntimeError("Failed to retrieve recovered training run")
+    return run
+
+
+
 def get_run_metrics(id: str) -> dict:
     conn = get_connection()
     try:

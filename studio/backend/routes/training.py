@@ -55,6 +55,7 @@ try:
         normalize_training_optimizer_for_device,
     )
     from core.training.resume import (
+        _checkpoint_step,
         can_resume_run,
         get_resume_checkpoint_path,
         has_resume_state,
@@ -63,7 +64,12 @@ try:
         split_resume_request,
         training_run_config,
     )
-    from storage.studio_db import get_resumable_run_by_output_dir
+    from storage.studio_db import (
+        create_recovered_run,
+        get_latest_run_by_output_dir,
+        get_resumable_run_by_output_dir,
+        repair_run_for_resume,
+    )
     from utils.models.model_config import (
         detect_gguf_model,
         is_decision_model,
@@ -83,6 +89,7 @@ except ImportError:
         normalize_training_optimizer_for_device,
     )
     from core.training.resume import (
+        _checkpoint_step,
         can_resume_run,
         get_resume_checkpoint_path,
         has_resume_state,
@@ -91,7 +98,12 @@ except ImportError:
         split_resume_request,
         training_run_config,
     )
-    from storage.studio_db import get_resumable_run_by_output_dir
+    from storage.studio_db import (
+        create_recovered_run,
+        get_latest_run_by_output_dir,
+        get_resumable_run_by_output_dir,
+        repair_run_for_resume,
+    )
     from utils.models.model_config import (
         detect_gguf_model,
         is_decision_model,
@@ -1404,6 +1416,34 @@ def _normalized_optional_string(value: Any) -> Optional[str]:
     return value or None
 
 
+def _build_resume_repair_config(request: TrainingStartRequest, existing_run: dict) -> str:
+    from core.training.training import _sanitize_db_config
+
+    base_cfg = training_run_config(existing_run)
+    req_dict = _sanitize_db_config(request.model_dump(exclude_unset = True))
+    merged = {**base_cfg, **req_dict}
+    merged["model_name"] = request.model_name
+    merged["output_dir"] = existing_run.get("output_dir") or getattr(request, "output_dir", None)
+    if request.hf_dataset:
+        merged["hf_dataset"] = request.hf_dataset
+    if request.training_type:
+        merged["training_type"] = request.training_type
+    return json.dumps(merged)
+
+
+def _build_resume_recovered_config(request: TrainingStartRequest, output_dir: str) -> str:
+    from core.training.training import _sanitize_db_config
+
+    req_dict = _sanitize_db_config(request.model_dump())
+    req_dict["output_dir"] = output_dir
+    req_dict["model_name"] = request.model_name
+    if request.hf_dataset:
+        req_dict["hf_dataset"] = request.hf_dataset
+    if request.training_type:
+        req_dict["training_type"] = request.training_type
+    return json.dumps(req_dict)
+
+
 def _prepare_resume_resource_provenance(
     request: TrainingStartRequest, resume_run: dict
 ) -> tuple[Optional[str], bool, bool, bool, Optional[str]]:
@@ -1761,10 +1801,75 @@ async def start_training(
                 validation_message = str(e)
                 raise HTTPException(status_code = 400, detail = validation_message)
 
+            if resume_explicit and is_resume_checkpoint_valid(Path(resume_explicit), resume_step):
+                resume_checkpoint = resume_explicit
+            else:
+                resume_checkpoint = await asyncio.to_thread(
+                    get_resume_checkpoint_path,
+                    resume_output_dir,
+                    resume_step,
+                )
+            if not resume_checkpoint:
+                raise HTTPException(
+                    status_code = 400,
+                    detail = "Resume checkpoint must include saved trainer state.",
+                )
+            request.resume_from_checkpoint = resume_checkpoint
+
+            checkpoint_step = resume_step
+            if checkpoint_step is None:
+                step_from_chk = _checkpoint_step(Path(resume_checkpoint))
+                if step_from_chk >= 0:
+                    checkpoint_step = step_from_chk
+
             resume_run = await asyncio.to_thread(
                 get_resumable_run_by_output_dir,
                 resume_output_dir,
             )
+            if not resume_run or not await asyncio.to_thread(can_resume_run, resume_run):
+                latest_run = await asyncio.to_thread(
+                    get_latest_run_by_output_dir,
+                    resume_output_dir,
+                )
+                if latest_run and latest_run.get("status") == "completed":
+                    raise HTTPException(
+                        status_code = 400,
+                        detail = "Completed training runs cannot be resumed.",
+                    )
+                if latest_run:
+                    repaired_config = _build_resume_repair_config(request, latest_run)
+                    repaired_step = checkpoint_step or latest_run.get("final_step") or 0
+                    target_total_steps = max(
+                        latest_run.get("total_steps") or 0,
+                        request.max_steps or 0,
+                        repaired_step + 10,
+                    )
+                    resume_run = await asyncio.to_thread(
+                        repair_run_for_resume,
+                        latest_run["id"],
+                        resume_output_dir,
+                        repaired_config,
+                        target_total_steps,
+                        repaired_step,
+                    )
+                else:
+                    recovered_config = _build_resume_recovered_config(request, resume_output_dir)
+                    repaired_step = checkpoint_step or 0
+                    target_total_steps = max(request.max_steps or 0, repaired_step + 10)
+                    dataset_name = (
+                        request.hf_dataset
+                        or (request.local_datasets[0] if request.local_datasets else "dataset")
+                    )
+                    resume_run = await asyncio.to_thread(
+                        create_recovered_run,
+                        resume_output_dir,
+                        repaired_step,
+                        request.model_name,
+                        dataset_name,
+                        recovered_config,
+                        target_total_steps,
+                    )
+
             if not resume_run or not await asyncio.to_thread(can_resume_run, resume_run):
                 detail = "Resume checkpoint must belong to a stopped or errored run with complete saved trainer state."
                 # Only when the checkpoint itself is intact: can_resume_run refuses for several reasons, so asking
@@ -1783,20 +1888,6 @@ async def start_training(
                     if blocker:
                         detail = blocker
                 raise HTTPException(status_code = 400, detail = detail)
-            if resume_explicit and is_resume_checkpoint_valid(Path(resume_explicit), resume_step):
-                resume_checkpoint = resume_explicit
-            else:
-                resume_checkpoint = await asyncio.to_thread(
-                    get_resume_checkpoint_path,
-                    resume_output_dir,
-                    resume_step,
-                )
-            if not resume_checkpoint:
-                raise HTTPException(
-                    status_code = 400,
-                    detail = "Resume checkpoint must include saved trainer state.",
-                )
-            request.resume_from_checkpoint = resume_checkpoint
             (
                 resume_actual_model_repo_id,
                 resume_requires_exact_model,
