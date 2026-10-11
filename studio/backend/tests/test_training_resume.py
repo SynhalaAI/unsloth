@@ -545,3 +545,8 @@ def test_terminal_fallback_blocks_when_no_current_checkpoint(monkeypatch, tmp_pa
     kwargs = backend._terminal_finalize_kwargs()
     assert kwargs["status"] == "error"
     assert kwargs["resume_blocked"] is True
+
+def test_split_resume_request_explicit_checkpoint():
+    out, step, explicit = resume.split_resume_request("/out/run/checkpoint-10")
+    assert (out, step, explicit) == ("/out/run", 10, "/out/run/checkpoint-10")
+    assert resume.split_resume_request("/out/run") == ("/out/run", None, None)

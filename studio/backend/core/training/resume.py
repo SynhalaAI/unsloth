@@ -324,3 +324,9 @@ def can_resume_run(run: dict, *, resource_cache: Optional[dict[str, bool]] = Non
     if cache_key not in resource_cache:
         resource_cache[cache_key] = resource_provenance_allows_resume(config)
     return resource_cache[cache_key]
+
+def split_resume_request(normalized_path: str) -> tuple[str, Optional[int], Optional[str]]:
+    step = _checkpoint_step(Path(normalized_path))
+    if step >= 0:
+        return str(Path(normalized_path).parent), step, normalized_path
+    return normalized_path, None, None

@@ -58,7 +58,9 @@ try:
         can_resume_run,
         get_resume_checkpoint_path,
         has_resume_state,
+        is_resume_checkpoint_valid,
         normalize_resume_output_dir,
+        split_resume_request,
         training_run_config,
     )
     from storage.studio_db import get_resumable_run_by_output_dir
@@ -84,7 +86,9 @@ except ImportError:
         can_resume_run,
         get_resume_checkpoint_path,
         has_resume_state,
+        is_resume_checkpoint_valid,
         normalize_resume_output_dir,
+        split_resume_request,
         training_run_config,
     )
     from storage.studio_db import get_resumable_run_by_output_dir
@@ -1747,10 +1751,11 @@ async def start_training(
         resume_requires_exact_dataset = False
         if request.resume_from_checkpoint:
             try:
-                resume_output_dir = await asyncio.to_thread(
+                resume_normalized = await asyncio.to_thread(
                     normalize_resume_output_dir,
                     request.resume_from_checkpoint,
                 )
+                resume_output_dir, resume_step, resume_explicit = split_resume_request(resume_normalized)
             except ValueError as e:
                 # Deliberate user-facing validation message.
                 validation_message = str(e)
@@ -1778,10 +1783,14 @@ async def start_training(
                     if blocker:
                         detail = blocker
                 raise HTTPException(status_code = 400, detail = detail)
-            resume_checkpoint = await asyncio.to_thread(
-                get_resume_checkpoint_path,
-                resume_output_dir,
-            )
+            if resume_explicit and is_resume_checkpoint_valid(Path(resume_explicit), resume_step):
+                resume_checkpoint = resume_explicit
+            else:
+                resume_checkpoint = await asyncio.to_thread(
+                    get_resume_checkpoint_path,
+                    resume_output_dir,
+                    resume_step,
+                )
             if not resume_checkpoint:
                 raise HTTPException(
                     status_code = 400,
