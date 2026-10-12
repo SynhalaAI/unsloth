@@ -629,17 +629,19 @@ export const useExportRuntimeStore = create<ExportRuntimeStore>()((set, get) => 
       }
     } finally {
       // Cleanup is best-effort and runs after the terminal phase is set, so it
-      // does not gate the success banner. Only the run that still owns the
-      // store releases ownership and frees the worker.
+      // does not gate the success banner. It must run unconditionally — even
+      // for a superseded run — because the loaded (possibly multi-adapter
+      // merged) model lives in the persistent export subprocess until
+      // cleanup frees it; gating on isCurrent() leaked it in RAM after
+      // "Export complete". Only the run that still owns the store releases
+      // ownership.
+      try {
+        await cleanupExport();
+      } catch {
+        // ignore
+      }
       if (isCurrent()) {
-        try {
-          await cleanupExport();
-        } catch {
-          // ignore
-        }
-        if (isCurrent()) {
-          set({ ownsRun: false });
-        }
+        set({ ownsRun: false });
       }
     }
   },
