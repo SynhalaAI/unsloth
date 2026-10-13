@@ -58,6 +58,9 @@ export const it = {
       alwaysAsk: "Chiedi sempre",
       alwaysAllow: "Consenti sempre",
       never: "Mai",
+      scripts: "Esegui script",
+      scriptsDescription: "Scegli se i modelli possono eseguire script nelle pagine. Ogni script ti viene mostrato prima dell’esecuzione",
+      askEveryTime: "Chiedi ogni volta",
       permissionsTitle: "Autorizzazioni dell'agente",
       permissionsDescription: "Scegli i valori predefiniti e aggiungi eccezioni per siti specifici. I campi di password e pagamento non vengono mai compilati, qualunque cosa indichino queste impostazioni.",
       site: "Sito o modello",
@@ -66,6 +69,7 @@ export const it = {
       browsing: "Navigazione",
       actions: "Azioni",
       downloads: "Download",
+      unlabelled: "Clic senza etichetta",
       askNewSites: "Chiedi per i siti nuovi",
       requiresApproval: "Richiede approvazione",
       blocked: "Bloccato",
@@ -1934,6 +1938,8 @@ export const it = {
         },
         cellTooltip: "{date} · {tokens}, {messages}",
         weekTooltip: "Settimana del {date} · {tokens}",
+        chartToggle: "Grafico",
+        chartToggleHint: "Mostra Settimanale e Cumulativa come grafico con assi etichettati",
         less: "Meno",
         more: "Più",
         insightsTitle: "Analisi dell'attività",
@@ -2538,6 +2544,13 @@ export const it = {
         "Mostra un pulsante per tornare all'ultimo messaggio dopo aver scorso verso l'alto.",
       scrollToBottomButtonKeywords:
         "scorrere fondo saltare ultimo freccia pulsante nascondere scroll bottom button",
+      replyNotification: "Avvisa quando una risposta è finita",
+      replyNotificationDescription:
+        "Mostra una notifica di sistema quando una risposta finisce mentre Unsloth è ridotto a icona o in background.",
+      replyNotificationBlocked:
+        "Le notifiche sono bloccate. Consentile per Unsloth nelle impostazioni del browser o del sistema, poi riprova.",
+      replyNotificationKeywords:
+        "notifica avvisare avviso finito completato pronto risposta background ridotto notify notification alert done finished reply background",
       showResponseModel: "Mostra il modello della risposta",
       showResponseModelDescription:
         "Mostra i metadati del modello nelle risposte dell'assistente.",
@@ -2558,14 +2571,14 @@ export const it = {
       autoCompactKeywords:
         "compattazione automatica contesto finestra troncare scorrevole checkpoint margine archivio recupero ricerca compaction rolling headroom archive retrieval rag",
       toolResultLimit: "Lunghezza dell'output degli strumenti",
-      toolResultLimitDescription: "Caratteri di un risultato Python o Terminale che il modello legge. Il valore predefinito è {count}.",
-      toolResultLimitHint: "L'output più lungo viene salvato in un file che il modello può leggere a parti. Un limite più alto si applica ai modelli eseguiti in Unsloth, e le finestre di contesto piccole ricevono comunque meno. I modelli API mantengono il valore predefinito a meno che tu non lo abbassi.",
+      toolResultLimitDescription: "Caratteri di un risultato Python, Terminale o di uno strumento MCP che il modello legge. Il valore predefinito è {count}.",
+      toolResultLimitHint: "L'output più lungo di Python e Terminale viene salvato in un file che il modello può leggere a parti. Un limite più alto si applica ai modelli eseguiti in Unsloth, e le finestre di contesto piccole ricevono comunque meno. I modelli API mantengono il valore predefinito a meno che tu non lo abbassi.",
       toolResultLimitDefault: "{count} (predefinito)",
       toolResultLimitLocked: "Impostato da UNSLOTH_TOOL_RESULT_MAX_CHARS",
       toolResultLimitLoadError: "Impossibile caricare la lunghezza dell'output degli strumenti.",
       toolResultLimitSaveError: "Impossibile salvare la lunghezza dell'output degli strumenti.",
       toolResultLimitKeywords:
-        "output risultato troncare troncato limite caratteri lunghezza tool output result truncate truncated truncation limit cap characters chars length terminal python",
+        "output risultato troncare troncato limite caratteri lunghezza tool output result truncate truncated truncation limit cap characters chars length terminal python mcp",
       visibility: {
         collapsed: "Compresso",
         auto: "Espandi durante l’esecuzione",
@@ -2951,7 +2964,7 @@ export const it = {
         modelClef: "Clef",
         recommended: "Consigliato",
         device: "Esegui su",
-        deviceDescription: "La GPU risponde più velocemente, ma tiene la memoria riservata fino al riavvio.",
+        deviceDescription: "La GPU risponde più velocemente e libera la memoria quando il modello viene scaricato.",
         deviceCpu: "CPU",
         deviceGpu: "GPU",
         backend: "Runtime",
@@ -3101,7 +3114,6 @@ export const it = {
     },
   },
   rewind: {
-    menuItem: "Riavvolgi…",
     title: "Riavvolgi",
     pickDescription: "Scegli un messaggio a cui tornare.",
     pickEmpty: "Non ci sono ancora messaggi a cui tornare.",
@@ -3134,6 +3146,26 @@ export const it = {
   chatMenu: {
     more: "Opzioni chat",
     copy: "Copia",
+  },
+  welcome: {
+    goodToSeeYou: "Che piacere vederti",
+    goodToSeeYouName: "Che piacere vederti, {name}",
+    readyWhenYouAre: "Pronto quando vuoi tu",
+    onYourMind: "A cosa stai pensando oggi?",
+    howCanIHelp: "Come posso aiutarti?",
+    goodMorning: "Buongiorno",
+    goodMorningName: "Buongiorno, {name}",
+    goodEvening: "Buonasera",
+    goodEveningName: "Buonasera, {name}",
+    tonight: "Che programmi hai per stasera?",
+    nightOwl: "Modalità nottambulo?",
+    lateNightIdeas: "Idee a tarda notte?",
+    upLate: "Ancora in piedi con un’idea?",
+    nightShift: "Inizia il turno di notte",
+    nightShiftName: "Inizia il turno di notte, {name}",
+    temporaryChat: "Chat temporanea",
+    temporaryChatDescription:
+      "Questa chat non comparirà nella cronologia e non viene salvata. Scompare quando esci.",
   },
   picker: {
     onDevice: "Sul dispositivo",

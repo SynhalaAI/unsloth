@@ -57,6 +57,9 @@ export const sv = {
       alwaysAsk: "Fråga alltid",
       alwaysAllow: "Tillåt alltid",
       never: "Aldrig",
+      scripts: "Köra skript",
+      scriptsDescription: "Välj om modeller får köra skript på sidor. Varje skript visas för dig innan det körs",
+      askEveryTime: "Fråga varje gång",
       permissionsTitle: "Agentbehörigheter",
       permissionsDescription: "Välj standardvärden och lägg till undantag för vissa webbplatser. Lösenords- och betalningsfält fylls aldrig i, oavsett inställningarna här.",
       site: "Webbplats eller mönster",
@@ -65,6 +68,7 @@ export const sv = {
       browsing: "Surfning",
       actions: "Åtgärder",
       downloads: "Nedladdningar",
+      unlabelled: "Klick utan etikett",
       askNewSites: "Fråga för nya webbplatser",
       requiresApproval: "Kräver godkännande",
       blocked: "Blockerad",
@@ -505,6 +509,17 @@ export const sv = {
     precisionAuto: "Modellens standard",
     precisionHelp:
       "Modellens standard behåller lagrad precision. Andra alternativ konverterar okvantiserade vikter vid inläsning.",
+    kvCache: "KV-cache",
+    kvCacheFp8: "FP8 (halva minnet)",
+    kvCacheHelp:
+      "FP8 lagrar kontextcachen med 8 bitar och rymmer ungefär dubbelt så mycket kontext i samma minne. Utan kalibrerade skalor i checkpointen kan svaren bli något mindre exakta.",
+    gpuMemory: "GPU-minnesgräns",
+    gpuMemoryAuto: "Automatisk",
+    gpuMemoryHelp:
+      "Det mesta av varje vald GPU som motorn får använda. Automatisk använder det som är ledigt; sänk den för att lämna plats åt andra program.",
+    seed: "Seed",
+    seedPlaceholder: "Motorns standard",
+    seedHelp: "Anger motorns slumpfrö. Samtidiga chattar kan fortfarande ändra samplade svar.",
     default: "Standard",
     installRequired: "installation krävs",
     ownerRequired: "Be Studio-ägaren att installera den här motorn.",
@@ -641,7 +656,6 @@ export const sv = {
     queueingHintShared: "Kön behålls.",
   },
   rewind: {
-    menuItem: "Spola tillbaka…",
     title: "Spola tillbaka",
     pickDescription: "Välj ett meddelande att spola tillbaka till.",
     pickEmpty: "Det finns inga meddelanden att spola tillbaka till än.",
@@ -673,6 +687,26 @@ export const sv = {
   chatMenu: {
     more: "Chattalternativ",
     copy: "Kopiera",
+  },
+  welcome: {
+    goodToSeeYou: "Kul att se dig",
+    goodToSeeYouName: "Kul att se dig, {name}",
+    readyWhenYouAre: "Redo när du är",
+    onYourMind: "Vad tänker du på i dag?",
+    howCanIHelp: "Hur kan jag hjälpa till?",
+    goodMorning: "God morgon",
+    goodMorningName: "God morgon, {name}",
+    goodEvening: "God kväll",
+    goodEveningName: "God kväll, {name}",
+    tonight: "Vad händer i kväll?",
+    nightOwl: "Nattugglan vaken?",
+    lateNightIdeas: "Idéer mitt i natten?",
+    upLate: "Uppe sent med en idé?",
+    nightShift: "Nattskiftet börjar",
+    nightShiftName: "Nattskiftet börjar, {name}",
+    temporaryChat: "Tillfällig chatt",
+    temporaryChatDescription:
+      "Den här chatten visas inte i din historik och sparas inte. Den försvinner när du lämnar den.",
   },
   picker: {
     onDevice: "På enheten",
@@ -2133,6 +2167,8 @@ export const sv = {
         },
         cellTooltip: "{date} · {tokens}, {messages}",
         weekTooltip: "Veckan som börjar {date} · {tokens}",
+        chartToggle: "Diagram",
+        chartToggleHint: "Visa Veckovis och Kumulativt som ett diagram med märkta axlar",
         less: "Mindre",
         more: "Mer",
         insightsTitle: "Aktivitetsinsikter",
@@ -2756,6 +2792,13 @@ export const sv = {
         "Visa en knapp för att hoppa tillbaka till senaste meddelandet efter att du har rullat uppåt.",
       scrollToBottomButtonKeywords:
         "rulla botten hoppa senaste nyaste pil ner knapp flytande dölj visa scroll bottom jump latest newest arrow down button floating hide show",
+      replyNotification: "Avisera när ett svar är klart",
+      replyNotificationDescription:
+        "Visa en systemavisering när ett svar blir klart medan Unsloth är minimerat eller i bakgrunden.",
+      replyNotificationBlocked:
+        "Aviseringar är blockerade. Tillåt dem för Unsloth i webbläsarens eller systemets inställningar och försök igen.",
+      replyNotificationKeywords:
+        "avisering notis meddelande klar färdig svar bakgrund minimerad notify notification alert done finished reply background",
       showResponseModel: "Svarsmodell",
       showResponseModelDescription:
         "Visa modellinformation i assistentens svar.",
@@ -2777,14 +2820,14 @@ export const sv = {
       autoCompactKeywords:
         "komprimering komprimera autokomprimering kontextfönster trunkera rullande kontrollpunkt marginal arkiv hämtning återkallning rag sök compaction compact auto-compact context window truncate rolling checkpoint headroom archive retrieval recall search",
       toolResultLimit: "Längd på verktygsutdata",
-      toolResultLimitDescription: "Tecken i ett Python- eller Terminal-resultat som modellen läser. Standard är {count}.",
-      toolResultLimitHint: "Längre utdata sparas i en fil som modellen kan läsa i delar. En högre gräns gäller modeller som körs i Unsloth, och små kontextfönster får fortfarande mindre. API-modeller behåller standardvärdet om du inte sänker det.",
+      toolResultLimitDescription: "Tecken i ett Python-, Terminal- eller MCP-resultat som modellen läser. Standard är {count}.",
+      toolResultLimitHint: "Längre utdata från Python och Terminal sparas i en fil som modellen kan läsa i delar. En högre gräns gäller modeller som körs i Unsloth, och små kontextfönster får fortfarande mindre. API-modeller behåller standardvärdet om du inte sänker det.",
       toolResultLimitDefault: "{count} (standard)",
       toolResultLimitLocked: "Anges av UNSLOTH_TOOL_RESULT_MAX_CHARS",
       toolResultLimitLoadError: "Det gick inte att läsa in längden på verktygsutdata.",
       toolResultLimitSaveError: "Det gick inte att spara längden på verktygsutdata.",
       toolResultLimitKeywords:
-        "utdata resultat trunkera avkortad gräns tecken längd tool output result truncate truncated truncation limit cap characters chars length terminal python",
+        "utdata resultat trunkera avkortad gräns tecken längd tool output result truncate truncated truncation limit cap characters chars length terminal python mcp",
       visibility: {
         collapsed: "Hopfälld",
         auto: "Fäll ut medan den körs",
@@ -3186,7 +3229,7 @@ export const sv = {
         recommended: "Rekommenderas",
         device: "Kör på",
         deviceDescription:
-          "GPU svarar snabbare men håller sitt minne reserverat tills omstart.",
+          "GPU svarar snabbare och frigör sitt minne när modellen avlastas.",
         deviceCpu: "CPU",
         deviceGpu: "GPU",
         backend: "Körmiljö",

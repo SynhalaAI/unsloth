@@ -59,6 +59,9 @@ export const es = {
       alwaysAsk: "Preguntar siempre",
       alwaysAllow: "Permitir siempre",
       never: "Nunca",
+      scripts: "Ejecutar scripts",
+      scriptsDescription: "Elige si los modelos pueden ejecutar scripts en las páginas. Verás cada script antes de que se ejecute",
+      askEveryTime: "Preguntar cada vez",
       permissionsTitle: "Permisos del agente",
       permissionsDescription: "Elige los valores predeterminados y añade excepciones para sitios concretos. Los campos de contraseña y de pago nunca se rellenan, digan lo que digan estos ajustes.",
       site: "Sitio o patrón",
@@ -67,6 +70,7 @@ export const es = {
       browsing: "Navegación",
       actions: "Acciones",
       downloads: "Descargas",
+      unlabelled: "Clics sin etiqueta",
       askNewSites: "Preguntar en sitios nuevos",
       requiresApproval: "Requiere aprobación",
       blocked: "Bloqueado",
@@ -550,7 +554,6 @@ export const es = {
     queueingHintShared: "La cola se conserva.",
   },
   rewind: {
-    menuItem: "Rebobinar…",
     title: "Rebobinar",
     pickDescription: "Elige un mensaje al que volver.",
     pickEmpty: "Todavía no hay mensajes a los que volver.",
@@ -583,6 +586,26 @@ export const es = {
   chatMenu: {
     more: "Opciones del chat",
     copy: "Copiar",
+  },
+  welcome: {
+    goodToSeeYou: "Me alegra verte",
+    goodToSeeYouName: "Me alegra verte, {name}",
+    readyWhenYouAre: "Listo cuando tú lo estés",
+    onYourMind: "¿Qué tienes en mente hoy?",
+    howCanIHelp: "¿En qué puedo ayudarte?",
+    goodMorning: "Buenos días",
+    goodMorningName: "Buenos días, {name}",
+    goodEvening: "Buenas noches",
+    goodEveningName: "Buenas noches, {name}",
+    tonight: "¿Qué planes tienes para esta noche?",
+    nightOwl: "¿Modo noctámbulo?",
+    lateNightIdeas: "¿Ideas de madrugada?",
+    upLate: "¿Una idea a estas horas?",
+    nightShift: "Empieza el turno de noche",
+    nightShiftName: "Empieza el turno de noche, {name}",
+    temporaryChat: "Chat temporal",
+    temporaryChatDescription:
+      "Este chat no aparecerá en tu historial ni se guardará. Desaparece cuando salgas.",
   },
   picker: {
     onDevice: "En el dispositivo",
@@ -2002,6 +2025,8 @@ export const es = {
         },
         cellTooltip: "{date} · {tokens}, {messages}",
         weekTooltip: "Semana del {date} · {tokens}",
+        chartToggle: "Gráfico",
+        chartToggleHint: "Mostrar Semanal y Acumulada como gráfico con ejes etiquetados",
         less: "Menos",
         more: "Más",
         insightsTitle: "Análisis de actividad",
@@ -2601,6 +2626,13 @@ export const es = {
         "Muestra un botón para volver al último mensaje después de desplazarte hacia arriba.",
       scrollToBottomButtonKeywords:
         "desplazar final abajo saltar último flecha botón ocultar scroll bottom button",
+      replyNotification: "Avisar cuando termine una respuesta",
+      replyNotificationDescription:
+        "Muestra una notificación del sistema cuando termina una respuesta mientras Unsloth está minimizado o en segundo plano.",
+      replyNotificationBlocked:
+        "Las notificaciones están bloqueadas. Permítelas para Unsloth en la configuración del navegador o del sistema y vuelve a intentarlo.",
+      replyNotificationKeywords:
+        "notificación avisar alerta terminado completado listo respuesta segundo plano minimizado notify notification alert done finished reply background",
       showResponseModel: "Mostrar el modelo de respuesta",
       showResponseModelDescription:
         "Muestra los metadatos del modelo en las respuestas del asistente.",
@@ -2621,14 +2653,14 @@ export const es = {
       autoCompactKeywords:
         "compactación compactar automáticamente contexto ventana truncar deslizante checkpoint margen archivo recuperación búsqueda compaction rolling headroom archive retrieval rag",
       toolResultLimit: "Longitud de la salida de herramientas",
-      toolResultLimitDescription: "Caracteres de un resultado de Python o Terminal que lee el modelo. El valor predeterminado es {count}.",
-      toolResultLimitHint: "La salida más larga se guarda en un archivo que el modelo puede leer por partes. Un límite mayor se aplica a los modelos que se ejecutan en Unsloth, y las ventanas de contexto pequeñas siguen recibiendo menos. Los modelos de API mantienen el valor predeterminado salvo que lo bajes.",
+      toolResultLimitDescription: "Caracteres de un resultado de Python, Terminal o herramienta MCP que lee el modelo. El valor predeterminado es {count}.",
+      toolResultLimitHint: "La salida más larga de Python y Terminal se guarda en un archivo que el modelo puede leer por partes. Un límite mayor se aplica a los modelos que se ejecutan en Unsloth, y las ventanas de contexto pequeñas siguen recibiendo menos. Los modelos de API mantienen el valor predeterminado salvo que lo bajes.",
       toolResultLimitDefault: "{count} (predeterminado)",
       toolResultLimitLocked: "Definido por UNSLOTH_TOOL_RESULT_MAX_CHARS",
       toolResultLimitLoadError: "No se pudo cargar la longitud de la salida de herramientas.",
       toolResultLimitSaveError: "No se pudo guardar la longitud de la salida de herramientas.",
       toolResultLimitKeywords:
-        "salida resultado truncar recortar límite caracteres longitud tool output result truncate truncated truncation limit cap characters chars length terminal python",
+        "salida resultado truncar recortar límite caracteres longitud tool output result truncate truncated truncation limit cap characters chars length terminal python mcp",
       visibility: {
         collapsed: "Contraído",
         auto: "Expandir mientras se ejecuta",
@@ -3015,7 +3047,7 @@ export const es = {
         modelClef: "Clef",
         recommended: "Recomendado",
         device: "Ejecutar en",
-        deviceDescription: "La GPU responde más rápido, pero mantiene su memoria reservada hasta reiniciar.",
+        deviceDescription: "La GPU responde más rápido y libera su memoria cuando se descarga el modelo.",
         deviceCpu: "CPU",
         deviceGpu: "GPU",
         backend: "Entorno de ejecución",

@@ -59,6 +59,9 @@ export const de = {
       alwaysAsk: "Immer fragen",
       alwaysAllow: "Immer erlauben",
       never: "Nie",
+      scripts: "Skripte ausführen",
+      scriptsDescription: "Lege fest, ob Modelle Skripte auf Seiten ausführen dürfen. Jedes Skript wird dir vorher angezeigt",
+      askEveryTime: "Jedes Mal fragen",
       permissionsTitle: "Agent-Berechtigungen",
       permissionsDescription: "Lege Standardwerte fest und füge Ausnahmen für bestimmte Websites hinzu. Passwort- und Zahlungsfelder werden nie ausgefüllt, egal was hier steht.",
       site: "Website oder Muster",
@@ -67,6 +70,7 @@ export const de = {
       browsing: "Surfen",
       actions: "Aktionen",
       downloads: "Downloads",
+      unlabelled: "Klicks ohne Beschriftung",
       askNewSites: "Bei neuen Websites fragen",
       requiresApproval: "Freigabe nötig",
       blocked: "Blockiert",
@@ -550,7 +554,6 @@ export const de = {
     queueingHintShared: "Die Warteschlange bleibt erhalten.",
   },
   rewind: {
-    menuItem: "Zurückspulen…",
     title: "Zurückspulen",
     pickDescription: "Wähle eine Nachricht, zu der zurückgespult werden soll.",
     pickEmpty: "Es gibt noch keine Nachrichten zum Zurückspulen.",
@@ -583,6 +586,26 @@ export const de = {
   chatMenu: {
     more: "Chat-Optionen",
     copy: "Kopieren",
+  },
+  welcome: {
+    goodToSeeYou: "Schön, dich zu sehen",
+    goodToSeeYouName: "Schön, dich zu sehen, {name}",
+    readyWhenYouAre: "Bereit, wenn du es bist",
+    onYourMind: "Was beschäftigt dich heute?",
+    howCanIHelp: "Wie kann ich helfen?",
+    goodMorning: "Guten Morgen",
+    goodMorningName: "Guten Morgen, {name}",
+    goodEvening: "Guten Abend",
+    goodEveningName: "Guten Abend, {name}",
+    tonight: "Was steht heute Abend an?",
+    nightOwl: "Nachteulen-Modus?",
+    lateNightIdeas: "Ideen zu später Stunde?",
+    upLate: "Noch wach mit einer Idee?",
+    nightShift: "Die Nachtschicht beginnt",
+    nightShiftName: "Die Nachtschicht beginnt, {name}",
+    temporaryChat: "Temporärer Chat",
+    temporaryChatDescription:
+      "Dieser Chat erscheint nicht in deinem Verlauf und wird nicht gespeichert. Er verschwindet, wenn du ihn verlässt.",
   },
   picker: {
     onDevice: "Auf dem Gerät",
@@ -2007,6 +2030,8 @@ export const de = {
         },
         cellTooltip: "{date} · {tokens}, {messages}",
         weekTooltip: "Woche vom {date} · {tokens}",
+        chartToggle: "Diagramm",
+        chartToggleHint: "Wöchentlich und Kumuliert als Diagramm mit beschrifteten Achsen anzeigen",
         less: "Weniger",
         more: "Mehr",
         insightsTitle: "Aktivitätsauswertung",
@@ -2610,6 +2635,13 @@ export const de = {
         "Eine Schaltfläche anzeigen, um nach dem Hochscrollen zur neuesten Nachricht zurückzuspringen.",
       scrollToBottomButtonKeywords:
         "scrollen unten springen neueste Pfeil Schaltfläche ausblenden scroll bottom button",
+      replyNotification: "Benachrichtigen, wenn eine Antwort fertig ist",
+      replyNotificationDescription:
+        "Zeigt eine Systembenachrichtigung, wenn eine Antwort fertig ist, während Unsloth minimiert oder im Hintergrund ist.",
+      replyNotificationBlocked:
+        "Benachrichtigungen sind blockiert. Erlaube sie für Unsloth in den Browser- oder Systemeinstellungen und versuche es erneut.",
+      replyNotificationKeywords:
+        "Benachrichtigung benachrichtigen Hinweis fertig abgeschlossen bereit Antwort Hintergrund minimiert notify notification alert done finished reply background",
       showResponseModel: "Antwortmodell anzeigen",
       showResponseModelDescription:
         "Modellmetadaten in Antworten des Assistenten anzeigen.",
@@ -2630,14 +2662,14 @@ export const de = {
       autoCompactKeywords:
         "Komprimierung automatisch Kontext Fenster kürzen gleitend Prüfpunkt Reserve Archiv Abruf Suche compaction rolling checkpoint headroom archive retrieval rag",
       toolResultLimit: "Länge der Tool-Ausgabe",
-      toolResultLimitDescription: "Zeichen eines Python- oder Terminal-Ergebnisses, die das Modell liest. Standard ist {count}.",
-      toolResultLimitHint: "Längere Ausgaben werden in einer Datei gespeichert, die das Modell in Teilen lesen kann. Ein höheres Limit gilt für Modelle, die in Unsloth laufen, und kleine Kontextfenster erhalten weiterhin weniger. API-Modelle behalten den Standard, außer du senkst ihn.",
+      toolResultLimitDescription: "Zeichen eines Python-, Terminal- oder MCP-Ergebnisses, die das Modell liest. Standard ist {count}.",
+      toolResultLimitHint: "Längere Python- und Terminal-Ausgaben werden in einer Datei gespeichert, die das Modell in Teilen lesen kann. Ein höheres Limit gilt für Modelle, die in Unsloth laufen, und kleine Kontextfenster erhalten weiterhin weniger. API-Modelle behalten den Standard, außer du senkst ihn.",
       toolResultLimitDefault: "{count} (Standard)",
       toolResultLimitLocked: "Festgelegt durch UNSLOTH_TOOL_RESULT_MAX_CHARS",
       toolResultLimitLoadError: "Die Länge der Tool-Ausgabe konnte nicht geladen werden.",
       toolResultLimitSaveError: "Die Länge der Tool-Ausgabe konnte nicht gespeichert werden.",
       toolResultLimitKeywords:
-        "Ausgabe Ergebnis abschneiden gekürzt Grenze Zeichen Länge tool output result truncate truncated truncation limit cap characters chars length terminal python",
+        "Ausgabe Ergebnis abschneiden gekürzt Grenze Zeichen Länge tool output result truncate truncated truncation limit cap characters chars length terminal python mcp",
       visibility: {
         collapsed: "Eingeklappt",
         auto: "Während der Ausführung ausklappen",
@@ -3022,7 +3054,7 @@ export const de = {
         modelClef: "Clef",
         recommended: "Empfohlen",
         device: "Ausführen auf",
-        deviceDescription: "Die GPU antwortet schneller, hält ihren Speicher aber bis zum Neustart reserviert.",
+        deviceDescription: "Die GPU antwortet schneller und gibt ihren Speicher frei, wenn das Modell entladen wird.",
         deviceCpu: "CPU",
         deviceGpu: "GPU",
         backend: "Laufzeit",

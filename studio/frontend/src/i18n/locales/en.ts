@@ -56,6 +56,9 @@ export const en = {
       alwaysAsk: "Always ask",
       alwaysAllow: "Always allow",
       never: "Never",
+      scripts: "Run scripts",
+      scriptsDescription: "Choose whether models can run scripts on pages. You see each script before it runs",
+      askEveryTime: "Ask every time",
       permissionsTitle: "Agent permissions",
       permissionsDescription: "Choose defaults and add exceptions for specific sites. Password and payment fields are never filled, whatever these say.",
       site: "Site or pattern",
@@ -64,6 +67,7 @@ export const en = {
       browsing: "Browsing",
       actions: "Actions",
       downloads: "Downloads",
+      unlabelled: "Unlabelled clicks",
       askNewSites: "Ask for new sites",
       requiresApproval: "Requires approval",
       blocked: "Blocked",
@@ -472,6 +476,15 @@ export const en = {
     precision: "Precision",
     precisionAuto: "Model default",
     precisionHelp: "Model default preserves stored precision. Other options convert unquantized weights when loading.",
+    kvCache: "KV cache",
+    kvCacheFp8: "FP8 (half the memory)",
+    kvCacheHelp: "FP8 stores the context cache in 8 bits, fitting about twice the context in the same memory. Without calibrated scales in the checkpoint, answers can be slightly less accurate.",
+    gpuMemory: "GPU memory limit",
+    gpuMemoryAuto: "Automatic",
+    gpuMemoryHelp: "The most of each selected GPU the engine may use. Automatic uses what is free; lower it to leave room for other programs.",
+    seed: "Seed",
+    seedPlaceholder: "Engine default",
+    seedHelp: "Sets the engine's random seed. Concurrent chats can still change sampled replies.",
     default: "Default",
     installRequired: "install required",
     ownerRequired: "Ask the Studio owner to install this engine.",
@@ -593,7 +606,6 @@ export const en = {
   },
   // /rewind and the prompt More menu's Rewind item.
   rewind: {
-    menuItem: "Rewind…",
     title: "Rewind",
     pickDescription: "Choose a message to rewind to.",
     pickEmpty: "There are no messages to rewind to yet.",
@@ -628,6 +640,27 @@ export const en = {
   chatMenu: {
     more: "Chat options",
     copy: "Copy",
+  },
+  // The empty chat's greeting; {name} is the user's nickname or first name.
+  welcome: {
+    goodToSeeYou: "Good to see you",
+    goodToSeeYouName: "Good to see you, {name}",
+    readyWhenYouAre: "Ready when you are",
+    onYourMind: "What’s on your mind today?",
+    howCanIHelp: "How can I help?",
+    goodMorning: "Good morning",
+    goodMorningName: "Good morning, {name}",
+    goodEvening: "Good evening",
+    goodEveningName: "Good evening, {name}",
+    tonight: "What’s on for tonight?",
+    nightOwl: "Night owl mode?",
+    lateNightIdeas: "Late night ideas?",
+    upLate: "Up late with an idea?",
+    nightShift: "The night shift begins",
+    nightShiftName: "The night shift begins, {name}",
+    temporaryChat: "Temporary chat",
+    temporaryChatDescription:
+      "This chat won't appear in your history and isn't saved. It disappears when you leave.",
   },
   picker: {
     onDevice: "On Device",
@@ -2024,6 +2057,8 @@ export const en = {
         },
         cellTooltip: "{date} · {tokens}, {messages}",
         weekTooltip: "Week of {date} · {tokens}",
+        chartToggle: "Chart",
+        chartToggleHint: "Show Weekly and Cumulative as a chart with labelled axes",
         less: "Less",
         more: "More",
         insightsTitle: "Activity insights",
@@ -2610,6 +2645,13 @@ export const en = {
         "Show a button to jump back to the latest message after you scroll up.",
       scrollToBottomButtonKeywords:
         "scroll bottom jump latest newest arrow down button floating hide show",
+      replyNotification: "Notify when a reply finishes",
+      replyNotificationDescription:
+        "Show a system notification when a reply finishes while Unsloth is minimized or in the background.",
+      replyNotificationBlocked:
+        "Notifications are blocked. Allow them for Unsloth in your browser or system settings, then try again.",
+      replyNotificationKeywords:
+        "notify notification alert done finished complete ready response reply background minimized desktop sound",
       showResponseModel: "Response model",
       showResponseModelDescription:
         "Show model details in assistant responses.",
@@ -2631,14 +2673,14 @@ export const en = {
       autoCompactKeywords:
         "compaction compact auto-compact context window truncate rolling checkpoint headroom archive retrieval recall rag search",
       toolResultLimit: "Tool output length",
-      toolResultLimitDescription: "Characters of one Python or Terminal result the model reads. Default is {count}.",
-      toolResultLimitHint: "Longer output is saved to a file the model can read in parts. A higher limit applies to models running in Unsloth, and small context windows still get less. API models keep the default unless you lower it.",
+      toolResultLimitDescription: "Characters of one Python, Terminal or MCP tool result the model reads. Default is {count}.",
+      toolResultLimitHint: "Longer Python and Terminal output is saved to a file the model can read in parts. A higher limit applies to models running in Unsloth, and small context windows still get less. API models keep the default unless you lower it.",
       toolResultLimitDefault: "{count} (default)",
       toolResultLimitLocked: "Set by UNSLOTH_TOOL_RESULT_MAX_CHARS",
       toolResultLimitLoadError: "Failed to load the tool output length.",
       toolResultLimitSaveError: "Failed to save the tool output length.",
       toolResultLimitKeywords:
-        "tool output result truncate truncated truncation limit cap characters chars length terminal python",
+        "tool output result truncate truncated truncation limit cap characters chars length terminal python mcp",
       visibility: {
         collapsed: "Collapsed",
         auto: "Expand while running",
@@ -3016,7 +3058,7 @@ export const en = {
         modelClef: "Clef",
         recommended: "Recommended",
         device: "Run on",
-        deviceDescription: "GPU answers faster, but keeps its memory reserved until restart.",
+        deviceDescription: "GPU answers faster and frees its memory when the model unloads.",
         deviceCpu: "CPU",
         deviceGpu: "GPU",
         backend: "Runtime",

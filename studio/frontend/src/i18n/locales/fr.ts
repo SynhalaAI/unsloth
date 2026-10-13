@@ -59,6 +59,9 @@ export const fr = {
       alwaysAsk: "Toujours demander",
       alwaysAllow: "Toujours autoriser",
       never: "Jamais",
+      scripts: "Exécuter des scripts",
+      scriptsDescription: "Choisissez si les modèles peuvent exécuter des scripts sur les pages. Chaque script vous est montré avant de s’exécuter",
+      askEveryTime: "Demander à chaque fois",
       permissionsTitle: "Autorisations de l'agent",
       permissionsDescription: "Choisissez les valeurs par défaut et ajoutez des exceptions pour certains sites. Les champs de mot de passe et de paiement ne sont jamais remplis, quels que soient ces réglages.",
       site: "Site ou motif",
@@ -67,6 +70,7 @@ export const fr = {
       browsing: "Navigation",
       actions: "Actions",
       downloads: "Téléchargements",
+      unlabelled: "Clics sans libellé",
       askNewSites: "Demander pour les nouveaux sites",
       requiresApproval: "Approbation requise",
       blocked: "Bloqué",
@@ -550,7 +554,6 @@ export const fr = {
     queueingHintShared: "La file d’attente est conservée.",
   },
   rewind: {
-    menuItem: "Revenir en arrière…",
     title: "Revenir en arrière",
     pickDescription: "Choisissez un message auquel revenir.",
     pickEmpty: "Il n'y a pas encore de message auquel revenir.",
@@ -583,6 +586,26 @@ export const fr = {
   chatMenu: {
     more: "Options de la discussion",
     copy: "Copier",
+  },
+  welcome: {
+    goodToSeeYou: "Ravi de vous voir",
+    goodToSeeYouName: "Ravi de vous voir, {name}",
+    readyWhenYouAre: "Prêt quand vous l’êtes",
+    onYourMind: "Qu’avez-vous en tête aujourd’hui ?",
+    howCanIHelp: "Comment puis-je vous aider ?",
+    goodMorning: "Bonjour",
+    goodMorningName: "Bonjour, {name}",
+    goodEvening: "Bonsoir",
+    goodEveningName: "Bonsoir, {name}",
+    tonight: "Quel est le programme ce soir ?",
+    nightOwl: "Mode noctambule ?",
+    lateNightIdeas: "Des idées nocturnes ?",
+    upLate: "Encore debout avec une idée ?",
+    nightShift: "Le service de nuit commence",
+    nightShiftName: "Le service de nuit commence, {name}",
+    temporaryChat: "Chat temporaire",
+    temporaryChatDescription:
+      "Ce chat n’apparaîtra pas dans votre historique et n’est pas enregistré. Il disparaît quand vous le quittez.",
   },
   picker: {
     onDevice: "Sur l'appareil",
@@ -2006,6 +2029,8 @@ export const fr = {
         },
         cellTooltip: "{date} · {tokens}, {messages}",
         weekTooltip: "Semaine du {date} · {tokens}",
+        chartToggle: "Graphique",
+        chartToggleHint: "Afficher Hebdomadaire et Cumulée sous forme de graphique avec axes légendés",
         less: "Moins",
         more: "Plus",
         insightsTitle: "Analyse de l'activité",
@@ -2607,6 +2632,13 @@ export const fr = {
         "Afficher un bouton pour revenir au dernier message après avoir fait défiler vers le haut.",
       scrollToBottomButtonKeywords:
         "défiler bas sauter dernier flèche bouton masquer scroll bottom button",
+      replyNotification: "Notifier quand une réponse est terminée",
+      replyNotificationDescription:
+        "Affiche une notification système quand une réponse se termine alors qu'Unsloth est réduit ou en arrière-plan.",
+      replyNotificationBlocked:
+        "Les notifications sont bloquées. Autorisez-les pour Unsloth dans les réglages du navigateur ou du système, puis réessayez.",
+      replyNotificationKeywords:
+        "notification notifier alerte terminé fini prêt réponse arrière-plan réduit notify notification alert done finished reply background",
       showResponseModel: "Afficher le modèle de réponse",
       showResponseModelDescription:
         "Afficher les métadonnées du modèle dans les réponses de l’assistant.",
@@ -2627,14 +2659,14 @@ export const fr = {
       autoCompactKeywords:
         "compaction automatique contexte fenêtre tronquer glissante point de contrôle marge archive récupération recherche rolling checkpoint headroom retrieval rag",
       toolResultLimit: "Longueur de la sortie des outils",
-      toolResultLimitDescription: "Caractères d'un résultat Python ou Terminal que le modèle lit. Par défaut : {count}.",
-      toolResultLimitHint: "Une sortie plus longue est enregistrée dans un fichier que le modèle peut lire par parties. Une limite plus élevée s'applique aux modèles exécutés dans Unsloth, et les petites fenêtres de contexte reçoivent toujours moins. Les modèles d'API gardent la valeur par défaut sauf si vous la baissez.",
+      toolResultLimitDescription: "Caractères d'un résultat Python, Terminal ou d'outil MCP que le modèle lit. Par défaut : {count}.",
+      toolResultLimitHint: "Une sortie Python ou Terminal plus longue est enregistrée dans un fichier que le modèle peut lire par parties. Une limite plus élevée s'applique aux modèles exécutés dans Unsloth, et les petites fenêtres de contexte reçoivent toujours moins. Les modèles d'API gardent la valeur par défaut sauf si vous la baissez.",
       toolResultLimitDefault: "{count} (par défaut)",
       toolResultLimitLocked: "Défini par UNSLOTH_TOOL_RESULT_MAX_CHARS",
       toolResultLimitLoadError: "Impossible de charger la longueur de la sortie des outils.",
       toolResultLimitSaveError: "Impossible d'enregistrer la longueur de la sortie des outils.",
       toolResultLimitKeywords:
-        "sortie résultat tronquer tronqué limite caractères longueur tool output result truncate truncated truncation limit cap characters chars length terminal python",
+        "sortie résultat tronquer tronqué limite caractères longueur tool output result truncate truncated truncation limit cap characters chars length terminal python mcp",
       visibility: {
         collapsed: "Replié",
         auto: "Déplier pendant l’exécution",
@@ -3023,7 +3055,7 @@ export const fr = {
         modelClef: "Clef",
         recommended: "Recommandé",
         device: "Exécuter sur",
-        deviceDescription: "Le GPU répond plus vite, mais garde sa mémoire réservée jusqu'au redémarrage.",
+        deviceDescription: "Le GPU répond plus vite et libère sa mémoire quand le modèle est déchargé.",
         deviceCpu: "CPU",
         deviceGpu: "GPU",
         backend: "Moteur d'exécution",

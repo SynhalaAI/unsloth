@@ -60,6 +60,9 @@ export const he = {
       alwaysAsk: "לשאול תמיד",
       alwaysAllow: "לאפשר תמיד",
       never: "אף פעם",
+      scripts: "הרצת סקריפטים",
+      scriptsDescription: "בחרו אם מודלים יכולים להריץ סקריפטים בדפים. כל סקריפט מוצג לכם לפני שהוא רץ",
+      askEveryTime: "לשאול בכל פעם",
       permissionsTitle: "הרשאות הסוכן",
       permissionsDescription: "בחירת ברירות מחדל והוספת חריגים לאתרים מסוימים. שדות סיסמה ותשלום לעולם אינם ממולאים, לא משנה מה מוגדר כאן.",
       site: "אתר או תבנית",
@@ -68,6 +71,7 @@ export const he = {
       browsing: "גלישה",
       actions: "פעולות",
       downloads: "הורדות",
+      unlabelled: "לחיצות ללא תווית",
       askNewSites: "לשאול לגבי אתרים חדשים",
       requiresApproval: "נדרש אישור",
       blocked: "חסום",
@@ -498,6 +502,16 @@ export const he = {
     precisionAuto: "ברירת המחדל של המודל",
     precisionHelp:
       "ברירת המחדל של המודל שומרת על הדיוק המאוחסן. אפשרויות אחרות ממירות משקלים שלא עברו קוונטיזציה בעת הטעינה.",
+    kvCache: "מטמון KV",
+    kvCacheFp8: "FP8 (חצי מהזיכרון)",
+    kvCacheHelp: "FP8 שומר את מטמון ההקשר ב-8 סיביות, כך שבערך פי שניים הקשר נכנס באותו זיכרון. בלי סקאלות מכוילות בצ'קפוינט, התשובות עלולות להיות מעט פחות מדויקות.",
+    gpuMemory: "מגבלת זיכרון GPU",
+    gpuMemoryAuto: "אוטומטי",
+    gpuMemoryHelp:
+      "החלק המרבי מכל GPU נבחר שהמנוע רשאי להשתמש בו. אוטומטי משתמש במה שפנוי; הורד אותו כדי להשאיר מקום לתוכניות אחרות.",
+    seed: "זרע אקראי",
+    seedPlaceholder: "ברירת המחדל של המנוע",
+    seedHelp: "קובע את הזרע האקראי של המנוע. צ'אטים במקביל עדיין יכולים לשנות תשובות שנדגמו.",
     default: "ברירת מחדל",
     installRequired: "נדרשת התקנה",
     ownerRequired: "בקש מבעל ה-Studio להתקין מנוע זה.",
@@ -626,7 +640,6 @@ export const he = {
     queueingHintShared: "התור נשמר.",
   },
   rewind: {
-    menuItem: "החזרה לאחור…",
     title: "החזרה לאחור",
     pickDescription: "בחרו הודעה לחזור אליה.",
     pickEmpty: "עדיין אין הודעות לחזור אליהן.",
@@ -658,6 +671,25 @@ export const he = {
   chatMenu: {
     more: "אפשרויות צ'אט",
     copy: "העתקה",
+  },
+  welcome: {
+    goodToSeeYou: "טוב לראות אותך",
+    goodToSeeYouName: "טוב לראות אותך, {name}",
+    readyWhenYouAre: "מוכן כשתהיה מוכן",
+    onYourMind: "מה עובר לך בראש היום?",
+    howCanIHelp: "איך אפשר לעזור?",
+    goodMorning: "בוקר טוב",
+    goodMorningName: "בוקר טוב, {name}",
+    goodEvening: "ערב טוב",
+    goodEveningName: "ערב טוב, {name}",
+    tonight: "מה התוכניות להערב?",
+    nightOwl: "מצב ינשוף לילה?",
+    lateNightIdeas: "רעיונות של לילה?",
+    upLate: "ער עד מאוחר עם רעיון?",
+    nightShift: "משמרת הלילה מתחילה",
+    nightShiftName: "משמרת הלילה מתחילה, {name}",
+    temporaryChat: "צ'אט זמני",
+    temporaryChatDescription: "הצ'אט הזה לא יופיע בהיסטוריה שלך ולא נשמר. הוא נעלם כשתעזוב.",
   },
   picker: {
     onDevice: "במכשיר",
@@ -2064,6 +2096,8 @@ export const he = {
         },
         cellTooltip: "{date} · {tokens}, {messages}",
         weekTooltip: "שבוע של {date} · {tokens}",
+        chartToggle: "תרשים",
+        chartToggleHint: "הצגת שבועי ומצטבר כתרשים עם צירים מסומנים",
         less: "פחות",
         more: "יותר",
         insightsTitle: "תובנות פעילות",
@@ -2676,6 +2710,13 @@ export const he = {
         "הצג לחצן לקפיצה חזרה להודעה האחרונה לאחר גלילה למעלה.",
       scrollToBottomButtonKeywords:
         "scroll bottom jump latest newest arrow down button floating hide show גלילה תחתית לחצן חץ",
+      replyNotification: "התראה כשתשובה מסתיימת",
+      replyNotificationDescription:
+        "הצגת התראת מערכת כשתשובה מסתיימת בזמן ש-Unsloth ממוזער או ברקע.",
+      replyNotificationBlocked:
+        "ההתראות חסומות. יש לאפשר אותן ל-Unsloth בהגדרות הדפדפן או המערכת ולנסות שוב.",
+      replyNotificationKeywords:
+        "notify notification alert done finished reply background minimized התראה הודעה הסתיים מוכן תשובה רקע ממוזער",
       showResponseModel: "מודל המענה",
       showResponseModelDescription: "הצג פרטי מודל בתשובות העוזר.",
       inlineEditResponse: "עריכת תגובה על גבי התגובות",
@@ -2696,14 +2737,14 @@ export const he = {
       autoCompactKeywords:
         "compaction compact auto-compact context window truncate rolling checkpoint headroom archive retrieval recall rag search כיווץ קיצוץ הקשר חלון ארכיון אחזור חיפוש",
       toolResultLimit: "אורך פלט הכלים",
-      toolResultLimitDescription: "מספר התווים מתוצאה אחת של Python או Terminal שהמודל קורא. ברירת המחדל היא {count}.",
-      toolResultLimitHint: "פלט ארוך יותר נשמר בקובץ שהמודל יכול לקרוא בחלקים. מגבלה גבוהה יותר חלה על מודלים שרצים ב-Unsloth, וחלונות הקשר קטנים עדיין מקבלים פחות. מודלי API נשארים בברירת המחדל אלא אם תוריד אותה.",
+      toolResultLimitDescription: "מספר התווים מתוצאה אחת של Python, Terminal או כלי MCP שהמודל קורא. ברירת המחדל היא {count}.",
+      toolResultLimitHint: "פלט ארוך יותר של Python ו-Terminal נשמר בקובץ שהמודל יכול לקרוא בחלקים. מגבלה גבוהה יותר חלה על מודלים שרצים ב-Unsloth, וחלונות הקשר קטנים עדיין מקבלים פחות. מודלי API נשארים בברירת המחדל אלא אם תוריד אותה.",
       toolResultLimitDefault: "{count} (ברירת מחדל)",
       toolResultLimitLocked: "מוגדר על ידי UNSLOTH_TOOL_RESULT_MAX_CHARS",
       toolResultLimitLoadError: "טעינת אורך פלט הכלים נכשלה.",
       toolResultLimitSaveError: "שמירת אורך פלט הכלים נכשלה.",
       toolResultLimitKeywords:
-        "פלט תוצאה קיצוץ מגבלה תווים אורך tool output result truncate truncated truncation limit cap characters chars length terminal python",
+        "פלט תוצאה קיצוץ מגבלה תווים אורך tool output result truncate truncated truncation limit cap characters chars length terminal python mcp",
       visibility: {
         collapsed: "מכווץ",
         auto: "מורחב בזמן ריצה",
@@ -3087,7 +3128,7 @@ export const he = {
         recommended: "מומלץ",
         device: "הרץ על",
         deviceDescription:
-          "GPU עונה מהר יותר, אך שומר את הזיכרון שלו שמור עד להפעלה מחדש.",
+          "GPU עונה מהר יותר ומשחרר את הזיכרון שלו כשהמודל נפרק.",
         deviceCpu: "CPU",
         deviceGpu: "GPU",
         backend: "סביבת ריצה",

@@ -44,6 +44,7 @@ except ImportError:
 
 from models import (
     LoadCheckpointRequest,
+    ExportCancelRequest,
     ExportStatusResponse,
     ExportOperationResponse,
     ExportMergedModelRequest,
@@ -250,6 +251,7 @@ async def load_checkpoint(
             allow_ambient = allow_ambient,
             subject = current_subject,
             merge_adapters = request.merge_adapters.model_dump() if request.merge_adapters else None,
+            op_id = request.op_id,
         )
 
         if not success:
@@ -299,7 +301,9 @@ async def cleanup_export_memory(current_subject: str = Depends(get_current_subje
 
 
 @router.post("/cancel", response_model = ExportOperationResponse)
-async def cancel_export(current_subject: str = Depends(get_current_subject)):
+async def cancel_export(
+    body: Optional[ExportCancelRequest] = None, current_subject: str = Depends(get_current_subject)
+):
     """Cancel the in-flight export by terminating its worker subprocess.
 
     Only the export subprocess is killed; training and inference run in their
@@ -308,7 +312,11 @@ async def cancel_export(current_subject: str = Depends(get_current_subject)):
     require_job_owner(get_export_backend())
     try:
         backend = get_export_backend()
-        cancelled = await asyncio.to_thread(backend.cancel_export)
+        expected = body.expected_op_id if body is not None else None
+        if expected is None:
+            cancelled = await asyncio.to_thread(backend.cancel_export)
+        else:
+            cancelled = await asyncio.to_thread(backend.cancel_export, expected_op_id = expected)
         return ExportOperationResponse(
             success = True,
             message = "Export cancelled" if cancelled else "No active export to cancel",
@@ -482,6 +490,7 @@ def _decision_export_details(output_path: Optional[str]) -> Optional[Dict[str, A
 async def get_decision_export_info(
     checkpoint_path: str = Query(..., description = "Local checkpoint folder"),
     current_subject: str = Depends(get_current_subject),
+    allow_ambient: bool = Depends(allow_ambient_hf_token),
 ):
     """GGUF export options for a decision model checkpoint (Clef / Laya); decision is null otherwise."""
     validate_job_paths({"checkpoint_path": checkpoint_path})
@@ -492,7 +501,20 @@ async def get_decision_export_info(
     except Exception as e:
         logger.warning(f"Could not inspect {checkpoint_path} for decision export: {e}")
         decision = None
-    return ExportDecisionInfoResponse(checkpoint_path = checkpoint_path, decision = decision)
+    from utils.models.diffusion_lm import diffusion_lm_export_limits
+
+    diffusion_lm = (
+        None
+        if decision is not None
+        else await asyncio.to_thread(
+            diffusion_lm_export_limits,
+            checkpoint_path,
+            hf_token_arg(None, allow_ambient_token = allow_ambient),
+        )
+    )
+    return ExportDecisionInfoResponse(
+        checkpoint_path = checkpoint_path, decision = decision, diffusion_lm = diffusion_lm
+    )
 
 
 @router.post("/export/merged", response_model = ExportOperationResponse)
@@ -523,6 +545,8 @@ async def export_merged_model(
             private = request.private,
             compressed_method = request.compressed_method,
             install_missing_dependencies = request.install_missing_dependencies,
+            expected_checkpoint = request.expected_checkpoint,
+            op_id = request.op_id,
         )
 
         if not success:
@@ -582,6 +606,8 @@ async def export_base_model(
             ),
             private = request.private,
             base_model_id = request.base_model_id,
+            expected_checkpoint = request.expected_checkpoint,
+            op_id = request.op_id,
         )
 
         if not success:
@@ -636,6 +662,8 @@ async def export_gguf(
             imatrix_file = imatrix_file,
             private = request.private,
             npu_q4nx = request.npu_q4nx,
+            expected_checkpoint = request.expected_checkpoint,
+            op_id = request.op_id,
         )
 
         if not success:
@@ -792,6 +820,8 @@ async def export_lora_adapter(
             gguf = request.gguf,
             gguf_outtype = request.gguf_outtype,
             adapter_format = request.adapter_format,
+            expected_checkpoint = request.expected_checkpoint,
+            op_id = request.op_id,
         )
 
         if not success:

@@ -59,6 +59,9 @@ export const ptBR = {
       alwaysAsk: "Sempre perguntar",
       alwaysAllow: "Sempre permitir",
       never: "Nunca",
+      scripts: "Executar scripts",
+      scriptsDescription: "Escolha se os modelos podem executar scripts nas páginas. Cada script é mostrado a você antes de ser executado",
+      askEveryTime: "Perguntar toda vez",
       permissionsTitle: "Permissões do agente",
       permissionsDescription: "Escolha os padrões e adicione exceções para sites específicos. Campos de senha e de pagamento nunca são preenchidos, seja qual for a configuração.",
       site: "Site ou padrão",
@@ -67,6 +70,7 @@ export const ptBR = {
       browsing: "Navegação",
       actions: "Ações",
       downloads: "Downloads",
+      unlabelled: "Cliques sem rótulo",
       askNewSites: "Perguntar em sites novos",
       requiresApproval: "Requer aprovação",
       blocked: "Bloqueado",
@@ -550,7 +554,6 @@ export const ptBR = {
     queueingHintShared: "A fila é mantida.",
   },
   rewind: {
-    menuItem: "Voltar no tempo…",
     title: "Voltar no tempo",
     pickDescription: "Escolha uma mensagem para a qual voltar.",
     pickEmpty: "Ainda não há mensagens para as quais voltar.",
@@ -583,6 +586,26 @@ export const ptBR = {
   chatMenu: {
     more: "Opções do chat",
     copy: "Copiar",
+  },
+  welcome: {
+    goodToSeeYou: "Que bom ver você",
+    goodToSeeYouName: "Que bom ver você, {name}",
+    readyWhenYouAre: "Pronto quando você estiver",
+    onYourMind: "O que você tem em mente hoje?",
+    howCanIHelp: "Como posso ajudar?",
+    goodMorning: "Bom dia",
+    goodMorningName: "Bom dia, {name}",
+    goodEvening: "Boa noite",
+    goodEveningName: "Boa noite, {name}",
+    tonight: "Quais são os planos para hoje à noite?",
+    nightOwl: "Modo coruja?",
+    lateNightIdeas: "Ideias de madrugada?",
+    upLate: "Uma ideia a esta hora?",
+    nightShift: "Começa o turno da noite",
+    nightShiftName: "Começa o turno da noite, {name}",
+    temporaryChat: "Chat temporário",
+    temporaryChatDescription:
+      "Este chat não aparecerá no seu histórico e não será salvo. Ele desaparece quando você sair.",
   },
   picker: {
     onDevice: "No dispositivo",
@@ -1994,6 +2017,8 @@ export const ptBR = {
         },
         cellTooltip: "{date} · {tokens}, {messages}",
         weekTooltip: "Semana de {date} · {tokens}",
+        chartToggle: "Gráfico",
+        chartToggleHint: "Mostrar Semanal e Acumulada como gráfico com eixos rotulados",
         less: "Menos",
         more: "Mais",
         insightsTitle: "Análise de atividade",
@@ -2588,6 +2613,13 @@ export const ptBR = {
         "Mostra um botão para voltar à mensagem mais recente depois de rolar para cima.",
       scrollToBottomButtonKeywords:
         "rolar final baixo pular recente seta botão ocultar scroll bottom button",
+      replyNotification: "Avisar quando uma resposta terminar",
+      replyNotificationDescription:
+        "Mostra uma notificação do sistema quando uma resposta termina enquanto o Unsloth está minimizado ou em segundo plano.",
+      replyNotificationBlocked:
+        "As notificações estão bloqueadas. Permita-as para o Unsloth nas configurações do navegador ou do sistema e tente novamente.",
+      replyNotificationKeywords:
+        "notificação avisar alerta terminou concluído pronto resposta segundo plano minimizado notify notification alert done finished reply background",
       showResponseModel: "Mostrar o modelo da resposta",
       showResponseModelDescription:
         "Mostra os metadados do modelo nas respostas do assistente.",
@@ -2608,14 +2640,14 @@ export const ptBR = {
       autoCompactKeywords:
         "compactação compactar automaticamente contexto janela truncar deslizante checkpoint margem arquivo recuperação busca compaction rolling headroom archive retrieval rag",
       toolResultLimit: "Tamanho da saída das ferramentas",
-      toolResultLimitDescription: "Caracteres de um resultado de Python ou Terminal que o modelo lê. O padrão é {count}.",
-      toolResultLimitHint: "Saídas mais longas são salvas em um arquivo que o modelo pode ler em partes. Um limite maior vale para modelos executados no Unsloth, e janelas de contexto pequenas continuam recebendo menos. Modelos de API mantêm o padrão, a menos que você o reduza.",
+      toolResultLimitDescription: "Caracteres de um resultado de Python, Terminal ou ferramenta MCP que o modelo lê. O padrão é {count}.",
+      toolResultLimitHint: "Saídas mais longas de Python e Terminal são salvas em um arquivo que o modelo pode ler em partes. Um limite maior vale para modelos executados no Unsloth, e janelas de contexto pequenas continuam recebendo menos. Modelos de API mantêm o padrão, a menos que você o reduza.",
       toolResultLimitDefault: "{count} (padrão)",
       toolResultLimitLocked: "Definido por UNSLOTH_TOOL_RESULT_MAX_CHARS",
       toolResultLimitLoadError: "Não foi possível carregar o tamanho da saída das ferramentas.",
       toolResultLimitSaveError: "Não foi possível salvar o tamanho da saída das ferramentas.",
       toolResultLimitKeywords:
-        "saída resultado truncar cortado limite caracteres tamanho tool output result truncate truncated truncation limit cap characters chars length terminal python",
+        "saída resultado truncar cortado limite caracteres tamanho tool output result truncate truncated truncation limit cap characters chars length terminal python mcp",
       visibility: {
         collapsed: "Recolhido",
         auto: "Expandir durante a execução",
@@ -2994,7 +3026,7 @@ export const ptBR = {
         modelClef: "Clef",
         recommended: "Recomendado",
         device: "Executar em",
-        deviceDescription: "A GPU responde mais rápido, mas mantém a memória reservada até reiniciar.",
+        deviceDescription: "A GPU responde mais rápido e libera a memória quando o modelo é descarregado.",
         deviceCpu: "CPU",
         deviceGpu: "GPU",
         backend: "Runtime",

@@ -59,6 +59,9 @@ export const ru = {
       alwaysAsk: "Всегда спрашивать",
       alwaysAllow: "Всегда разрешать",
       never: "Никогда",
+      scripts: "Запуск скриптов",
+      scriptsDescription: "Выберите, могут ли модели запускать скрипты на страницах. Каждый скрипт сначала показывается вам",
+      askEveryTime: "Спрашивать каждый раз",
       permissionsTitle: "Разрешения агента",
       permissionsDescription: "Выберите значения по умолчанию и добавьте исключения для отдельных сайтов. Поля паролей и платежей никогда не заполняются, что бы здесь ни было указано.",
       site: "Сайт или шаблон",
@@ -67,6 +70,7 @@ export const ru = {
       browsing: "Просмотр",
       actions: "Действия",
       downloads: "Загрузки",
+      unlabelled: "Клики без подписи",
       askNewSites: "Спрашивать для новых сайтов",
       requiresApproval: "Требуется подтверждение",
       blocked: "Заблокировано",
@@ -550,7 +554,6 @@ export const ru = {
     queueingHintShared: "Очередь сохраняется.",
   },
   rewind: {
-    menuItem: "Откатить…",
     title: "Откатить",
     pickDescription: "Выберите сообщение, к которому нужно вернуться.",
     pickEmpty: "Пока нет сообщений, к которым можно вернуться.",
@@ -583,6 +586,26 @@ export const ru = {
   chatMenu: {
     more: "Параметры чата",
     copy: "Копировать",
+  },
+  welcome: {
+    goodToSeeYou: "Рады вас видеть",
+    goodToSeeYouName: "Рады вас видеть, {name}",
+    readyWhenYouAre: "Готов, когда будете готовы",
+    onYourMind: "О чём думаете сегодня?",
+    howCanIHelp: "Чем могу помочь?",
+    goodMorning: "Доброе утро",
+    goodMorningName: "Доброе утро, {name}",
+    goodEvening: "Добрый вечер",
+    goodEveningName: "Добрый вечер, {name}",
+    tonight: "Какие планы на вечер?",
+    nightOwl: "Режим совы?",
+    lateNightIdeas: "Идеи на ночь глядя?",
+    upLate: "Не спится? Есть идея?",
+    nightShift: "Начинается ночная смена",
+    nightShiftName: "Начинается ночная смена, {name}",
+    temporaryChat: "Временный чат",
+    temporaryChatDescription:
+      "Этот чат не появится в истории и не сохраняется. Он исчезнет, когда вы уйдёте.",
   },
   picker: {
     onDevice: "На устройстве",
@@ -1986,6 +2009,8 @@ export const ru = {
         },
         cellTooltip: "{date} · {tokens}, {messages}",
         weekTooltip: "Неделя с {date} · {tokens}",
+        chartToggle: "График",
+        chartToggleHint: "Показывать режимы «По неделям» и «Накопительно» графиком с подписанными осями",
         less: "Меньше",
         more: "Больше",
         insightsTitle: "Сводка по активности",
@@ -2584,6 +2609,13 @@ export const ru = {
         "Показывать кнопку для возврата к последнему сообщению после прокрутки вверх.",
       scrollToBottomButtonKeywords:
         "прокрутка вниз последнее стрелка кнопка скрыть scroll bottom button",
+      replyNotification: "Уведомлять о готовом ответе",
+      replyNotificationDescription:
+        "Показывать системное уведомление, когда ответ готов, а Unsloth свернут или в фоне.",
+      replyNotificationBlocked:
+        "Уведомления заблокированы. Разрешите их для Unsloth в настройках браузера или системы и попробуйте снова.",
+      replyNotificationKeywords:
+        "уведомление оповещение готово завершено ответ фон свернут notify notification alert done finished reply background",
       showResponseModel: "Показывать модель в ответах",
       showResponseModelDescription:
         "Показывать метаданные модели в ответах ассистента.",
@@ -2604,14 +2636,14 @@ export const ru = {
       autoCompactKeywords:
         "сжатие автоматически контекст окно обрезка скользящее контрольная точка запас архив поиск извлечение compaction rolling checkpoint headroom archive retrieval rag",
       toolResultLimit: "Длина вывода инструментов",
-      toolResultLimitDescription: "Сколько символов одного результата Python или Терминала читает модель. По умолчанию {count}.",
-      toolResultLimitHint: "Более длинный вывод сохраняется в файл, который модель может читать по частям. Более высокий лимит действует для моделей, запущенных в Unsloth, а маленькие окна контекста по-прежнему получают меньше. API-модели сохраняют значение по умолчанию, если вы его не уменьшите.",
+      toolResultLimitDescription: "Сколько символов одного результата Python, Терминала или инструмента MCP читает модель. По умолчанию {count}.",
+      toolResultLimitHint: "Более длинный вывод Python и Терминала сохраняется в файл, который модель может читать по частям. Более высокий лимит действует для моделей, запущенных в Unsloth, а маленькие окна контекста по-прежнему получают меньше. API-модели сохраняют значение по умолчанию, если вы его не уменьшите.",
       toolResultLimitDefault: "{count} (по умолчанию)",
       toolResultLimitLocked: "Задано через UNSLOTH_TOOL_RESULT_MAX_CHARS",
       toolResultLimitLoadError: "Не удалось загрузить длину вывода инструментов.",
       toolResultLimitSaveError: "Не удалось сохранить длину вывода инструментов.",
       toolResultLimitKeywords:
-        "вывод результат обрезка обрезан лимит символы длина tool output result truncate truncated truncation limit cap characters chars length terminal python",
+        "вывод результат обрезка обрезан лимит символы длина tool output result truncate truncated truncation limit cap characters chars length terminal python mcp",
       visibility: {
         collapsed: "Свёрнуто",
         auto: "Разворачивать во время работы",
@@ -2989,7 +3021,7 @@ export const ru = {
         modelClef: "Clef",
         recommended: "Рекомендуется",
         device: "Запускать на",
-        deviceDescription: "GPU отвечает быстрее, но держит память зарезервированной до перезапуска.",
+        deviceDescription: "GPU отвечает быстрее и освобождает память, когда модель выгружается.",
         deviceCpu: "CPU",
         deviceGpu: "GPU",
         backend: "Среда выполнения",

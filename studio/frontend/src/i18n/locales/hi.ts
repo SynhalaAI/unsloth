@@ -59,6 +59,9 @@ export const hi = {
       alwaysAsk: "हमेशा पूछें",
       alwaysAllow: "हमेशा अनुमति दें",
       never: "कभी नहीं",
+      scripts: "स्क्रिप्ट चलाएँ",
+      scriptsDescription: "चुनें कि मॉडल पेजों पर स्क्रिप्ट चला सकते हैं या नहीं। हर स्क्रिप्ट चलने से पहले आपको दिखाई जाती है",
+      askEveryTime: "हर बार पूछें",
       permissionsTitle: "एजेंट अनुमतियाँ",
       permissionsDescription: "डिफ़ॉल्ट चुनें और खास साइटों के लिए अपवाद जोड़ें। पासवर्ड और भुगतान फ़ील्ड कभी नहीं भरे जाते, चाहे यहाँ कुछ भी हो।",
       site: "साइट या पैटर्न",
@@ -67,6 +70,7 @@ export const hi = {
       browsing: "ब्राउज़िंग",
       actions: "कार्रवाइयाँ",
       downloads: "डाउनलोड",
+      unlabelled: "बिना लेबल वाले क्लिक",
       askNewSites: "नई साइटों के लिए पूछें",
       requiresApproval: "मंज़ूरी ज़रूरी",
       blocked: "ब्लॉक",
@@ -550,7 +554,6 @@ export const hi = {
     queueingHintShared: "कतार बनी रहती है।",
   },
   rewind: {
-    menuItem: "रिवाइंड करें…",
     title: "रिवाइंड करें",
     pickDescription: "वह संदेश चुनें जिस पर वापस जाना है।",
     pickEmpty: "अभी वापस जाने के लिए कोई संदेश नहीं है।",
@@ -583,6 +586,26 @@ export const hi = {
   chatMenu: {
     more: "चैट विकल्प",
     copy: "कॉपी करें",
+  },
+  welcome: {
+    goodToSeeYou: "आपको देखकर अच्छा लगा",
+    goodToSeeYouName: "{name}, आपको देखकर अच्छा लगा",
+    readyWhenYouAre: "जब आप तैयार हों",
+    onYourMind: "आज आपके मन में क्या है?",
+    howCanIHelp: "मैं आपकी क्या मदद करूँ?",
+    goodMorning: "सुप्रभात",
+    goodMorningName: "सुप्रभात, {name}",
+    goodEvening: "शुभ संध्या",
+    goodEveningName: "शुभ संध्या, {name}",
+    tonight: "आज रात का क्या प्लान है?",
+    nightOwl: "रात जागने का मूड?",
+    lateNightIdeas: "देर रात के आइडिया?",
+    upLate: "देर रात कोई आइडिया आया?",
+    nightShift: "रात की शिफ़्ट शुरू होती है",
+    nightShiftName: "{name}, रात की शिफ़्ट शुरू होती है",
+    temporaryChat: "अस्थायी चैट",
+    temporaryChatDescription:
+      "यह चैट आपके इतिहास में नहीं दिखेगी और सेव नहीं होती। आपके जाने पर यह गायब हो जाती है।",
   },
   picker: {
     onDevice: "डिवाइस पर",
@@ -1984,6 +2007,8 @@ export const hi = {
         },
         cellTooltip: "{date} · {tokens}, {messages}",
         weekTooltip: "{date} वाला हफ़्ता · {tokens}",
+        chartToggle: "चार्ट",
+        chartToggleHint: "साप्ताहिक और संचयी को लेबल वाले अक्षों के साथ चार्ट के रूप में दिखाएँ",
         less: "कम",
         more: "ज़्यादा",
         insightsTitle: "गतिविधि विश्लेषण",
@@ -2578,6 +2603,13 @@ export const hi = {
         "ऊपर स्क्रॉल करने के बाद नवीनतम संदेश पर वापस जाने के लिए बटन दिखाएँ।",
       scrollToBottomButtonKeywords:
         "स्क्रॉल नीचे नवीनतम तीर बटन छिपाएँ scroll bottom button",
+      replyNotification: "जवाब पूरा होने पर सूचना दें",
+      replyNotificationDescription:
+        "जब Unsloth छोटा किया हुआ हो या बैकग्राउंड में हो, तब जवाब पूरा होने पर सिस्टम सूचना दिखाएँ।",
+      replyNotificationBlocked:
+        "सूचनाएँ ब्लॉक हैं। ब्राउज़र या सिस्टम सेटिंग्स में Unsloth के लिए इन्हें अनुमति दें, फिर दोबारा कोशिश करें।",
+      replyNotificationKeywords:
+        "सूचना अलर्ट पूरा तैयार जवाब बैकग्राउंड notify notification alert done finished reply background",
       showResponseModel: "जवाब देने वाला मॉडल दिखाएँ",
       showResponseModelDescription:
         "असिस्टेंट के जवाबों में मॉडल का मेटाडेटा दिखाएँ।",
@@ -2598,14 +2630,14 @@ export const hi = {
       autoCompactKeywords:
         "कॉम्पैक्शन कॉम्पैक्ट कॉन्टेक्स्ट विंडो ट्रंकेट स्लाइडिंग चेकपॉइंट हेडरूम आर्काइव पुनर्प्राप्ति खोज compaction rolling checkpoint headroom archive retrieval rag",
       toolResultLimit: "टूल आउटपुट की लंबाई",
-      toolResultLimitDescription: "Python या Terminal के एक परिणाम के कितने अक्षर मॉडल पढ़ता है। डिफ़ॉल्ट {count} है।",
-      toolResultLimitHint: "लंबा आउटपुट एक फ़ाइल में सहेजा जाता है जिसे मॉडल हिस्सों में पढ़ सकता है। ऊँची सीमा Unsloth में चल रहे मॉडल पर लागू होती है, और छोटी कॉन्टेक्स्ट विंडो को अब भी कम मिलता है। API मॉडल डिफ़ॉल्ट पर रहते हैं, जब तक आप इसे कम न करें।",
+      toolResultLimitDescription: "Python, Terminal या MCP टूल के एक परिणाम के कितने अक्षर मॉडल पढ़ता है। डिफ़ॉल्ट {count} है।",
+      toolResultLimitHint: "Python और Terminal का लंबा आउटपुट एक फ़ाइल में सहेजा जाता है जिसे मॉडल हिस्सों में पढ़ सकता है। ऊँची सीमा Unsloth में चल रहे मॉडल पर लागू होती है, और छोटी कॉन्टेक्स्ट विंडो को अब भी कम मिलता है। API मॉडल डिफ़ॉल्ट पर रहते हैं, जब तक आप इसे कम न करें।",
       toolResultLimitDefault: "{count} (डिफ़ॉल्ट)",
       toolResultLimitLocked: "UNSLOTH_TOOL_RESULT_MAX_CHARS द्वारा सेट",
       toolResultLimitLoadError: "टूल आउटपुट की लंबाई लोड नहीं हो सकी।",
       toolResultLimitSaveError: "टूल आउटपुट की लंबाई सहेजी नहीं जा सकी।",
       toolResultLimitKeywords:
-        "आउटपुट परिणाम काटना सीमा अक्षर लंबाई tool output result truncate truncated truncation limit cap characters chars length terminal python",
+        "आउटपुट परिणाम काटना सीमा अक्षर लंबाई tool output result truncate truncated truncation limit cap characters chars length terminal python mcp",
       visibility: {
         collapsed: "संक्षिप्त",
         auto: "चलने के दौरान विस्तृत करें",
@@ -2984,7 +3016,7 @@ export const hi = {
         modelClef: "Clef",
         recommended: "सुझाया गया",
         device: "यहाँ चलाएँ",
-        deviceDescription: "GPU तेज़ जवाब देता है, लेकिन रीस्टार्ट होने तक अपनी मेमोरी आरक्षित रखता है।",
+        deviceDescription: "GPU तेज़ जवाब देता है और मॉडल अनलोड होने पर अपनी मेमोरी खाली कर देता है।",
         deviceCpu: "CPU",
         deviceGpu: "GPU",
         backend: "रनटाइम",
