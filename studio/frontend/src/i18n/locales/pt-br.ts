@@ -88,6 +88,8 @@ export const ptBR = {
         submit: "Permitir que o Unsloth envie este formulário em {host}?",
         click: "Permitir que o Unsloth clique em “{name}” em {host}?",
         history: "Permitir que o Unsloth leia seu histórico de navegação?",
+        script: "Permitir que o Unsloth execute este script em {host}?",
+        pointer: "Permitir que o Unsloth clique em partes sem rótulo de {host}, como um canvas?",
       },
     },
     title: "Navegador",
@@ -546,6 +548,36 @@ export const ptBR = {
     queueingOffHint: "Mensagens novas interrompem e são executadas em seguida.",
     queueingOnHint: "Mensagens novas esperam a vez.",
     queueingHintShared: "A fila é mantida.",
+  },
+  rewind: {
+    menuItem: "Voltar no tempo…",
+    title: "Voltar no tempo",
+    pickDescription: "Escolha uma mensagem para a qual voltar.",
+    pickEmpty: "Ainda não há mensagens para as quais voltar.",
+    attachmentOnly: "Somente anexos",
+    chooseDescription: "A mensagem abre para edição para que você possa reenviá-la. As respostas atuais continuam disponíveis pelas setas de ramificação.",
+    modeBoth: "Conversa e arquivos",
+    modeConversation: "Somente conversa",
+    modeFiles: "Somente arquivos",
+    checking: "Verificando alterações nos arquivos…",
+    checkFailed: "Não foi possível verificar as alterações nos arquivos: {error}",
+    noFileChanges: "Nenhuma alteração de arquivo após esta mensagem",
+    summary: "Arquivos a restaurar: {restore}. A remover: {remove}. A recriar: {recreate}.",
+    conflicts: "Alterados desde então, serão ignorados",
+    untracked: "Não podem ser restaurados",
+    scopeNote: "Programas em execução, pacotes instalados e tudo fora da pasta deste chat não são alterados.",
+    back: "Voltar",
+    cancel: "Cancelar",
+    confirm: "Voltar no tempo",
+    waitForResponse: "Aguarde a resposta atual terminar",
+    restoredOne: "1 arquivo restaurado",
+    restoredMany: "{count} arquivos restaurados",
+    nothingRestored: "Nenhum arquivo precisou ser restaurado",
+    skippedCount: "{count} ignorados",
+    restoreFailed: "Não foi possível restaurar os arquivos",
+    undo: "Desfazer",
+    undone: "Restauração dos arquivos desfeita",
+    undoFailed: "Não foi possível desfazer a restauração dos arquivos",
   },
   // The chat header's "…" menu.
   chatMenu: {
@@ -2379,8 +2411,11 @@ export const ptBR = {
       title: "Agentes",
       description:
         "Conecte agentes de código como Claude Code e Codex a um modelo local com unsloth start.",
+      agentKeywords: "vs code vscode copilot pi mistral vibe deepseek harness hermes openclaw opencode claude codex",
+      vscodeNote:
+        "O VS Code é a exceção: este comando adiciona o modelo servido à lista de modelos do Copilot Chat no VS Code (chatLanguageModels.json).",
       intro:
-        "conecta Claude Code, Codex, DeepSeek Harness, Hermes, Mistral Vibe, OpenClaw, OpenCode e outros agentes a um modelo servido localmente pelo Unsloth, totalmente offline. Ele executa um servidor compatível com a API da OpenAI e nunca altera os arquivos de configuração do seu agente.",
+        "conecta Claude Code, Codex, DeepSeek Harness, Hermes, OpenClaw, OpenCode e outros agentes a um modelo servido localmente pelo Unsloth, totalmente offline. Ele executa um servidor compatível com a API da OpenAI e nunca altera os arquivos de configuração do seu agente.",
       readDocs: "Ler a documentação",
       copy: "Copiar",
       copied: "Copiado",
@@ -2463,7 +2498,7 @@ export const ptBR = {
         persist:
           "Mantém entre execuções o armazenamento de agentes gerenciado pelo Unsloth.",
         asSubagent:
-          "Mantém o agente principal no modelo atual e registra o Unsloth como subagente local (Claude Code, Codex e OpenCode).",
+          "Mantém o agente principal no modelo atual e registra o Unsloth como subagente local (Claude Code, Codex, OpenCode e Pi).",
         apiKey:
           "Informa sua chave de API do Unsloth (ou defina UNSLOTH_API_KEY).",
         reasoning:

@@ -88,6 +88,8 @@ export const ru = {
         submit: "Разрешить Unsloth отправить эту форму на {host}?",
         click: "Разрешить Unsloth нажать «{name}» на {host}?",
         history: "Разрешить Unsloth читать историю браузера?",
+        script: "Разрешить Unsloth запустить этот скрипт на {host}?",
+        pointer: "Разрешить Unsloth нажимать на неподписанные области {host}, например холст?",
       },
     },
     title: "Браузер",
@@ -546,6 +548,36 @@ export const ru = {
     queueingOffHint: "Новые сообщения прерывают ответ и выполняются следующими.",
     queueingOnHint: "Новые сообщения ждут своей очереди.",
     queueingHintShared: "Очередь сохраняется.",
+  },
+  rewind: {
+    menuItem: "Откатить…",
+    title: "Откатить",
+    pickDescription: "Выберите сообщение, к которому нужно вернуться.",
+    pickEmpty: "Пока нет сообщений, к которым можно вернуться.",
+    attachmentOnly: "Только вложения",
+    chooseDescription: "Сообщение откроется для редактирования, чтобы вы могли отправить его снова. Текущие ответы останутся доступны через стрелки ветвей.",
+    modeBoth: "Беседу и файлы",
+    modeConversation: "Только беседу",
+    modeFiles: "Только файлы",
+    checking: "Проверка изменений файлов…",
+    checkFailed: "Не удалось проверить изменения файлов: {error}",
+    noFileChanges: "После этого сообщения файлы не менялись",
+    summary: "Файлов к восстановлению: {restore}. К удалению: {remove}. К воссозданию: {recreate}.",
+    conflicts: "Изменены с тех пор, будут пропущены",
+    untracked: "Невозможно восстановить",
+    scopeNote: "Запущенные программы, установленные пакеты и всё за пределами папки этого чата не изменяются.",
+    back: "Назад",
+    cancel: "Отмена",
+    confirm: "Откатить",
+    waitForResponse: "Дождитесь окончания текущего ответа",
+    restoredOne: "Восстановлен 1 файл",
+    restoredMany: "Восстановлено файлов: {count}",
+    nothingRestored: "Восстанавливать было нечего",
+    skippedCount: "Пропущено: {count}",
+    restoreFailed: "Не удалось восстановить файлы",
+    undo: "Отменить",
+    undone: "Восстановление файлов отменено",
+    undoFailed: "Не удалось отменить восстановление файлов",
   },
   // The chat header's "…" menu.
   chatMenu: {
@@ -2373,8 +2405,11 @@ export const ru = {
       title: "Агенты",
       description:
         "Подключение кодинг-агентов, таких как Claude Code и Codex, к локальной модели с помощью unsloth start.",
+      agentKeywords: "vs code vscode copilot pi mistral vibe deepseek harness hermes openclaw opencode claude codex",
+      vscodeNote:
+        "VS Code — исключение: эта команда добавляет обслуживаемую модель в список моделей Copilot Chat в VS Code (chatLanguageModels.json).",
       intro:
-        "подключает Claude Code, Codex, DeepSeek Harness, Hermes, Mistral Vibe, OpenClaw, OpenCode и других агентов к модели, которую Unsloth обслуживает локально, полностью офлайн. Запускается OpenAI-совместимый сервер, а файлы конфигурации вашего агента остаются нетронутыми.",
+        "подключает Claude Code, Codex, DeepSeek Harness, Hermes, OpenClaw, OpenCode и других агентов к модели, которую Unsloth обслуживает локально, полностью офлайн. Запускается OpenAI-совместимый сервер, а файлы конфигурации вашего агента остаются нетронутыми.",
       readDocs: "Открыть документацию",
       copy: "Копировать",
       copied: "Скопировано",
@@ -2458,7 +2493,7 @@ export const ru = {
         persist:
           "Сохраняет между запусками хранилище агента, управляемое Unsloth.",
         asSubagent:
-          "Оставляет родительского агента на текущей модели и регистрирует Unsloth как локального субагента (Claude Code, Codex и OpenCode).",
+          "Оставляет родительского агента на текущей модели и регистрирует Unsloth как локального субагента (Claude Code, Codex, OpenCode и Pi).",
         apiKey:
           "Передаёт ваш ключ API Unsloth (альтернатива: переменная UNSLOTH_API_KEY).",
         reasoning:

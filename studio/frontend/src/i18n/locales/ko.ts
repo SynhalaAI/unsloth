@@ -88,6 +88,8 @@ export const ko = {
         submit: "Unsloth가 {host}에서 이 양식을 제출하도록 허용할까요?",
         click: "Unsloth가 {host}에서 “{name}”을(를) 클릭하도록 허용할까요?",
         history: "Unsloth가 방문 기록을 읽도록 허용할까요?",
+        script: "Unsloth가 {host}에서 이 스크립트를 실행하도록 허용할까요?",
+        pointer: "Unsloth가 {host}에서 캔버스처럼 레이블이 없는 부분을 클릭하도록 허용할까요?",
       },
     },
     title: "브라우저",
@@ -546,6 +548,36 @@ export const ko = {
     queueingOffHint: "새 메시지가 끼어들어 먼저 실행됩니다.",
     queueingOnHint: "새 메시지는 순서를 기다립니다.",
     queueingHintShared: "대기열은 유지됩니다.",
+  },
+  rewind: {
+    menuItem: "되감기…",
+    title: "되감기",
+    pickDescription: "되돌아갈 메시지를 선택하세요.",
+    pickEmpty: "아직 되돌아갈 메시지가 없습니다.",
+    attachmentOnly: "첨부 파일만",
+    chooseDescription: "메시지가 편집 모드로 열려 다시 보낼 수 있습니다. 현재 답변은 브랜치 화살표로 계속 볼 수 있습니다.",
+    modeBoth: "대화와 파일",
+    modeConversation: "대화만",
+    modeFiles: "파일만",
+    checking: "파일 변경 사항 확인 중…",
+    checkFailed: "파일 변경 사항을 확인하지 못했습니다: {error}",
+    noFileChanges: "이 메시지 이후 파일 변경 사항이 없습니다",
+    summary: "복원할 파일: {restore}. 삭제: {remove}. 다시 만들기: {recreate}.",
+    conflicts: "이후 변경되어 건너뜀",
+    untracked: "복원할 수 없음",
+    scopeNote: "실행 중인 프로그램, 설치된 패키지, 이 채팅 폴더 밖의 항목은 변경되지 않습니다.",
+    back: "뒤로",
+    cancel: "취소",
+    confirm: "되감기",
+    waitForResponse: "현재 응답이 끝날 때까지 기다려 주세요",
+    restoredOne: "파일 1개를 복원했습니다",
+    restoredMany: "파일 {count}개를 복원했습니다",
+    nothingRestored: "복원할 파일이 없었습니다",
+    skippedCount: "{count}개 건너뜀",
+    restoreFailed: "파일을 복원하지 못했습니다",
+    undo: "실행 취소",
+    undone: "파일 복원을 취소했습니다",
+    undoFailed: "파일 복원을 취소하지 못했습니다",
   },
   // The chat header's "…" menu.
   chatMenu: {
@@ -2362,8 +2394,11 @@ export const ko = {
       title: "에이전트",
       description:
         "unsloth start로 Claude Code, Codex 같은 코딩 에이전트를 로컬 모델에 연결하세요.",
+      agentKeywords: "vs code vscode copilot pi mistral vibe deepseek harness hermes openclaw opencode claude codex",
+      vscodeNote:
+        "VS Code는 예외입니다. 이 명령은 제공 중인 모델을 VS Code Copilot Chat 모델 목록(chatLanguageModels.json)에 추가합니다.",
       intro:
-        "명령어를 사용하면 Claude Code, Codex, DeepSeek Harness, Hermes, Mistral Vibe, OpenClaw, OpenCode를 비롯한 여러 에이전트를 Unsloth가 로컬에서 실행하는 모델에 연결해 완전히 오프라인으로 사용할 수 있습니다. OpenAI 호환 서버를 실행하며, 에이전트의 설정 파일은 변경하지 않습니다.",
+        "명령어를 사용하면 Claude Code, Codex, DeepSeek Harness, Hermes, OpenClaw, OpenCode를 비롯한 여러 에이전트를 Unsloth가 로컬에서 실행하는 모델에 연결해 완전히 오프라인으로 사용할 수 있습니다. OpenAI 호환 서버를 실행하며, 에이전트의 설정 파일은 변경하지 않습니다.",
       readDocs: "문서 보기",
       copy: "복사",
       copied: "복사됨",
@@ -2441,7 +2476,7 @@ export const ko = {
         persist:
           "Unsloth가 관리하는 에이전트 저장소를 실행 사이에 유지합니다.",
         asSubagent:
-          "상위 에이전트는 현재 모델을 유지하고 Unsloth를 로컬 서브에이전트로 등록합니다(Claude Code, Codex, OpenCode).",
+          "상위 에이전트는 현재 모델을 유지하고 Unsloth를 로컬 서브에이전트로 등록합니다(Claude Code, Codex, OpenCode, Pi).",
         apiKey:
           "Unsloth API 키를 지정합니다(또는 UNSLOTH_API_KEY 환경 변수를 설정합니다).",
         reasoning:

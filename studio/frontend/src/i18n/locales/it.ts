@@ -87,6 +87,8 @@ export const it = {
         submit: "Consentire a Unsloth di inviare questo modulo su {host}?",
         click: "Consentire a Unsloth di fare clic su «{name}» su {host}?",
         history: "Consentire a Unsloth di leggere la tua cronologia di navigazione?",
+        script: "Consentire a Unsloth di eseguire questo script su {host}?",
+        pointer: "Consentire a Unsloth di fare clic su parti senza etichetta di {host}, come un canvas?",
       },
     },
     title: "Browser",
@@ -2356,8 +2358,11 @@ export const it = {
       title: "Agenti",
       description:
         "Collega agenti di programmazione come Claude Code e Codex a un modello locale con unsloth start.",
+      agentKeywords: "vs code vscode copilot pi mistral vibe deepseek harness hermes openclaw opencode claude codex",
+      vscodeNote:
+        "VS Code fa eccezione: questo comando aggiunge il modello servito all'elenco dei modelli di Copilot Chat in VS Code (chatLanguageModels.json).",
       intro:
-        "collega Claude Code, Codex, DeepSeek Harness, Hermes, Mistral Vibe, OpenClaw, OpenCode e altri agenti a un modello servito localmente da Unsloth, completamente offline. Avvia un server compatibile con le API OpenAI e non modifica i file di configurazione del tuo agente.",
+        "collega Claude Code, Codex, DeepSeek Harness, Hermes, OpenClaw, OpenCode e altri agenti a un modello servito localmente da Unsloth, completamente offline. Avvia un server compatibile con le API OpenAI e non modifica i file di configurazione del tuo agente.",
       readDocs: "Leggi la documentazione",
       copy: "Copia",
       copied: "Copiato",
@@ -2441,7 +2446,7 @@ export const it = {
         persist:
           "Mantieni tra un'esecuzione e l'altra i dati dell'agente gestiti da Unsloth.",
         asSubagent:
-          "Mantieni l'agente principale sul suo modello attuale e registra Unsloth come subagente locale (Claude Code, Codex e OpenCode).",
+          "Mantieni l'agente principale sul suo modello attuale e registra Unsloth come subagente locale (Claude Code, Codex, OpenCode e Pi).",
         apiKey:
           "Fornisci la tua chiave API Unsloth (oppure imposta UNSLOTH_API_KEY).",
         reasoning:
@@ -3094,6 +3099,36 @@ export const it = {
         docsWindows: "Windows",
       },
     },
+  },
+  rewind: {
+    menuItem: "Riavvolgi…",
+    title: "Riavvolgi",
+    pickDescription: "Scegli un messaggio a cui tornare.",
+    pickEmpty: "Non ci sono ancora messaggi a cui tornare.",
+    attachmentOnly: "Solo allegati",
+    chooseDescription: "Il messaggio si apre in modifica così puoi inviarlo di nuovo. Le risposte attuali restano disponibili con le frecce dei rami.",
+    modeBoth: "Conversazione e file",
+    modeConversation: "Solo conversazione",
+    modeFiles: "Solo file",
+    checking: "Controllo delle modifiche ai file…",
+    checkFailed: "Impossibile controllare le modifiche ai file: {error}",
+    noFileChanges: "Nessuna modifica ai file dopo questo messaggio",
+    summary: "File da ripristinare: {restore}. Da rimuovere: {remove}. Da ricreare: {recreate}.",
+    conflicts: "Modificati nel frattempo, verranno saltati",
+    untracked: "Non ripristinabili",
+    scopeNote: "Programmi in esecuzione, pacchetti installati e tutto ciò che è fuori dalla cartella di questa chat non vengono modificati.",
+    back: "Indietro",
+    cancel: "Annulla",
+    confirm: "Riavvolgi",
+    waitForResponse: "Attendi che la risposta in corso finisca",
+    restoredOne: "1 file ripristinato",
+    restoredMany: "{count} file ripristinati",
+    nothingRestored: "Nessun file da ripristinare",
+    skippedCount: "{count} saltati",
+    restoreFailed: "Impossibile ripristinare i file",
+    undo: "Annulla",
+    undone: "Ripristino dei file annullato",
+    undoFailed: "Impossibile annullare il ripristino dei file",
   },
   // The chat header's "…" menu.
   chatMenu: {
