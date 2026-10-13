@@ -45,6 +45,7 @@ _reconstruct_deltas = _mod._reconstruct_deltas
 _validate_adapters = _mod._validate_adapters
 _adapter_display_name = _mod._adapter_display_name
 merge_adapters_into_model = _mod.merge_adapters_into_model
+_assert_finite_weights = _mod._assert_finite_weights
 
 
 # ---------------------------------------------------------------------------
@@ -800,4 +801,105 @@ def test_mixed_ranks_are_rejected_for_factor_space_methods(tmp_path):
             weights = [0.5, 0.5],
             method = "ties",
             density = 0.5,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Finiteness guard: catch a broken merge before it is exported
+# ---------------------------------------------------------------------------
+
+class TestAssertFiniteWeights:
+    """A NaN/Inf weight passes merge_and_unload silently and only explodes as a
+    CUDA device-side assert during sampling, so it must be rejected here."""
+
+    def test_finite_weights_pass(self):
+        import torch.nn as nn
+
+        layer = nn.Linear(4, 4)
+        _assert_finite_weights(layer)  # must not raise
+
+    def test_nan_weight_is_rejected_and_named(self):
+        import torch.nn as nn
+
+        layer = nn.Linear(4, 4)
+        with torch.no_grad():
+            layer.weight[0, 0] = float("nan")
+        with pytest.raises(ValueError, match = "non-finite"):
+            _assert_finite_weights(layer)
+
+    def test_inf_weight_is_rejected(self):
+        import torch.nn as nn
+
+        layer = nn.Linear(4, 4)
+        with torch.no_grad():
+            layer.weight[1, 2] = float("inf")
+        with pytest.raises(ValueError, match = "non-finite"):
+            _assert_finite_weights(layer)
+
+    def test_error_lists_the_offending_module_key(self):
+        import torch.nn as nn
+
+        class Net(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.blocks = nn.Module()
+                self.blocks.proj = nn.Linear(4, 4)
+
+        net = Net()
+        with torch.no_grad():
+            net.blocks.proj.weight[3, 3] = float("nan")
+        with pytest.raises(ValueError, match = "blocks.proj.weight"):
+            _assert_finite_weights(net)
+
+    def test_inf_buffers_are_allowed(self):
+        # Attention caches and position caches legitimately hold -inf padding;
+        # the guard must only look at parameters, so these do not raise.
+        import torch.nn as nn
+
+        layer = nn.Linear(4, 4)
+        layer.register_buffer("mask", torch.full((4, 4), float("-inf")))
+        _assert_finite_weights(layer)
+
+
+def test_merge_invokes_the_finiteness_guard(tmp_path, monkeypatch):
+    """The guard must run inside merge_adapters_into_model, before export."""
+    pytest.importorskip("peft")
+    paths = _save_tiny_adapters(tmp_path)
+
+    seen = {}
+    real_guard = _mod._assert_finite_weights
+
+    def recording_guard(model):
+        seen["called"] = True
+        return real_guard(model)
+
+    monkeypatch.setattr(_mod, "_assert_finite_weights", recording_guard)
+
+    merge_adapters_into_model(
+        _tiny_model(),
+        adapter_paths = paths,
+        weights = [0.5, 0.5],
+        method = "linear",
+    )
+    assert seen.get("called") is True
+
+
+def test_merge_raises_when_result_is_non_finite(tmp_path, monkeypatch):
+    """A merge that produces a NaN weight fails before it can be exported."""
+    pytest.importorskip("peft")
+    paths = _save_tiny_adapters(tmp_path)
+
+    def guard_that_rejects(model):
+        raise ValueError(
+            "Unsloth: the merged model has 1 non-finite (NaN/Inf) weight(s): "
+            "sampling would hit a CUDA device-side assert"
+        )
+
+    monkeypatch.setattr(_mod, "_assert_finite_weights", guard_that_rejects)
+    with pytest.raises(ValueError, match = "non-finite"):
+        merge_adapters_into_model(
+            _tiny_model(),
+            adapter_paths = paths,
+            weights = [0.5, 0.5],
+            method = "linear",
         )

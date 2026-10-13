@@ -556,6 +556,44 @@ def _free_cuda_memory() -> None:
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
+
+def _assert_finite_weights(model: torch.nn.Module) -> None:
+    """Raise if any merged weight in *model* is NaN or Inf.
+
+    A merge can leave non-finite weights in place without failing: on a
+    multimodal base whose towers share projection names, an adapter recorded
+    by leaf name reaches the wrong modules and PEFT combines an empty list
+    there (see ``_normalize_peft_target_modules``). The bad weights are then
+    written to disk and only explode later as a CUDA device-side assert during
+    sampling -- ``probability tensor contains either inf, nan or element < 0``
+    -- an error that names no layer. Checking the weights here reports the
+    offending tensors instead, before a broken checkpoint is exported.
+
+    Only floating-point parameters are checked. Registered buffers are left
+    alone on purpose: attention masks and position caches legitimately hold
+    ``-inf`` padding that has nothing to do with the merge.
+    """
+    bad = [
+        name
+        for name, tensor in model.named_parameters()
+        if (tensor.is_floating_point() or tensor.is_complex())
+        and not bool(torch.isfinite(tensor).all())
+    ]
+    if not bad:
+        return
+    preview = ", ".join(bad[:8])
+    if len(bad) > 8:
+        preview += f", ... (+{len(bad) - 8} more)"
+    raise ValueError(
+        f"Unsloth: the merged model has {len(bad)} non-finite (NaN/Inf) "
+        f"weight(s): {preview}. Sampling would hit a CUDA device-side assert "
+        f"('probability tensor contains either inf, nan or element < 0'). This "
+        f"is usually a multimodal base whose towers share projection names, so "
+        f"an adapter's target_modules did not reach the same modules. Fix the "
+        f"adapters' target_modules and merge again."
+    )
+
+
 def merge_adapters_into_model(
     model: torch.nn.Module,
     adapter_paths: List[str],
@@ -773,6 +811,12 @@ def merge_adapters_into_model(
             pass
     report("Merge progress: merging the combined adapter into the base weights")
     merged_model = peft_model.merge_and_unload(adapter_names=["merged"])
+
+    # A non-finite weight is not reported at merge time; it only surfaces as a
+    # CUDA device-side assert during sampling ("probability tensor contains
+    # either inf, nan or element < 0"), which names no layer. Fail here instead,
+    # where the offending tensors are known, so no broken checkpoint is exported.
+    _assert_finite_weights(merged_model)
 
     report(f"Merge complete: method={config.method}, adapters={total_adapters}")
     gc.collect()
