@@ -1034,8 +1034,13 @@ class ExportBackend:
         except Exception as e:
             # "balanced" budgets from free memory read BEFORE this process opens a CUDA context, so the shard
             # can OOM when another job owns the other GPUs; fall back once.
+            # A multi-adapter merge never retries: its failures happen at the merge step (the sparsifying
+            # and SVD combinations materialise full weight deltas beside the base), and reloading the base
+            # through the sequential map cannot fix those - it stacks the whole 16-bit base on GPU0 and
+            # turns a merge-workspace OOM into a second load OOM, doubling the load and hiding the cause.
             if (
                 _device_map_override is None
+                and not merge_adapters
                 and (
                     isinstance(e, _CpuSpillRetry)
                     or _is_oom_error(e)

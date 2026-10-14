@@ -10,6 +10,7 @@ on a real multi-GPU host, so single-GPU, CPU and MLX are untouched."""
 from __future__ import annotations
 
 import contextlib
+import importlib.machinery
 import sys
 import types
 from pathlib import Path
@@ -466,3 +467,67 @@ def test_the_retry_names_sequential_rather_than_omitting_the_device_map(monkeypa
     assert len(_RefusesAnyPlan.calls) == 2
     assert _RefusesAnyPlan.calls[0]["device_map"] == "unsloth_balanced"
     assert _RefusesAnyPlan.calls[1]["device_map"] == "sequential"
+
+
+def test_a_merge_oom_is_not_retried(monkeypatch, tmp_path):
+    """A multi-adapter merge's failure happens at the merge step, not the load.
+
+    Retrying reloads the whole 16-bit base through the sequential map, which turns a
+    merge-workspace OOM into a second load OOM on GPU0 and hides the real cause. The
+    merge path therefore loads exactly once and surfaces the merge error directly.
+    """
+    mod = _export_mod(monkeypatch)
+    monkeypatch.setattr(mod, "_IS_MLX", False)
+
+    class _LoadsFine:
+        calls: list[dict] = []
+
+        @classmethod
+        def from_pretrained(cls, **kwargs):
+            cls.calls.append(kwargs)
+            return types.SimpleNamespace(
+                hf_device_map = {"model.layers.0": 0, "model.layers.1": 1}
+            ), types.SimpleNamespace()
+
+    class _MergeOom(RuntimeError):
+        pass
+
+    def _raise_oom(*args, **kwargs):
+        raise _MergeOom(
+            "CUDA out of memory. Tried to allocate 768.00 MiB. "
+            "GPU 0 has a total capacity of 14.56 GiB"
+        )
+
+    multi_adapter_merge = types.ModuleType("unsloth.multi_adapter_merge")
+    multi_adapter_merge.merge_adapters_into_model = _raise_oom
+    multi_adapter_merge.__spec__ = importlib.machinery.ModuleSpec(
+        "unsloth.multi_adapter_merge", loader = None
+    )
+    monkeypatch.setitem(sys.modules, "unsloth.multi_adapter_merge", multi_adapter_merge)
+
+    monkeypatch.setattr(mod, "FastLanguageModel", _LoadsFine)
+    monkeypatch.setattr(mod, "detect_audio_type", lambda *a, **k: None)
+    monkeypatch.setattr(mod, "is_vision_model", lambda *a, **k: False)
+    monkeypatch.setattr(mod, "_hf_offline", lambda *a, **k: False)
+    monkeypatch.setattr(mod, "_offline_window_if", lambda flag: contextlib.nullcontext())
+    monkeypatch.setattr(
+        mod, "_multi_gpu_device_map_kwargs", lambda: {"device_map": "unsloth_balanced"}
+    )
+    # The no-torch stub never imports peft, but the non-MLX path still probes the model type.
+    monkeypatch.setattr(mod, "PeftModel", type("PeftModel", (), {}), raising = False)
+    monkeypatch.setattr(
+        mod, "PeftModelForCausalLM", type("PeftModelForCausalLM", (), {}), raising = False
+    )
+
+    checkpoint = tmp_path / "checkpoint-100"
+    checkpoint.mkdir()
+    backend = mod.ExportBackend.__new__(mod.ExportBackend)
+    backend.cleanup_memory = lambda: None
+    ok, message = backend.load_checkpoint(
+        str(checkpoint), merge_adapters = {"adapter_paths": ["a", "b"]}
+    )
+
+    assert not ok
+    # Loaded once: no sequential reload that would double the load and mask the cause.
+    assert len(_LoadsFine.calls) == 1
+    assert "out of memory" in message
