@@ -62,6 +62,7 @@ export interface TrainingStartRequest {
     upload_on_complete: boolean;
   } | null;
   eval_steps: number;
+  early_stopping_patience?: number;
   weight_decay: number;
   max_grad_norm?: number | null;
   max_grad_value?: number | null;

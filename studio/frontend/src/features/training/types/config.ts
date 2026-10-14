@@ -140,6 +140,8 @@ export interface TrainingConfigState {
   saveSteps: number;
   checkpointBackup: CheckpointBackupConfig;
   evalSteps: number;
+  /** Evaluations without a lower eval loss before the run stops; 0 = off. */
+  earlyStoppingPatience: number;
   packing: boolean;
   trainOnCompletions: boolean;
   gradientCheckpointing: GradientCheckpointing;
@@ -291,6 +293,7 @@ export interface TrainingConfigActions {
   setSaveSteps: (value: number) => void;
   setCheckpointBackup: (value: CheckpointBackupConfig) => void;
   setEvalSteps: (value: number) => void;
+  setEarlyStoppingPatience: (value: number) => void;
   setPacking: (value: boolean) => void;
   setTrainOnCompletions: (value: boolean) => void;
   setGradientCheckpointing: (value: GradientCheckpointing) => void;
