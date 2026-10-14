@@ -469,43 +469,34 @@ def test_the_retry_names_sequential_rather_than_omitting_the_device_map(monkeypa
     assert _RefusesAnyPlan.calls[1]["device_map"] == "sequential"
 
 
-def test_a_merge_oom_is_not_retried(monkeypatch, tmp_path):
-    """A multi-adapter merge's failure happens at the merge step, not the load.
-
-    Retrying reloads the whole 16-bit base through the sequential map, which turns a
-    merge-workspace OOM into a second load OOM on GPU0 and hides the real cause. The
-    merge path therefore loads exactly once and surfaces the merge error directly.
+def test_a_placement_oom_before_merge_retries_sequentially(monkeypatch, tmp_path):
+    """A placement OOM (merge or plain load) frees the half-built model and retries
+    once through the sequential map, so a merge load is no longer excluded from
+    the fallback.
     """
     mod = _export_mod(monkeypatch)
     monkeypatch.setattr(mod, "_IS_MLX", False)
 
-    class _LoadsFine:
+    class _PlacementOomThenLoads:
         calls: list[dict] = []
 
         @classmethod
         def from_pretrained(cls, **kwargs):
             cls.calls.append(kwargs)
+            if len(cls.calls) == 1:
+                raise RuntimeError('CUDA out of memory. Tried to allocate 768.00 MiB.')
             return types.SimpleNamespace(
                 hf_device_map = {"model.layers.0": 0, "model.layers.1": 1}
             ), types.SimpleNamespace()
 
-    class _MergeOom(RuntimeError):
-        pass
-
-    def _raise_oom(*args, **kwargs):
-        raise _MergeOom(
-            "CUDA out of memory. Tried to allocate 768.00 MiB. "
-            "GPU 0 has a total capacity of 14.56 GiB"
-        )
-
     multi_adapter_merge = types.ModuleType("unsloth.multi_adapter_merge")
-    multi_adapter_merge.merge_adapters_into_model = _raise_oom
+    multi_adapter_merge.merge_adapters_into_model = lambda model, **kwargs: model
     multi_adapter_merge.__spec__ = importlib.machinery.ModuleSpec(
         "unsloth.multi_adapter_merge", loader = None
     )
     monkeypatch.setitem(sys.modules, "unsloth.multi_adapter_merge", multi_adapter_merge)
 
-    monkeypatch.setattr(mod, "FastLanguageModel", _LoadsFine)
+    monkeypatch.setattr(mod, "FastLanguageModel", _PlacementOomThenLoads)
     monkeypatch.setattr(mod, "detect_audio_type", lambda *a, **k: None)
     monkeypatch.setattr(mod, "is_vision_model", lambda *a, **k: False)
     monkeypatch.setattr(mod, "_hf_offline", lambda *a, **k: False)
@@ -527,7 +518,8 @@ def test_a_merge_oom_is_not_retried(monkeypatch, tmp_path):
         str(checkpoint), merge_adapters = {"adapter_paths": ["a", "b"]}
     )
 
-    assert not ok
-    # Loaded once: no sequential reload that would double the load and mask the cause.
-    assert len(_LoadsFine.calls) == 1
-    assert "out of memory" in message
+    assert ok, message
+    # Placement OOM freed the first attempt; the load retried once sequentially.
+    assert len(_PlacementOomThenLoads.calls) == 2
+    assert _PlacementOomThenLoads.calls[0]["device_map"] == "unsloth_balanced"
+    assert _PlacementOomThenLoads.calls[1]["device_map"] == "sequential"
