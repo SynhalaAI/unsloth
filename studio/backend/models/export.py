@@ -81,6 +81,16 @@ class MultiAdapterMergeRequest(BaseModel):
     normalize_weights: bool = True
     density: float = Field(0.5, gt = 0.0, le = 1.0)
     target_rank: Optional[int] = Field(None, ge = 1)
+    device: Literal["cuda", "cpu"] = Field(
+        "cuda",
+        description = (
+            "Where the merge runs. 'cpu' moves the base model into host RAM first, so a "
+            "float32 base plus the per-module weight deltas the sparsifying and SVD "
+            "combinations build never have to fit beside it on the GPU. The arithmetic "
+            "is identical, only slower - use it when the merge dies with a CUDA "
+            "out-of-memory error."
+        ),
+    )
 
     @field_validator("weights")
     @classmethod

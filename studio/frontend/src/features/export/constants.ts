@@ -454,6 +454,28 @@ export const MERGE_METHODS_WITH_DENSITY: Set<MergeMethodType> = new Set([
   "ties_svd", "dare_ties_svd", "dare_linear_svd", "magnitude_prune_svd",
 ]);
 
+/** Where the merge arithmetic runs. CPU trades speed for host RAM, so a float32
+ *  base plus the per-module weight deltas the sparsifying and SVD combinations
+ *  build never have to fit beside it on the GPU. */
+export type MergeDeviceType = "cuda" | "cpu";
+
+export const MERGE_DEVICES: {
+  value: MergeDeviceType;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    value: "cuda",
+    label: "GPU",
+    hint: "Fastest. Needs GPU memory for the merge itself on top of the base model.",
+  },
+  {
+    value: "cpu",
+    label: "CPU",
+    hint: "Slower, but the merge runs in host RAM instead of GPU memory. Use this when the merge fails with a CUDA out-of-memory error, or on a card too small to hold a float32 base plus the weight deltas.",
+  },
+];
+
 /** Methods that use the SVD output rank. */
 export const MERGE_METHODS_WITH_RANK: Set<MergeMethodType> = new Set([
   "svd", "ties_svd", "dare_ties_svd", "dare_linear_svd", "magnitude_prune_svd",

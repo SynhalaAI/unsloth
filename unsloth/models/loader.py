@@ -1899,6 +1899,7 @@ class FastLanguageModel(FastLlamaModel):
         normalize_weights = True,
         density = 0.5,
         target_rank = None,
+        device = None,
         max_seq_length = 2048,
         dtype = None,
         load_in_4bit = False,
@@ -1932,6 +1933,10 @@ class FastLanguageModel(FastLlamaModel):
             weight deltas kept.  Ignored for the other methods.
         target_rank : int | None
             PEFT ``svd_rank`` for ``"svd"`` and the ``*_svd`` variants: rank of the output adapter.
+        device : str | None
+            ``"cpu"`` runs the merge in host RAM instead of on the GPU, for when
+            the merge dies with a CUDA out-of-memory error. The arithmetic is
+            identical, only slower.
         max_seq_length, dtype, load_in_4bit, token, trust_remote_code :
             Forwarded to ``from_pretrained``.
         **from_pretrained_kwargs :
@@ -1957,6 +1962,7 @@ class FastLanguageModel(FastLlamaModel):
             normalize_weights = normalize_weights,
             density = density,
             target_rank = target_rank,
+            device = device,
         )
         return model, tokenizer
 

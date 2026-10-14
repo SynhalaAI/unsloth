@@ -46,6 +46,7 @@ _validate_adapters = _mod._validate_adapters
 _adapter_display_name = _mod._adapter_display_name
 merge_adapters_into_model = _mod.merge_adapters_into_model
 _assert_finite_weights = _mod._assert_finite_weights
+_move_model_to_device = _mod._move_model_to_device
 
 
 # ---------------------------------------------------------------------------
@@ -802,6 +803,94 @@ def test_mixed_ranks_are_rejected_for_factor_space_methods(tmp_path):
             method = "ties",
             density = 0.5,
         )
+
+
+# ---------------------------------------------------------------------------
+# device="cpu": run the merge in host RAM instead of on the GPU
+# ---------------------------------------------------------------------------
+
+
+class TestCpuMergeDevice:
+    """A merge on a card too small for a float32 base plus the weight deltas
+    dies with a CUDA out-of-memory error. ``device="cpu"`` moves the base into
+    host RAM first, so those allocations are sized by RAM instead."""
+
+    def test_config_normalises_and_validates_the_device(self):
+        assert MultiAdapterMergeConfig(
+            adapter_paths=["a", "b"], weights=[1.0, 1.0]
+        ).device is None
+        # The default must stay None so an existing GPU merge is unchanged.
+        assert MultiAdapterMergeConfig(
+            adapter_paths=["a", "b"], weights=[1.0, 1.0], device="CPU"
+        ).device == "cpu"
+        assert MultiAdapterMergeConfig(
+            adapter_paths=["a", "b"], weights=[1.0, 1.0], device="cuda"
+        ).device == "cuda"
+        for bad in ("tpu", "mps", 0, ""):
+            with pytest.raises(ValueError, match="device must be"):
+                MultiAdapterMergeConfig(
+                    adapter_paths=["a", "b"], weights=[1.0, 1.0], device=bad
+                )
+
+    def test_move_model_to_device_relocates_every_tensor(self):
+        model = _tiny_model()
+        moved = []
+
+        def report(message):
+            moved.append(message)
+
+        _move_model_to_device(model, "cpu", report)
+        for name, tensor in model.named_parameters():
+            assert tensor.device.type == "cpu", name
+        for name, tensor in model.named_buffers():
+            assert tensor.device.type == "cpu", name
+
+    def test_a_cpu_merge_says_so_and_produces_the_same_deltas(self, tmp_path):
+        # The arithmetic is identical: only where it runs changes, so the CPU
+        # merge must land on the same weights a GPU merge would.
+        pytest.importorskip("peft")
+        paths = _save_tiny_adapters(tmp_path)
+        base_state = _base_state()
+
+        messages = []
+        merged = merge_adapters_into_model(
+            _tiny_model(),
+            adapter_paths = paths,
+            weights = [0.5, 0.5],
+            method = "ties",
+            density = 0.5,
+            device = "cpu",
+            report_callback = messages.append,
+        )
+        assert any("running on CPU" in message for message in messages)
+        # The merged model is on CPU, which is where save_pretrained_merged wants it.
+        for name, tensor in merged.named_parameters():
+            assert tensor.device.type == "cpu", name
+        assert any(
+            not torch.allclose(
+                merged.state_dict()[key].float(), base_state[key].float()
+            )
+            for key in _touched_keys(base_state)
+        )
+
+    def test_a_cpu_merge_matches_a_gpu_merge_bit_for_bit(self, tmp_path):
+        # CPU is an escape hatch for memory, not a different algorithm: both runs
+        # must agree exactly. dare_ties reads the seeded RNG, which is restored
+        # after the call, so the two merges are independent and comparable.
+        pytest.importorskip("peft")
+        paths = _save_tiny_adapters(tmp_path)
+        kwargs = dict(
+            adapter_paths = paths,
+            weights = [0.5, 0.5],
+            method = "dare_ties",
+            density = 0.5,
+        )
+        on_cpu = merge_adapters_into_model(
+            _tiny_model(), device = "cpu", **kwargs
+        )
+        on_default = merge_adapters_into_model(_tiny_model(), **kwargs)
+        for key, value in on_cpu.state_dict().items():
+            assert torch.equal(value, on_default.state_dict()[key]), key
 
 
 # ---------------------------------------------------------------------------

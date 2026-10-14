@@ -102,6 +102,8 @@ import {
   MERGE_METHOD_CATEGORY_ORDER,
   MERGE_METHODS_WITH_DENSITY,
   MERGE_METHODS_WITH_RANK,
+  MERGE_DEVICES,
+  type MergeDeviceType,
   type MergeMethodCategory,
   type MergeMethodType,
   Q4NX_SOURCE_QUANTS,
@@ -187,6 +189,7 @@ type AdapterMergeConfig = {
   density: string;
   rank?: string;
   normalizeWeights?: boolean;
+  device?: MergeDeviceType;
   destination: "local" | "hub";
   hfUsername: string;
   modelName: string;
@@ -461,6 +464,10 @@ export function ExportPage() {
   const [mergeDensity, setMergeDensity] = useState("0.5");
   // SVD output rank, shown only for the svd merge method.
   const [mergeTargetRank, setMergeTargetRank] = useState("");
+  // Where the merge arithmetic runs. GPU by default; CPU is the escape hatch for
+  // a merge that dies with a CUDA out-of-memory error on a card too small to
+  // hold a float32 base plus the weight deltas the sparsifying methods build.
+  const [mergeDevice, setMergeDevice] = useState<MergeDeviceType>("cuda");
   // Rescale the per-adapter weights to sum to 1 before merging. Off by default,
   // so the raw weights as entered are used unless normalization is asked for.
   const [mergeNormalizeWeights, setMergeNormalizeWeights] = useState(false);
@@ -1244,6 +1251,7 @@ export function ExportPage() {
       density: mergeDensity,
       rank: mergeTargetRank,
       normalizeWeights: mergeNormalizeWeights,
+      device: mergeDevice,
       destination,
       hfUsername,
       modelName,
@@ -1306,6 +1314,9 @@ export function ExportPage() {
         }
         if (typeof config.normalizeWeights === "boolean") {
           setMergeNormalizeWeights(config.normalizeWeights);
+        }
+        if (MERGE_DEVICES.some((item) => item.value === config.device)) {
+          setMergeDevice(config.device as MergeDeviceType);
         }
         if (config.destination === "local" || config.destination === "hub") {
           setDestination(config.destination);
@@ -1480,6 +1491,7 @@ export function ExportPage() {
             Number(mergeTargetRank) >= 1
               ? Number(mergeTargetRank)
               : undefined,
+          device: mergeDevice,
         }
       : undefined;
 
@@ -2508,6 +2520,31 @@ export function ExportPage() {
                               </span>
                             );
                           })()}
+                        </InfoHint>
+                        <Select
+                          value={mergeDevice}
+                          onValueChange={(value: MergeDeviceType) =>
+                            setMergeDevice(value)
+                          }
+                        >
+                          <SelectTrigger className="w-28" aria-label="Merge device">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {MERGE_DEVICES.map((item) => (
+                              <SelectItem key={item.value} value={item.value}>
+                                {item.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <InfoHint>
+                          Where the merge runs. GPU is faster; CPU runs the whole
+                          merge in host RAM instead, which is the fix for a merge
+                          that fails with a CUDA out-of-memory error - a float32
+                          base plus the weight deltas these methods build do not
+                          fit beside each other on a small card. Same result,
+                          only slower.
                         </InfoHint>
                         {MERGE_METHODS_WITH_DENSITY.has(mergeMethod) && (
                           <span className="flex items-center gap-1">

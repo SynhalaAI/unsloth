@@ -192,6 +192,11 @@ class MultiAdapterMergeConfig:
     target_rank: Optional[int] = None
     # Deterministic seed for the DARE random drop.
     seed: int = 42
+    # Where the merge runs: "cpu" moves the base model into host RAM first, so a
+    # float32 base plus the per-module weight deltas the sparsifying and SVD
+    # combinations materialise never have to fit beside it on the GPU.
+    # "cuda" (or None) leaves the model where the loader put it.
+    device: Optional[str] = None
 
     def __post_init__(self):
         if not self.adapter_paths:
@@ -222,6 +227,13 @@ class MultiAdapterMergeConfig:
             raise ValueError(
                 f"Unsloth: target_rank must be positive, got {self.target_rank}."
             )
+        if self.device is not None:
+            wanted = str(self.device).strip().lower()
+            if wanted not in ("cpu", "cuda"):
+                raise ValueError(
+                    f"Unsloth: device must be 'cpu' or 'cuda', got {self.device!r}."
+                )
+            self.device = wanted
 
 
 # ---------------------------------------------------------------------------
@@ -550,6 +562,49 @@ def _move_adapter_factors(peft_model, adapter_names: List[str], device) -> int:
     return moved
 
 
+def _move_model_to_device(model: torch.nn.Module, device: str, report) -> None:
+    """Move every parameter and buffer of *model* onto *device*.
+
+    A model the loader spread over several cards carries accelerate hooks that
+    refuse ``.to()`` (they exist precisely to stop a caller moving an offloaded
+    model), so the hooks come off first. The dispatch is not restored: a merge
+    only ever needs one coherent device, and the merged result is saved from
+    wherever it lands.
+    """
+    dispatch_root = None
+    node, seen = model, set()
+    while id(node) not in seen:
+        seen.add(id(node))
+        if "hf_device_map" in getattr(node, "__dict__", {}):
+            dispatch_root = node
+            break
+        children = getattr(node, "__dict__", {}).get("_modules") or {}
+        nxt = next(
+            (
+                children[name]
+                for name in ("base_model", "model")
+                if hasattr(children.get(name), "named_modules")
+            ),
+            None,
+        )
+        if nxt is None:
+            break
+        node = nxt
+
+    if dispatch_root is not None:
+        try:
+            from accelerate.hooks import remove_hook_from_submodules
+
+            remove_hook_from_submodules(dispatch_root)
+        except Exception as exc:  # noqa: BLE001 - a hook we cannot remove is reported, not fatal
+            report(
+                f"Merge: could not remove the accelerate offload hooks "
+                f"({type(exc).__name__}: {exc}); moving the weights anyway."
+            )
+
+    model.to(device)
+
+
 def _free_cuda_memory() -> None:
     """Release cached CUDA blocks so a retry has room to run."""
     gc.collect()
@@ -603,6 +658,7 @@ def merge_adapters_into_model(
     density: float = 0.5,
     target_rank: Optional[int] = None,
     seed: int = 42,
+    device: Optional[str] = None,
     hf_token=None,
     report_callback=None,
 ) -> torch.nn.Module:
@@ -641,6 +697,14 @@ def merge_adapters_into_model(
         of the output adapter.
     seed : int
         Seed for the DARE random drop, so a merge is reproducible.
+    device : "cpu" | "cuda" | None
+        Where the merge runs. "cpu" moves the base model into host RAM before
+        anything else, so the per-module weight deltas the sparsifying and SVD
+        combinations materialise are sized by RAM instead of by a GPU that a
+        float32 base has already filled. Use it when the merge dies with a CUDA
+        out-of-memory error: the arithmetic is identical, only slower. The
+        returned model stays on CPU, which is where ``save_pretrained_merged``
+        wants it anyway.
     hf_token, report_callback :
         Hub token for private adapters; ``report_callback(message)`` receives
         the progress lines that are printed.
@@ -665,6 +729,7 @@ def merge_adapters_into_model(
         density=density,
         target_rank=target_rank,
         seed=seed,
+        device=device,
     )
 
     # Human-friendly display names for logging, e.g. "my-adapter (checkpoint-500)".
@@ -687,6 +752,20 @@ def merge_adapters_into_model(
         )
     )
     _report_merge_caveats(report, config)
+
+    # 0. A CPU merge moves the base before anything touches it. Doing it first
+    #    matters: the sparsifying and SVD combinations build a full weight delta
+    #    per module, so on a float32 base those allocations are sized by whatever
+    #    memory the model is on. On a small GPU a merge dies with a CUDA
+    #    out-of-memory error there; on host RAM the same arithmetic just runs.
+    if config.device is not None and str(config.device).strip().lower() == "cpu":
+        report(
+            "Merge: running on CPU as requested. The base model moves into host "
+            "RAM first, so the merge does not need GPU memory - it is slower "
+            "but the arithmetic is identical."
+        )
+        _move_model_to_device(model, "cpu", report)
+        _free_cuda_memory()
 
     # 1. Load and validate the adapter configs before touching the model.
     adapter_configs: List[dict] = []

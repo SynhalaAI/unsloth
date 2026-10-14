@@ -17,7 +17,11 @@ import {
   type ExportOperationResponse,
   type ExportStatus,
 } from "../api/export-api";
-import type { ExportMethod, MergeMethodType } from "../constants";
+import type {
+  ExportMethod,
+  MergeDeviceType,
+  MergeMethodType,
+} from "../constants";
 
 /** Thrown by status recovery when the backend reports the op was cancelled. */
 class ExportCanceledError extends Error {
@@ -156,6 +160,8 @@ export interface RunExportParams {
     density: number;
     /** PEFT svd_rank for method="svd"; backend defaults to None. */
     target_rank?: number;
+    /** Where the merge runs; CPU trades speed for host RAM over GPU memory. */
+    device: MergeDeviceType;
   };
   exportMethod: ExportMethod;
   isAdapter: boolean;

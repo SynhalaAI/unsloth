@@ -72,6 +72,18 @@ class TestMultiAdapterMergeRequest(unittest.TestCase):
             with self.assertRaises(Exception):
                 self.schema(adapter_paths = ["a", "b"], method = "svd", target_rank = bad)
 
+    def test_device_is_optional_cpu_or_cuda(self):
+        # GPU stays the default, so an existing caller's merge is unchanged.
+        self.assertEqual(self.schema(adapter_paths = ["a", "b"]).device, "cuda")
+        for wanted in ("cuda", "cpu"):
+            model = self.schema(adapter_paths = ["a", "b"], device = wanted)
+            self.assertEqual(model.device, wanted)
+        # A typo must not silently become the GPU default: it would run the
+        # merge the caller asked to move off the GPU.
+        for bad in ("tpu", "gpu", "CPU", "", 0):
+            with self.assertRaises(Exception):
+                self.schema(adapter_paths = ["a", "b"], device = bad)
+
     def test_weights_must_match_adapter_count(self):
         with self.assertRaises(Exception):
             self.schema(adapter_paths = ["a", "b"], weights = [1.0])

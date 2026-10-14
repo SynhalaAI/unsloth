@@ -995,6 +995,7 @@ class ExportBackend:
                     normalize_weights = merge_adapters.get("normalize_weights", True),
                     density = merge_adapters.get("density", 0.5),
                     target_rank = merge_adapters.get("target_rank"),
+                    device = merge_adapters.get("device"),
                     hf_token = token,
                     report_callback = merge_report_callback,
                 )

@@ -7388,6 +7388,7 @@ def _unsloth_merge_multi_adapters(
     normalize_weights = True,
     density = 0.5,
     target_rank = None,
+    device = None,
 ):
     """Merge multiple LoRA adapters into this model in-place.
 
@@ -7409,6 +7410,10 @@ def _unsloth_merge_multi_adapters(
         weight deltas kept.
     target_rank : int | None
         PEFT ``svd_rank`` for ``method="svd"`` and the ``*_svd`` variants.
+    device : str | None
+        ``"cpu"`` runs the merge in host RAM instead of on the GPU. Use it when
+        the merge dies with a CUDA out-of-memory error; the arithmetic is
+        identical, only slower.
 
     Returns
     -------
@@ -7424,6 +7429,7 @@ def _unsloth_merge_multi_adapters(
         normalize_weights = normalize_weights,
         density = density,
         target_rank = target_rank,
+        device = device,
     )
 
 
