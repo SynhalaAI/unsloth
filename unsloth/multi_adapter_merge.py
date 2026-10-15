@@ -494,29 +494,81 @@ def _validate_adapters(
 
 
 
+def _adapters_share_modules(config: "MultiAdapterMergeConfig") -> Optional[bool]:
+    """Whether the adapters' ``target_modules`` overlap, or None when unknown.
+
+    A merge of adapters that cover disjoint modules -- a text-only adapter
+    beside a vision-only one -- reaches every module through exactly one
+    adapter, so neither caveat below applies: each weight scales its own
+    adapter alone, and one set of LoRA factors is exact rather than a blend.
+    Disjoint is the honest way to combine two such adapters at full strength,
+    so the scale warning would be wrong there and the call is worth making.
+
+    None means the answer cannot be had cheaply: a config saved ``target_modules``
+    as a string is a regex or the ``"all-linear"`` shorthand, which expands to
+    whatever the model holds, and a config that cannot be read at all says
+    nothing. Both fall back to reporting the caveat.
+    """
+    targets: List[set] = []
+    for path in config.adapter_paths:
+        try:
+            cfg = _load_adapter_config(path)
+        except Exception:  # noqa: BLE001 - an unreadable config just means "unknown"
+            return None
+        modules = cfg.get("target_modules")
+        if not isinstance(modules, (list, tuple, set)):
+            return None
+        targets.append({str(name) for name in modules})
+    if len(targets) < 2:
+        return False
+    seen: set = set()
+    for group in targets:
+        if seen & group:
+            return True
+        seen |= group
+    return False
+
+
 def _report_merge_caveats(report, config: "MultiAdapterMergeConfig") -> None:
     """Report the two ways a multi-adapter merge silently goes wrong.
 
-    PEFT applies the weights as they arrive, so weights that do not sum to one
-    scale the whole merged delta: four adapters entered as 1.0 each put four
-    adapters' worth of change on the base at once. And PEFT's own "linear"
-    blends the LoRA factors instead of the weight deltas, which it documents as
-    an approximation. Both are easy to miss in a UI that accepts the weights
-    raw, so they are said out loud in the merge log.
+    Both only bite when the adapters share modules. PEFT applies the weights as
+    they arrive, so weights that do not sum to one scale the merged delta: four
+    adapters entered as 1.0 each put four adapters' worth of change on the base
+    at once. And PEFT's own "linear" blends the LoRA factors instead of the
+    weight deltas, which it documents as an approximation -- but only where more
+    than one adapter contributes. Both are easy to miss in a UI that accepts the
+    weights raw, so they are said out loud in the merge log.
+
+    Adapters that target disjoint modules are the exception, and the exception
+    matters: there PEFT combines one adapter per module, so weights of 1.0 each
+    are already the full-strength merge and normalising them would halve both
+    adapters. ``None`` from the overlap check means the configs did not say, so
+    the caveat is reported rather than assumed away.
     """
     weight_total = sum(config.weights)
+    shares = _adapters_share_modules(config)
     if (
         not config.normalize_weights
         and len(config.weights) > 1
         and abs(weight_total - 1.0) > 0.05
     ):
-        report(
-            f"Merge warning: weights sum to {weight_total:.4f} with "
-            f"normalize_weights=False, so the merged delta is scaled by "
-            f"{weight_total:.4f}x. Enable normalize weights (or scale them to "
-            f"sum to 1) for a weighted average."
-        )
-    if config.method == "linear" and len(config.weights) > 1:
+        if shares is False:
+            report(
+                f"Merge note: weights sum to {weight_total:.4f} with "
+                f"normalize_weights=False, and these adapters target disjoint "
+                f"modules, so each weight applies to its own adapter alone - "
+                f"nothing is scaled up and normalizing is not needed. Leave "
+                f"normalize off to keep every adapter at full strength."
+            )
+        else:
+            report(
+                f"Merge warning: weights sum to {weight_total:.4f} with "
+                f"normalize_weights=False, so the merged delta is scaled by "
+                f"{weight_total:.4f}x. Enable normalize weights (or scale them "
+                f"to sum to 1) for a weighted average."
+            )
+    if config.method == "linear" and len(config.weights) > 1 and shares is not False:
         report(
             "Merge note: PEFT's 'linear' blends the LoRA factors rather than "
             "the weight deltas, so it is an approximation; 'svd' (or 'cat') "

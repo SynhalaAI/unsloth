@@ -894,6 +894,150 @@ class TestCpuMergeDevice:
 
 
 # ---------------------------------------------------------------------------
+# Disjoint adapters: the scale and linear caveats do not apply
+# ---------------------------------------------------------------------------
+
+
+def _disjoint_adapters(tmp_path):
+    """One adapter on q_proj, the other on v_proj: no module sees both.
+
+    The shape a vision-only adapter beside a text-only adapter has: a
+    multimodal base holds the towers side by side, so neither reaches the
+    other's weights.
+    """
+    return [
+        _save_tiny_adapter_at(tmp_path / "text_only", 1, target_modules = ["q_proj"]),
+        _save_tiny_adapter_at(tmp_path / "vision_only", 2, target_modules = ["v_proj"]),
+    ]
+
+
+def _caveats(config):
+    messages = []
+    _mod._report_merge_caveats(messages.append, config)
+    return " ".join(messages)
+
+
+def test_overlap_check_reads_the_target_module_sets(tmp_path):
+    pytest.importorskip("peft")
+    overlapping = _save_tiny_adapters(tmp_path / "over")
+    disjoint = _disjoint_adapters(tmp_path / "dis")
+
+    config = lambda paths: MultiAdapterMergeConfig(
+        adapter_paths = paths, weights = [1.0] * len(paths)
+    )
+    assert _mod._adapters_share_modules(config(overlapping)) is True
+    assert _mod._adapters_share_modules(config(disjoint)) is False
+    # One adapter cannot overlap itself.
+    assert _mod._adapters_share_modules(config(disjoint[:1])) is False
+
+    # "all-linear" expands to whatever the model holds, so the answer is not
+    # knowable from the config alone: the caveats must be reported.
+    _rewrite_target_modules(disjoint[0], "all-linear")
+    assert _mod._adapters_share_modules(config(disjoint)) is None
+
+
+def test_disjoint_adapters_do_not_get_the_scale_warning(tmp_path):
+    # Weights of 1.0 each are already the full-strength merge here, so claiming
+    # the delta is scaled by 2x is wrong and normalising would halve both.
+    pytest.importorskip("peft")
+    joined = _caveats(
+        MultiAdapterMergeConfig(
+            adapter_paths = _disjoint_adapters(tmp_path),
+            weights = [1.0, 1.0],
+            normalize_weights = False,
+        )
+    )
+    assert "disjoint" in joined
+    assert "scaled by" not in joined
+    assert "Merge warning" not in joined
+
+
+def test_overlapping_adapters_still_get_the_scale_warning(tmp_path):
+    pytest.importorskip("peft")
+    joined = _caveats(
+        MultiAdapterMergeConfig(
+            adapter_paths = _save_tiny_adapters(tmp_path),
+            weights = [1.0, 1.0],
+            normalize_weights = False,
+        )
+    )
+    assert "scaled by 2.0000x" in joined
+    assert "disjoint" not in joined
+
+
+def test_unknown_overlap_still_reports_the_scale_warning(tmp_path):
+    pytest.importorskip("peft")
+    paths = _disjoint_adapters(tmp_path)
+    _rewrite_target_modules(paths[0], "all-linear")
+    joined = _caveats(
+        MultiAdapterMergeConfig(
+            adapter_paths = paths, weights = [1.0, 1.0], normalize_weights = False
+        )
+    )
+    assert "scaled by 2.0000x" in joined
+    assert "disjoint" not in joined
+
+
+def test_disjoint_adapters_skip_the_linear_approximation_note(tmp_path):
+    # One set of LoRA factors per module is exact; the approximation only comes
+    # from blending two sets together.
+    pytest.importorskip("peft")
+    joined = _caveats(
+        MultiAdapterMergeConfig(
+            adapter_paths = _disjoint_adapters(tmp_path),
+            weights = [1.0, 1.0],
+            method = "linear",
+            normalize_weights = False,
+        )
+    )
+    assert "approximation" not in joined
+
+
+def test_overlapping_adapters_still_get_the_linear_approximation_note(tmp_path):
+    pytest.importorskip("peft")
+    joined = _caveats(
+        MultiAdapterMergeConfig(
+            adapter_paths = _save_tiny_adapters(tmp_path),
+            weights = [0.5, 0.5],
+            method = "linear",
+        )
+    )
+    assert "approximation" in joined
+
+
+def test_disjoint_merge_at_unit_weights_keeps_full_strength(tmp_path):
+    """A disjoint merge at 1.0 each equals each adapter merged on its own.
+
+    Normalising them would hand every module a weight of 0.5, and with one
+    adapter present per module that halves the adapter outright.
+    """
+    pytest.importorskip("peft")
+    paths = _disjoint_adapters(tmp_path)
+    kwargs = dict(method = "linear", report_callback = lambda message: None)
+
+    # The same seed for every base so the three runs are directly comparable.
+    both = merge_adapters_into_model(
+        _tiny_model(), adapter_paths = paths, weights = [1.0, 1.0],
+        normalize_weights = False, **kwargs
+    )
+    text_alone = merge_adapters_into_model(
+        _tiny_model(), adapter_paths = [paths[0]], weights = [1.0],
+        normalize_weights = False, **kwargs
+    )
+    vision_alone = merge_adapters_into_model(
+        _tiny_model(), adapter_paths = [paths[1]], weights = [1.0],
+        normalize_weights = False, **kwargs
+    )
+
+    both_state = both.state_dict()
+    for key in _touched_keys(both_state):
+        alone = text_alone if "q_proj" in key else vision_alone
+        assert torch.allclose(
+            both_state[key], alone.state_dict()[key], atol = 1e-6
+        ), key
+
+
+# ---------------------------------------------------------------------------
 # Finiteness guard: catch a broken merge before it is exported
 # ---------------------------------------------------------------------------
 
