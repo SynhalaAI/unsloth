@@ -340,34 +340,9 @@ test("a single adapter is a runnable merge, not just a multi-adapter one", () =>
   assert.match(exportPageSource, /One\s*adapter is enough/);
 });
 
-test("a single-adapter merge offers only Linear", () => {
-  // PEFT falls back to linear for a single adapter, so trimming, sign election
-  // and pruning never run. Offering TIES/SVD there would imply they do
-  // something, so the picker locks to Linear.
-  assert.match(
-    exportPageSource,
-    /const filledAdapterCount = adapterMergeSelections\.filter\([\s\S]*?const singleAdapterMerge = filledAdapterCount === 1;/,
-  );
-  // The method dropdown is disabled and lists only Linear in that state.
-  assert.match(exportPageSource, /disabled=\{singleAdapterMerge\}/);
-  assert.match(
-    exportPageSource,
-    /singleAdapterMerge\s*\?\s*MERGE_METHODS\.filter\(\s*\(method\) => method\.value === "linear",?\s*\)/,
-  );
-  // The category dropdown keeps its width but is disabled and invisible, so going from one to two adapters does not shift the row below.
-  assert.match(exportPageSource, /disabled={singleAdapterMerge}/);
-  assert.match(exportPageSource, /invisible/);
-  // And the state is actually forced back to Linear, so an imported config or a
-  // shrinking selection cannot leave a multi-adapter method selected.
-  assert.match(
-    exportPageSource,
-    /if \(singleAdapterMerge && mergeMethod !== "linear"\) \{\s*setMergeMethod\("linear"\);/,
-  );
-  // Declaration order: singleAdapterMerge must be derived from the selection
-  // state BEFORE any hook takes it as a dependency, or the dep array reads it
-  // in its temporal dead zone and the page crashes on render.
-  assert.ok(
-    exportPageSource.indexOf("adapterMergeSelections, setAdapterMergeSelections") <
-      exportPageSource.indexOf("const singleAdapterMerge = filledAdapterCount === 1;"),
-  );
+test("a single-adapter merge offers every method", () => {
+  // Every PEFT combination type runs on a single delta too (sparsify / SVD
+  // apply to the one adapter), so the picker stays unlocked for one adapter.
+  assert.doesNotMatch(exportPageSource, /singleAdapterMerge/);
+  assert.doesNotMatch(exportPageSource, /MERGE_METHODS.filter/);
 });
