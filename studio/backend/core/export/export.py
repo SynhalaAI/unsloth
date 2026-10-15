@@ -1126,8 +1126,6 @@ class ExportBackend:
             trust_remote_code = trust_remote_code,
             hf_token = hf_token,
             base_model = base_model,
-            merge_adapters = merge_adapters,
-            merge_report_callback = merge_report_callback,
             **retry_kw,
         )
 
