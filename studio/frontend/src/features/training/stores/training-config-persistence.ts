@@ -19,6 +19,7 @@ import type {
   TrainingConfigStore,
   TrainingMethodProvenance,
 } from "../types/config";
+import { drafterStateFrom } from "../lib/drafter-config";
 import {
   createHfBrowseDatasetSelection,
   createUploadBrowseDatasetSelection,
@@ -49,6 +50,7 @@ const NON_PERSISTED_STATE_KEYS: ReadonlySet<keyof TrainingConfigState> =
     "resumeCheckpointPath",
     "resumeTrainingEnabled",
     "wandbToken",
+    "drafterCapability",
   ]);
 
 export function partializeTrainingConfig(
@@ -296,12 +298,26 @@ function migrateThroughVersion22(
 }
 
 // Drop the OCR training flag: the feature was removed from the training dashboard.
+// Drafter training arrived in 23: older state has no drafter keys, and a hand-edited or
+// partially written one must never turn the phase on.
 function migrateThroughVersion23(
   state: PersistedTrainingConfig,
   version: number,
 ): void {
   if (version < 23) {
     Reflect.deleteProperty(state, "isOcrTraining");
+    Object.assign(
+      state,
+      drafterStateFrom({
+        enabled: state.drafterEnabled,
+        strategy: state.drafterStrategy,
+        data_source: state.drafterDataSource,
+        max_examples: state.drafterMaxExamples,
+        epochs: state.drafterEpochs,
+        learning_rate: state.drafterLearningRate,
+        draft_steps: state.drafterDraftSteps,
+      }),
+    );
   }
 }
 

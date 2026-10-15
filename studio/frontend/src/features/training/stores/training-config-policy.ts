@@ -125,6 +125,7 @@ export const initialTrainingConfigState: TrainingConfigState = {
   resumeCheckpointName: null,
   resumeCheckpointPath: null,
   resumeTrainingEnabled: false,
+  drafterCapability: null,
   ...DEFAULT_HYPERPARAMS,
 };
 export function hasSeparateStreamingEvalSplit(
