@@ -227,6 +227,7 @@ import {
   reconcilePersistedGpuIds,
   resolveLoadedSpeculativeSettings,
   resolvePreserveThinkingOnLoad,
+  resolveToolsEnabledOnLoad,
   persistGpuMemoryModeOnLoad,
   resolveSpeculativeSettingsForLoad,
   saveSpeculativeType,
@@ -2152,6 +2153,9 @@ export function SharedComposer({
           supportsPreserveThinking: resp.supports_preserve_thinking ?? false,
           preserveThinking: resolvePreserveThinkingOnLoad(resp),
           supportsTools: resp.supports_tools ?? false,
+          deepResearchEnabled: resolveToolsEnabledOnLoad(
+            resp.supports_tools ?? false,
+          ).deepResearchEnabled,
           kvCacheDtype: resp.cache_type_kv ?? null,
           loadedKvCacheDtype: resp.cache_type_kv ?? null,
           ...mlxRuntimeStateFrom(resp),

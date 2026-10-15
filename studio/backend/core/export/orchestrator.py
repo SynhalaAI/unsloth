@@ -525,6 +525,7 @@ class ExportOrchestrator:
         merge_adapters: Optional[dict] = None,
         base_model: Optional[str] = None,
         op_id: Optional[str] = None,
+        offload_layers = "auto",
     ) -> Tuple[bool, str]:
         """Load a checkpoint for export.
 
@@ -548,6 +549,7 @@ class ExportOrchestrator:
             "base_model": base_model,
             "max_seq_length": max_seq_length,
             "load_in_4bit": load_in_4bit,
+            "offload_layers": offload_layers,
             "trust_remote_code": trust_remote_code,
             "approved_remote_code_fingerprint": approved_remote_code_fingerprint,
             "subject": subject,
