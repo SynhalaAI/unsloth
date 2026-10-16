@@ -93,11 +93,13 @@ def test_exact_names_and_explicit_mapping_are_unchanged(audio_trainer):
     assert audio_trainer._resolve_audio_columns(dataset, None) == {
         "audio_col": "audio",
         "text_col": "text",
+        "instruction_col": None,
         "speaker_col": "source",
     }
     assert audio_trainer._resolve_audio_columns(dataset, {"audio": "audio", "prompt": "text"}) == {
         "audio_col": "audio",
         "text_col": "prompt",
+        "instruction_col": None,
         "speaker_col": None,
     }
 
@@ -108,5 +110,32 @@ def test_text_only_dataset_still_resolves_nothing(audio_trainer):
     assert audio_trainer._resolve_audio_columns(dataset, None) == {
         "audio_col": None,
         "text_col": None,
+        "instruction_col": None,
+        "speaker_col": None,
+    }
+
+
+def test_fallback_resolves_detected_instruction_column(audio_trainer):
+    dataset = Dataset.from_list(
+        [{"audio": _AUDIO, "text": "hi", "instruction": "Repeat after me."}]
+    )
+
+    assert audio_trainer._resolve_audio_columns(dataset, None) == {
+        "audio_col": "audio",
+        "text_col": "text",
+        "instruction_col": "instruction",
+        "speaker_col": None,
+    }
+
+
+def test_fallback_never_shadows_transcript_with_instruction(audio_trainer):
+    # TTS sets name the line to speak "prompt", which the text detector also
+    # claims: the transcript wins and no instruction is resolved.
+    dataset = Dataset.from_list([{"audio": _AUDIO, "prompt": "hi"}])
+
+    assert audio_trainer._resolve_audio_columns(dataset, None) == {
+        "audio_col": "audio",
+        "text_col": "prompt",
+        "instruction_col": None,
         "speaker_col": None,
     }

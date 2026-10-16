@@ -49,6 +49,9 @@ class _AudioDataset:
     def cast_column(self, column, feature):
         return self
 
+    def __iter__(self):
+        return iter(self.rows)
+
     def map(self, fn, **kwargs):
         batch = {
             column: [row[column] for row in self.rows] for column in self.column_names
@@ -106,6 +109,15 @@ def test_whisper_audio_text_dataset_keeps_transcription_fallback():
     assert (
         dataset.messages[0][1]["content"][1]["text"]
         == "Please transcribe this audio."
+    )
+
+
+def test_audio_vlm_auto_resolves_detected_instruction_without_mapping():
+    dataset = _format([_row(instruction = "Summarize this audio.")])
+
+    assert (
+        dataset.messages[0][1]["content"][1]["text"]
+        == "Summarize this audio."
     )
 
 

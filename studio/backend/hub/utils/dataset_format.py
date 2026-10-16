@@ -754,7 +754,10 @@ def check_dataset_format(dataset, is_vlm: bool = False) -> dict:
 
     # Audio datasets use a fixed audio/text mapping. Check them before the VLM
     # branch so an audio-capable vision model cannot mistake an unrelated
-    # `instruction` field for a per-sample visual prompt.
+    # `instruction` field for a per-sample visual prompt (the branch order is
+    # what keeps it out of the VLM detector). A detected instruction column is
+    # still surfaced: the audio-VLM formatter trains it as the per-example
+    # user prompt, and the preview maps it only to the audio `user` role.
     if is_audio:
         detected_audio = multimodal_info.get("detected_audio_column")
         detected_text = multimodal_info.get("detected_text_column")
@@ -765,11 +768,9 @@ def check_dataset_format(dataset, is_vlm: bool = False) -> dict:
             "suggested_mapping": None,
             "detected_image_column": None,
             "detected_text_column": detected_text,
-            # Audio datasets use a fixed audio/text mapping, so even an audio-capable
-            # vision model must not mistake an unrelated `instruction` field for a
-            # per-sample visual prompt (restores the 2fa0d00dd behaviour the merge
-            # flattened back into the is_vlm-conditional).
-            "detected_instruction_column": None,
+            "detected_instruction_column": multimodal_info.get(
+                "detected_instruction_column"
+            ),
             "chat_column": None,
             "is_image": False,
             "multimodal_columns": multimodal_info.get("audio_columns"),

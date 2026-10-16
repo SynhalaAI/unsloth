@@ -28,7 +28,7 @@ def test_detects_alternate_explicit_instruction_column():
     assert result["detected_instruction_column"] == "prompt"
 
 
-def test_audio_dataset_does_not_detect_an_instruction_for_an_audio_vlm():
+def test_audio_dataset_surfaces_instruction_column_for_audio_vlm():
     result = check_dataset_format(
         [
             {
@@ -41,9 +41,25 @@ def test_audio_dataset_does_not_detect_an_instruction_for_an_audio_vlm():
     )
 
     assert result["detected_format"] == "audio"
-    assert result["detected_instruction_column"] is None
+    assert result["detected_instruction_column"] == "instruction"
     assert result["detected_audio_column"] == "audio"
     assert result["detected_text_column"] == "text"
+    assert result["requires_manual_mapping"] is False
+
+
+def test_audio_dataset_without_instruction_reports_none():
+    result = check_dataset_format(
+        [
+            {
+                "audio": {"array": [0.0], "sampling_rate": 16000},
+                "text": "A transcript",
+            }
+        ],
+        is_vlm = True,
+    )
+
+    assert result["detected_format"] == "audio"
+    assert result["detected_instruction_column"] is None
 
 
 def _sign_language_row(**extra):

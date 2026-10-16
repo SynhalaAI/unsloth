@@ -1300,11 +1300,23 @@ class UnslothTrainer:
             audio_col = audio_col or detected["detected_audio_column"]
             text_col = text_col or detected["detected_text_column"]
             speaker_col = speaker_col or detected["detected_speaker_column"]
+            # A detected instruction column feeds the audio-VLM formatter's
+            # per-example user prompt; never let it shadow the transcript
+            # column (TTS sets name the line to speak "prompt", which the text
+            # detector also claims).
+            detected_instruction = detected["detected_instruction_column"]
+            instruction_col = (
+                detected_instruction
+                if detected_instruction in cols and detected_instruction != text_col
+                else None
+            )
+        else:
+            instruction_col = None
 
         return {
             "audio_col": audio_col,
             "text_col": text_col,
-            "instruction_col": None,
+            "instruction_col": instruction_col,
             "speaker_col": speaker_col,
         }
 
