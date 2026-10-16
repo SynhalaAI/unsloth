@@ -110,6 +110,9 @@ export function DatasetSelector({
   const setReplayDatasetSource = useTrainingConfigStore(
     (s) => s.setReplayDatasetSource,
   );
+  const setReplayDatasetEnabled = useTrainingConfigStore(
+    (s) => s.setReplayDatasetEnabled,
+  );
   const dataset = isReplay ? replayDataset : mainDataset;
   const datasetSource = isReplay ? replayDatasetSource : mainDatasetSource;
   const uploadedFile = isReplay
@@ -126,29 +129,47 @@ export function DatasetSelector({
     (s) => s.selectLocalDataset,
   );
   // A replay pick writes to the replay fields; the main pick keeps the full store flow
-  // (cache reference, format check, browse restore) untouched.
+  // (cache reference, format check, browse restore) untouched. Picking a replay
+  // dataset also arms it, so a selected-but-forgotten toggle cannot silently
+  // drop replay from the run; the toggle stays fully manual afterwards.
   const selectHfDataset = useCallback(
     (id: string, options?: Parameters<typeof selectHfDatasetMain>[1]) => {
       if (isReplay) {
         setReplayDatasetSource("huggingface");
         setReplayDataset(id);
+        setReplayDatasetEnabled(true);
         return true;
       }
       selectHfDatasetMain(id, options);
       return true;
     },
-    [isReplay, selectHfDatasetMain, setReplayDataset, setReplayDatasetSource],
+    [
+      isReplay,
+      selectHfDatasetMain,
+      setReplayDataset,
+      setReplayDatasetSource,
+      setReplayDatasetEnabled,
+    ],
   );
   const selectLocalDataset = useCallback(
     (path: string | null) => {
       if (isReplay) {
         setReplayDatasetSource("upload");
         setReplayDataset(path);
+        if (path) {
+          setReplayDatasetEnabled(true);
+        }
         return;
       }
       selectLocalDatasetMain(path);
     },
-    [isReplay, selectLocalDatasetMain, setReplayDataset, setReplayDatasetSource],
+    [
+      isReplay,
+      selectLocalDatasetMain,
+      setReplayDataset,
+      setReplayDatasetSource,
+      setReplayDatasetEnabled,
+    ],
   );
   const hfToken = useHfTokenStore((s) => s.token);
   const online = useOnlineStatus();
