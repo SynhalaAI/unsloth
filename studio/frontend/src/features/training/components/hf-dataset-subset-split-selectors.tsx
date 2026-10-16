@@ -46,8 +46,10 @@ type Props = {
   setDatasetSubset: (v: string | null) => void;
   datasetSplit: string | null;
   setDatasetSplit: (v: string | null) => void;
-  datasetEvalSplit: string | null;
-  setDatasetEvalSplit: (v: string | null) => void;
+  datasetEvalSplit?: string | null;
+  setDatasetEvalSplit?: (v: string | null) => void;
+  /** Replay datasets mix one train split: hide the eval dropdown + manual eval field. */
+  showEvalSplit?: boolean;
   datasetStreaming: boolean;
   setManualDatasetOptionsValid: (v: boolean) => void;
   markManualDatasetOptionsEdited: (optionsValid: boolean) => void;
@@ -84,8 +86,9 @@ export function HfDatasetSubsetSplitSelectors({
   setDatasetSubset,
   datasetSplit,
   setDatasetSplit,
-  datasetEvalSplit,
-  setDatasetEvalSplit,
+  datasetEvalSplit = null,
+  setDatasetEvalSplit = () => undefined,
+  showEvalSplit = true,
   datasetStreaming,
   setManualDatasetOptionsValid,
   markManualDatasetOptionsEdited,
@@ -153,25 +156,29 @@ export function HfDatasetSubsetSplitSelectors({
         placeholder={t("studio.dataset.selectors.selectSplit")}
         disabled={disabled}
       />
-      <SelectorDropdown
-        variant={variant}
-        label={t("studio.dataset.selectors.evaluationSplit")}
-        tooltip={t("studio.dataset.selectors.evaluationSplitTooltip")}
-        value={disabled ? null : datasetEvalSplit}
-        onChange={setDatasetEvalSplit}
-        options={disabled ? [] : hfSplits}
-        placeholder={t("studio.dataset.selectors.none")}
-        noneLabel={t("studio.dataset.selectors.none")}
-        allowNone={true}
-        disabled={disabled}
-      />
+      {showEvalSplit && (
+        <SelectorDropdown
+          variant={variant}
+          label={t("studio.dataset.selectors.evaluationSplit")}
+          tooltip={t("studio.dataset.selectors.evaluationSplitTooltip")}
+          value={disabled ? null : datasetEvalSplit}
+          onChange={setDatasetEvalSplit}
+          options={disabled ? [] : hfSplits}
+          placeholder={t("studio.dataset.selectors.none")}
+          noneLabel={t("studio.dataset.selectors.none")}
+          allowNone={true}
+          disabled={disabled}
+        />
+      )}
     </>
   );
+
+  const gridCols = showEvalSplit ? "sm:grid-cols-3" : "sm:grid-cols-2";
 
   return (
     <>
       {showPlaceholderDropdowns && (
-        <div className="grid min-w-0 gap-3 sm:grid-cols-3">
+        <div className={`grid min-w-0 gap-3 ${gridCols}`}>
           {selectorFields(true)}
         </div>
       )}
@@ -203,7 +210,7 @@ export function HfDatasetSubsetSplitSelectors({
 
       {showDropdowns &&
         (variant === "studio" ? (
-          <div className="grid min-w-0 gap-3 sm:grid-cols-3">
+          <div className={`grid min-w-0 gap-3 ${gridCols}`}>
             {selectorFields()}
           </div>
         ) : (
@@ -224,6 +231,7 @@ export function HfDatasetSubsetSplitSelectors({
           setDatasetSplit={setDatasetSplit}
           datasetEvalSplit={datasetEvalSplit}
           setDatasetEvalSplit={setDatasetEvalSplit}
+          showEvalSplit={showEvalSplit}
           datasetStreaming={datasetStreaming}
           setManualDatasetOptionsValid={setManualDatasetOptionsValid}
           markManualDatasetOptionsEdited={markManualDatasetOptionsEdited}
@@ -240,8 +248,9 @@ function ManualDatasetOptions({
   setDatasetSubset,
   datasetSplit,
   setDatasetSplit,
-  datasetEvalSplit,
-  setDatasetEvalSplit,
+  datasetEvalSplit = null,
+  setDatasetEvalSplit = () => undefined,
+  showEvalSplit = true,
   datasetStreaming,
   setManualDatasetOptionsValid,
   markManualDatasetOptionsEdited,
@@ -255,6 +264,7 @@ function ManualDatasetOptions({
   | "setDatasetSplit"
   | "datasetEvalSplit"
   | "setDatasetEvalSplit"
+  | "showEvalSplit"
   | "datasetStreaming"
   | "setManualDatasetOptionsValid"
   | "markManualDatasetOptionsEdited"
@@ -528,39 +538,43 @@ function ManualDatasetOptions({
         />
         <FieldError className="text-xs">{errorMessage(splitError)}</FieldError>
       </Field>
-      <Field className="gap-1.5" data-invalid={evalError !== null}>
-        <FieldLabel htmlFor={`manual-dataset-eval-${variant}`}>
-          {t("studio.dataset.selectors.evaluationSplit")}
-        </FieldLabel>
-        <Input
-          id={`manual-dataset-eval-${variant}`}
-          value={evalDraft}
-          placeholder={t("studio.dataset.selectors.none")}
-          aria-invalid={evalError !== null}
-          onChange={(event) => {
-            const value = event.target.value;
-            const nextDrafts: ManualDatasetOptionDrafts = {
-              ...drafts,
-              evalSplit: { ...drafts.evalSplit, value, error: null },
-            };
-            setStoredDrafts(nextDrafts);
-            markManualDatasetOptionsEdited(
-              manualDatasetDraftsAreValid(
-                nextDrafts.subset.value,
-                nextDrafts.split.value,
-                nextDrafts.evalSplit.value,
-                requireExplicitSplit,
-                allowSplitInstructions,
-              ),
-            );
-          }}
-          onBlur={commitEvalSplit}
-          onKeyDown={blurOnEnter}
-        />
-        <FieldError className="text-xs">{errorMessage(evalError)}</FieldError>
-      </Field>
+      {showEvalSplit && (
+        <Field className="gap-1.5" data-invalid={evalError !== null}>
+          <FieldLabel htmlFor={`manual-dataset-eval-${variant}`}>
+            {t("studio.dataset.selectors.evaluationSplit")}
+          </FieldLabel>
+          <Input
+            id={`manual-dataset-eval-${variant}`}
+            value={evalDraft}
+            placeholder={t("studio.dataset.selectors.none")}
+            aria-invalid={evalError !== null}
+            onChange={(event) => {
+              const value = event.target.value;
+              const nextDrafts: ManualDatasetOptionDrafts = {
+                ...drafts,
+                evalSplit: { ...drafts.evalSplit, value, error: null },
+              };
+              setStoredDrafts(nextDrafts);
+              markManualDatasetOptionsEdited(
+                manualDatasetDraftsAreValid(
+                  nextDrafts.subset.value,
+                  nextDrafts.split.value,
+                  nextDrafts.evalSplit.value,
+                  requireExplicitSplit,
+                  allowSplitInstructions,
+                ),
+              );
+            }}
+            onBlur={commitEvalSplit}
+            onKeyDown={blurOnEnter}
+          />
+          <FieldError className="text-xs">{errorMessage(evalError)}</FieldError>
+        </Field>
+      )}
     </>
   );
+
+  const manualGridCols = showEvalSplit ? "sm:grid-cols-3" : "sm:grid-cols-2";
 
   return (
     <div
@@ -576,7 +590,7 @@ function ManualDatasetOptions({
       <p className="mt-1 text-xs text-muted-foreground">
         {t("studio.dataset.selectors.manualDescription")}
       </p>
-      <div className="mt-3 grid min-w-0 gap-3 sm:grid-cols-3">{fields}</div>
+      <div className={`mt-3 grid min-w-0 gap-3 ${manualGridCols}`}>{fields}</div>
     </div>
   );
 }
