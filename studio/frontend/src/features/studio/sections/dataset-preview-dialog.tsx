@@ -202,9 +202,15 @@ export function DatasetPreviewDialog({
   const isDecisionModel = modelType === "decision";
   const hasHeuristicMapping =
     !data?.requires_manual_mapping && !!data?.suggested_mapping;
+  // Plain-audio auto-detect skips a detected instruction column; keep the role pickers
+  // available so it can be mapped to user (and stay mapped on later renders).
+  const hasUnmappedAudioInstruction =
+    effectiveIsAudio && !!data?.detected_instruction_column;
   const mappingEnabled =
     !(isRawFormat || isDecisionModel) &&
-    (!!data?.requires_manual_mapping || hasHeuristicMapping);
+    (!!data?.requires_manual_mapping ||
+      hasHeuristicMapping ||
+      hasUnmappedAudioInstruction);
   const showMappingFooter = mode === "mapping" && mappingEnabled;
   const mappingOk =
     isRawFormat ||
@@ -219,6 +225,7 @@ export function DatasetPreviewDialog({
     datasetFormat,
     effectiveIsAudio,
     isAudioVlm,
+    !!data?.detected_instruction_column,
   );
   const isHfDataset = datasetSource === "huggingface";
   const readyForTraining =
@@ -414,10 +421,15 @@ export function DatasetPreviewDialog({
     if (!open || !datasetName || isDecisionModel) return;
     const shouldPreserveAudioVlmInstruction =
       isAudioVlm && !!data?.detected_instruction_column;
+    const shouldMapAudioInstruction =
+      effectiveIsAudio &&
+      !isAudioVlm &&
+      !!data?.detected_instruction_column;
     if (
       !data?.requires_manual_mapping &&
       !data?.suggested_mapping &&
-      !shouldPreserveAudioVlmInstruction
+      !shouldPreserveAudioVlmInstruction &&
+      !shouldMapAudioInstruction
     ) {
       return;
     }

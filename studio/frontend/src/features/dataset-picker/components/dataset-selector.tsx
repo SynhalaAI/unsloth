@@ -91,19 +91,64 @@ const DECISION_DATASET_IDS = [
   "tasksource/synthetic-typed-decisions",
 ];
 
-export function DatasetSelector() {
+export function DatasetSelector({
+  target = "main",
+  label,
+}: {
+  target?: "main" | "replay";
+  label?: string;
+} = {}) {
   const t = useT();
   const navigate = useNavigate();
-  const dataset = useTrainingConfigStore((s) => s.dataset);
-  const uploadedFile = useTrainingConfigStore((s) => s.uploadedFile);
-  const datasetSource = useTrainingConfigStore((s) => s.datasetSource);
+  const isReplay = target === "replay";
+  const mainDataset = useTrainingConfigStore((s) => s.dataset);
+  const mainUploadedFile = useTrainingConfigStore((s) => s.uploadedFile);
+  const mainDatasetSource = useTrainingConfigStore((s) => s.datasetSource);
+  const replayDataset = useTrainingConfigStore((s) => s.replayDataset);
+  const replayDatasetSource = useTrainingConfigStore((s) => s.replayDatasetSource);
+  const setReplayDataset = useTrainingConfigStore((s) => s.setReplayDataset);
+  const setReplayDatasetSource = useTrainingConfigStore(
+    (s) => s.setReplayDatasetSource,
+  );
+  const dataset = isReplay ? replayDataset : mainDataset;
+  const datasetSource = isReplay ? replayDatasetSource : mainDatasetSource;
+  const uploadedFile = isReplay
+    ? replayDatasetSource === "upload"
+      ? replayDataset
+      : null
+    : mainUploadedFile;
   const isDecision = useTrainingConfigStore((s) => s.modelType === "decision");
   const modelType = useTrainingConfigStore((s) =>
     s.modelType === "decision" ? null : s.modelType,
   );
-  const selectHfDataset = useTrainingConfigStore((s) => s.selectHfDataset);
-  const selectLocalDataset = useTrainingConfigStore(
+  const selectHfDatasetMain = useTrainingConfigStore((s) => s.selectHfDataset);
+  const selectLocalDatasetMain = useTrainingConfigStore(
     (s) => s.selectLocalDataset,
+  );
+  // A replay pick writes to the replay fields; the main pick keeps the full store flow
+  // (cache reference, format check, browse restore) untouched.
+  const selectHfDataset = useCallback(
+    (id: string, options?: Parameters<typeof selectHfDatasetMain>[1]) => {
+      if (isReplay) {
+        setReplayDatasetSource("huggingface");
+        setReplayDataset(id);
+        return true;
+      }
+      selectHfDatasetMain(id, options);
+      return true;
+    },
+    [isReplay, selectHfDatasetMain, setReplayDataset, setReplayDatasetSource],
+  );
+  const selectLocalDataset = useCallback(
+    (path: string | null) => {
+      if (isReplay) {
+        setReplayDatasetSource("upload");
+        setReplayDataset(path);
+        return;
+      }
+      selectLocalDatasetMain(path);
+    },
+    [isReplay, selectLocalDatasetMain, setReplayDataset, setReplayDatasetSource],
   );
   const hfToken = useHfTokenStore((s) => s.token);
   const online = useOnlineStatus();
@@ -375,7 +420,7 @@ export function DatasetSelector() {
           title={
             (datasetSource === "upload" ? uploadedFile : dataset) ?? undefined
           }
-          aria-label={`${t("studio.wizard.datasetLabel")}: ${
+          aria-label={`${label ?? t("studio.wizard.datasetLabel")}: ${
             display ?? t("studio.datasetPicker.selectDataset")
           }`}
           className={cn(PICKER_TRIGGER_CLASS, "w-full justify-between")}

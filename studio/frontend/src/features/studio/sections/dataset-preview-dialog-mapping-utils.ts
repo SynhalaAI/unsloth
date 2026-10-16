@@ -35,9 +35,12 @@ export function getAvailableRoles(
   format?: string,
   isAudio?: boolean,
   isAudioVlm?: boolean,
+  hasInstructionColumn?: boolean,
 ): readonly string[] {
   if (isAudio) {
-    return isAudioVlm ? AUDIO_VLM_ROLES : AUDIO_ROLES;
+    // A detected but unmapped instruction column needs the user role to become mappable
+    // (plain-audio auto-detect skips it; the audio-VLM role list carries it).
+    return isAudioVlm || hasInstructionColumn ? AUDIO_VLM_ROLES : AUDIO_ROLES;
   }
   if (isVlm) {
     return VLM_ROLES;

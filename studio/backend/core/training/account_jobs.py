@@ -128,6 +128,11 @@ def require_explicit_credentials(values: dict) -> None:
                     detail = "Supply your own Hugging Face token for remote training resources",
                 )
     for entry in values.get("replay_datasets") or []:
+        replay_source = (
+            entry.get("source") if isinstance(entry, dict) else getattr(entry, "source", None)
+        )
+        if replay_source == "local":
+            continue
         replay_reference = (
             entry.get("dataset") if isinstance(entry, dict) else getattr(entry, "dataset", None)
         )

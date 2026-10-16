@@ -1643,6 +1643,8 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
         setReplayDatasetEnabled: (replayDatasetEnabled) =>
           setUserEdit({ replayDatasetEnabled }),
         setReplayDataset: (replayDataset) => setUserEdit({ replayDataset }),
+        setReplayDatasetSource: (replayDatasetSource) =>
+          setUserEdit({ replayDatasetSource }),
         setReplayDatasetSubset: (replayDatasetSubset) =>
           setUserEdit({ replayDatasetSubset }),
         setReplayDatasetSplit: (replayDatasetSplit) =>

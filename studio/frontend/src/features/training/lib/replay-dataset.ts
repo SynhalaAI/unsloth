@@ -32,6 +32,7 @@ export function sendsReplayDataset(
 ): boolean {
   if (!config.replayDatasetEnabled) return false;
   if (system?.device_backend === "mlx") return false;
+  if (config.replayDatasetSource === "s3") return false; // replay has no S3 source
   if (!(config.replayDataset ?? "").trim()) return false;
   const probability = Number(config.replayDatasetProbability);
   if (!Number.isFinite(probability) || probability < 1 || probability > 95) return false;

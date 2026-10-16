@@ -360,6 +360,8 @@ export function buildTrainingStartPayload(
       ? {
           replay_datasets: [
             {
+              source:
+                config.replayDatasetSource === "upload" ? "local" : "huggingface",
               dataset: (config.replayDataset ?? "").trim(),
               subset: config.replayDatasetSubset?.trim() || null,
               split: config.replayDatasetSplit?.trim() || "train",

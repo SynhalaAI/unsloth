@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { usePlatformStore } from "@/config/env";
+import { DatasetSelector } from "@/features/dataset-picker";
 import {
   replayDatasetSupported,
   useTrainingConfigStore,
@@ -20,8 +21,10 @@ import { type ReactElement, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ParamsRow } from "./params-section-controls";
 
-/** Optional replay dataset: rows from a second Hugging Face dataset interleaved into the main
- * training data to slow catastrophic forgetting across staged fine-tunes. */
+/** Optional replay dataset: rows from a second dataset (Hugging Face Hub or a local device
+ * file/folder) interleaved into the main training data to slow catastrophic forgetting across
+ * staged fine-tunes. The picker is the same one the main dataset uses, writing to the
+ * replay fields instead. */
 export function ReplayDatasetSection(): ReactElement | null {
   const t = useT();
   const deviceType = usePlatformStore((state) => state.deviceType);
@@ -30,11 +33,11 @@ export function ReplayDatasetSection(): ReactElement | null {
       supported: replayDatasetSupported(state),
       enabled: state.replayDatasetEnabled,
       dataset: state.replayDataset,
+      source: state.replayDatasetSource,
       subset: state.replayDatasetSubset,
       split: state.replayDatasetSplit,
       probability: state.replayDatasetProbability,
       setEnabled: state.setReplayDatasetEnabled,
-      setDataset: state.setReplayDataset,
       setSubset: state.setReplayDatasetSubset,
       setSplit: state.setReplayDatasetSplit,
       setProbability: state.setReplayDatasetProbability,
@@ -48,6 +51,7 @@ export function ReplayDatasetSection(): ReactElement | null {
   }
 
   const repoReady = (store.dataset ?? "").trim().length > 0;
+  const isHubSource = store.source === "huggingface";
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
@@ -72,27 +76,33 @@ export function ReplayDatasetSection(): ReactElement | null {
               onCheckedChange={(value) => store.setEnabled(!!value)}
             />
           </ParamsRow>
-          <ParamsRow label={t("studio.dataset.replayDatasetId")}>
-            <Input
-              value={store.dataset ?? ""}
-              placeholder={t("studio.dataset.replayDatasetPlaceholder")}
-              onChange={(event) => store.setDataset(event.target.value)}
+          <div className="flex flex-col gap-2">
+            <span className="text-ui-11 font-medium uppercase tracking-[0.05em] text-muted-foreground/70">
+              {t("studio.dataset.replayDatasetId")}
+            </span>
+            <DatasetSelector
+              target="replay"
+              label={t("studio.dataset.replayDatasetId")}
             />
-          </ParamsRow>
-          <ParamsRow label={t("studio.dataset.replaySubset")}>
-            <Input
-              value={store.subset ?? ""}
-              placeholder={t("studio.dataset.replayOptionalPlaceholder")}
-              onChange={(event) => store.setSubset(event.target.value || null)}
-            />
-          </ParamsRow>
-          <ParamsRow label={t("studio.dataset.replaySplit")}>
-            <Input
-              value={store.split ?? ""}
-              placeholder={t("studio.dataset.replaySplitPlaceholder")}
-              onChange={(event) => store.setSplit(event.target.value || null)}
-            />
-          </ParamsRow>
+          </div>
+          {isHubSource && (
+            <>
+              <ParamsRow label={t("studio.dataset.replaySubset")}>
+                <Input
+                  value={store.subset ?? ""}
+                  placeholder={t("studio.dataset.replayOptionalPlaceholder")}
+                  onChange={(event) => store.setSubset(event.target.value || null)}
+                />
+              </ParamsRow>
+              <ParamsRow label={t("studio.dataset.replaySplit")}>
+                <Input
+                  value={store.split ?? ""}
+                  placeholder={t("studio.dataset.replaySplitPlaceholder")}
+                  onChange={(event) => store.setSplit(event.target.value || null)}
+                />
+              </ParamsRow>
+            </>
+          )}
           <ParamsRow label={t("studio.dataset.replayProbability")}>
             <Input
               type="number"

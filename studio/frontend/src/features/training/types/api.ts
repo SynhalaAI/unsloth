@@ -5,6 +5,8 @@ import type { ModelInventoryFormat } from "@/features/hub";
 import type { S3Config } from "@/types/training";
 
 export interface ReplayDatasetRequest {
+  /** Where the replay lives: a Hub repo id or a local device path. Defaults to huggingface. */
+  source?: "huggingface" | "local";
   dataset: string;
   subset: string | null;
   split: string | null;

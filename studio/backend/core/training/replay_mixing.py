@@ -9,7 +9,7 @@ happens AFTER formatting and AFTER the eval split is carved out, so replay rows 
 enter eval and share the main dataset's final schema.
 
 Disabled by default: a run without ``replay_datasets`` never reaches this module's mixing
-path. Only Hugging Face Hub datasets are supported (v1); the MLX worker refuses mixing
+path. Sources: Hugging Face Hub repo ids and local device paths; the MLX worker refuses mixing
 up front and the schema refuses streaming, raw-text/CPT and preference runs.
 """
 
@@ -47,6 +47,56 @@ def mix_replay_datasets(main_dataset, replay_datasets, probabilities, *, seed = 
     )
 
 
+def _resolve_local_replay_files(paths):
+    """Resolve local replay paths to concrete dataset files (parity with
+    UnslothTrainer._resolve_local_files, without importing the torch-heavy trainer)."""
+    import os
+    from pathlib import Path
+    from utils.paths import dataset_files_in_dir, resolve_dataset_path
+
+    all_files = []
+    for entry in paths:
+        if os.path.isabs(entry):
+            resolved = entry
+        elif os.path.exists(entry):
+            resolved = os.path.abspath(entry)
+        else:
+            resolved = str(resolve_dataset_path(entry))
+        path_obj = Path(resolved)
+        if path_obj.is_dir():
+            all_files.extend(str(p) for p in dataset_files_in_dir(path_obj))
+        else:
+            all_files.append(str(path_obj))
+    return all_files
+
+
+def _load_local_replay(spec):
+    """Load a local (device) replay dataset: HF disk directory or a json/jsonl/csv/parquet file."""
+    from pathlib import Path
+    from datasets import load_dataset, load_from_disk
+    from utils.datasets.cells import csv_as_text_kwargs
+
+    entry = str(spec.get("dataset") or "").strip()
+    direct = Path(entry)
+    if direct.is_dir() and ((direct / "dataset_info.json").exists() or (direct / "state.json").exists()):
+        return load_from_disk(str(direct))
+    files = _resolve_local_replay_files([entry])
+    if not files:
+        raise ValueError("Replay dataset: no files found at " + entry)
+    first_ext = Path(files[0]).suffix.lower()
+    if first_ext in (".json", ".jsonl"):
+        loader = "json"
+    elif first_ext == ".csv":
+        loader = "csv"
+    elif first_ext == ".parquet":
+        loader = "parquet"
+    else:
+        raise ValueError("Unsupported replay dataset format: " + files[0])
+    return load_dataset(
+        loader, data_files = files, split = "train", **csv_as_text_kwargs(files)
+    )
+
+
 def _load_and_format_replay(
     spec,
     *,
@@ -61,16 +111,19 @@ def _load_and_format_replay(
     from utils.datasets import format_and_template_dataset
 
     name = str(spec.get("dataset") or "").strip()
-    subset = spec.get("subset") or None
-    split = str(spec.get("split") or "train") or "train"
-    load_kwargs = {"split": split}
-    if hf_token:
-        load_kwargs["token"] = hf_token
-    dataset = (
-        load_dataset(name, subset, **load_kwargs)
-        if subset
-        else load_dataset(name, **load_kwargs)
-    )
+    if spec.get("source", "huggingface") == "local":
+        dataset = _load_local_replay(spec)
+    else:
+        subset = spec.get("subset") or None
+        split = str(spec.get("split") or "train") or "train"
+        load_kwargs = {"split": split}
+        if hf_token:
+            load_kwargs["token"] = hf_token
+        dataset = (
+            load_dataset(name, subset, **load_kwargs)
+            if subset
+            else load_dataset(name, **load_kwargs)
+        )
     info = format_and_template_dataset(
         dataset,
         model_name = model_name,

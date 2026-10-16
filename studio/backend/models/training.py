@@ -142,12 +142,15 @@ class ReplayDatasetConfig(BaseModel):
     replay). Omitted or empty = off; a run without it posts exactly the fields it did before."""
 
     model_config = ConfigDict(extra = "ignore")
+    source: Literal["huggingface", "local"] = Field(
+        "huggingface", description = "Where the replay dataset lives: Hub repo id or a local path",
+    )
 
     dataset: str = Field(
         ...,
         min_length = 1,
-        max_length = 256,
-        description = "Hugging Face dataset repo id to replay",
+        max_length = 1024,
+        description = "Hub repo id (source=huggingface) or absolute file/directory path (source=local)",
     )
     subset: Optional[str] = Field(None, max_length = MAX_HF_DATASET_OPTION_LENGTH)
     split: str = Field("train", min_length = 1, max_length = MAX_HF_DATASET_OPTION_LENGTH)
@@ -158,15 +161,20 @@ class ReplayDatasetConfig(BaseModel):
         description = "Share of the mixed dataset drawn from this replay dataset",
     )
 
+    @model_validator(mode = "after")
+    def _validate_source_dataset(self) -> "ReplayDatasetConfig":
+        v = self.dataset
+        if self.source == "huggingface":
+            if ".." in v:
+                raise ValueError("replay dataset must not contain .. sequence")
+            if any(_HF_DATASET_ID_SEGMENT_RE.fullmatch(segment) is None for segment in v.split("/")):
+                raise ValueError("replay dataset contains invalid characters or path segments")
+        return self
+
     @field_validator("dataset")
     @classmethod
     def _check_dataset(cls, v: str) -> str:
-        v = v.strip()
-        if ".." in v:
-            raise ValueError("replay dataset must not contain .. sequence")
-        if any(_HF_DATASET_ID_SEGMENT_RE.fullmatch(segment) is None for segment in v.split("/")):
-            raise ValueError("replay dataset contains invalid characters or path segments")
-        return v
+        return v.strip()
 
     @field_validator("subset")
     @classmethod

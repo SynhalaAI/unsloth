@@ -44,7 +44,13 @@ test("replay is off by default and the payload has no replay_datasets key", () =
 test("an armed replay dataset rides the payload normalized", () => {
   const payload = buildTrainingStartPayload(config(ON), null);
   assert.deepEqual(payload.replay_datasets, [
-    { dataset: "org/replay-pack", subset: null, split: "train", probability: 0.2 },
+    {
+      source: "huggingface",
+      dataset: "org/replay-pack",
+      subset: null,
+      split: "train",
+      probability: 0.2,
+    },
   ]);
   const withOptions = buildTrainingStartPayload(
     config({
@@ -56,7 +62,13 @@ test("an armed replay dataset rides the payload normalized", () => {
     null,
   );
   assert.deepEqual(withOptions.replay_datasets, [
-    { dataset: "org/replay-pack", subset: "dev", split: "validation", probability: 0.95 },
+    {
+      source: "huggingface",
+      dataset: "org/replay-pack",
+      subset: "dev",
+      split: "validation",
+      probability: 0.95,
+    },
   ]);
 });
 
@@ -88,4 +100,20 @@ test("armed but unusable settings leave the payload exactly as unarmed", () => {
 test("an mlx backend drops replay even when armed", () => {
   const mlx = buildTrainingStartPayload(config(ON), null, { device_backend: "mlx" } as never);
   assert.equal(Object.hasOwn(mlx, "replay_datasets"), false);
+});
+
+test("a local device path rides the payload with source local", () => {
+  const payload = buildTrainingStartPayload(
+    config({ ...ON, replayDataset: "E:/datasets/replay.jsonl", replayDatasetSource: "upload" }),
+    null,
+  );
+  assert.deepEqual(payload.replay_datasets, [
+    {
+      source: "local",
+      dataset: "E:/datasets/replay.jsonl",
+      subset: null,
+      split: "train",
+      probability: 0.2,
+    },
+  ]);
 });

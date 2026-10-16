@@ -206,3 +206,12 @@ test("audio VLM preview does not warn about an auto-selected instruction", () =>
 
   assert.deepEqual(getUnselectedInstructionColumns(data, selections, true), []);
 });
+
+test("plain audio with a detected instruction column offers the user role", () => {
+  const withoutInstruction = getAvailableRoles(false, undefined, true, false);
+  assert.deepEqual([...withoutInstruction], ["audio", "text", "speaker_id"]);
+  const withInstruction = getAvailableRoles(false, undefined, true, false, true);
+  assert.deepEqual([...withInstruction], ["audio", "user", "text", "speaker_id"]);
+  const audioVlm = getAvailableRoles(false, undefined, true, true);
+  assert.ok(audioVlm.includes("user"));
+});

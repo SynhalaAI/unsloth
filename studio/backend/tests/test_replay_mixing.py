@@ -101,3 +101,26 @@ def test_apply_replay_mixing_is_a_noop_without_specs():
     result = apply_replay_mixing(info, None, model_name="m", tokenizer=None, format_type="alpaca")
     assert result is info
 
+
+
+def test_replay_local_source_accepts_a_path():
+    request = _request(
+        replay_datasets=[{"source": "local", "dataset": "E:/data/replay.jsonl", "probability": 0.2}]
+    )
+    assert request.replay_datasets[0].source == "local"
+
+
+def test_replay_hf_source_rejects_a_filesystem_path():
+    with pytest.raises(ValidationError):
+        _request(replay_datasets=[{"dataset": "E:/data/replay.jsonl", "probability": 0.2}])
+
+
+def test_load_local_replay_reads_a_jsonl_file(tmp_path):
+    pytest.importorskip("datasets")
+    from core.training.replay_mixing import _load_local_replay
+
+    path = tmp_path / "replay.jsonl"
+    path.write_text("{\"text\": \"a\"}\n{\"text\": \"b\"}\n", encoding="utf-8")
+    loaded = _load_local_replay({"source": "local", "dataset": str(path)})
+    assert len(loaded) == 2
+    assert list(loaded["text"]) == ["a", "b"]

@@ -125,6 +125,7 @@ export interface TrainingConfigState {
   /** Optional replay dataset mixed into the main training data (catastrophic-forgetting replay). */
   replayDatasetEnabled: boolean;
   replayDataset: string | null;
+  replayDatasetSource: DatasetSource;
   replayDatasetSubset: string | null;
   replayDatasetSplit: string | null;
   /** Share of replay rows drawn into the mix, in percent (1-95). */
@@ -328,6 +329,7 @@ export interface TrainingConfigActions {
   setDrafterCapability: (value: DrafterCapability | null) => void;
   setReplayDatasetEnabled: (value: boolean) => void;
   setReplayDataset: (value: string | null) => void;
+  setReplayDatasetSource: (value: DatasetSource) => void;
   setReplayDatasetSubset: (value: string | null) => void;
   setReplayDatasetSplit: (value: string | null) => void;
   setReplayDatasetProbability: (value: number) => void;

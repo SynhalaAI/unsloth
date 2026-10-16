@@ -95,6 +95,7 @@ export const initialTrainingConfigState: TrainingConfigState = {
   datasetSliceEnd: null,
   replayDatasetEnabled: false,
   replayDataset: null,
+  replayDatasetSource: "huggingface",
   replayDatasetSubset: null,
   replayDatasetSplit: null,
   replayDatasetProbability: 20,
