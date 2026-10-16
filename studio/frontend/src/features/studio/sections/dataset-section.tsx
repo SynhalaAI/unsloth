@@ -9,6 +9,7 @@ import { type ReactNode, useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { DatasetAdvancedSettingsSection } from "./dataset-advanced-settings-section";
 import { DatasetSelectionSection } from "./dataset-selection";
+import { ReplayDatasetSection } from "./replay-dataset-section";
 import { DatasetUploadField } from "./dataset-upload";
 import { FieldHint } from "./field-hint";
 import { S3ConfigForm } from "./s3-config-form";
@@ -84,6 +85,7 @@ export function DatasetPanel() {
         localInventorySettled={localDatasetInventory.settled}
         uploads={uploads}
       />
+      <ReplayDatasetSection />
       <DatasetAdvancedSettingsSection />
     </div>
   );

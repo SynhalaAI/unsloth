@@ -1640,6 +1640,15 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
           setUserEdit({ drafterDraftSteps }),
         setDrafterCapability: (drafterCapability) =>
           set({ drafterCapability }),
+        setReplayDatasetEnabled: (replayDatasetEnabled) =>
+          setUserEdit({ replayDatasetEnabled }),
+        setReplayDataset: (replayDataset) => setUserEdit({ replayDataset }),
+        setReplayDatasetSubset: (replayDatasetSubset) =>
+          setUserEdit({ replayDatasetSubset }),
+        setReplayDatasetSplit: (replayDatasetSplit) =>
+          setUserEdit({ replayDatasetSplit }),
+        setReplayDatasetProbability: (replayDatasetProbability) =>
+          setUserEdit({ replayDatasetProbability }),
         setPacking: (packing) => setUserEdit({ packing }),
         setTrainOnCompletions: (trainOnCompletions) => {
           _trainOnCompletionsManuallySet = true;

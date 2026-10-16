@@ -37,6 +37,7 @@ export {
 export { useMaxStepsEpochsToggle } from "./hooks/use-max-steps-epochs-toggle";
 export { useDrafterCapability } from "./hooks/use-drafter-capability";
 export { drafterEligible } from "./lib/drafter-config";
+export { replayDatasetSupported, sendsReplayDataset } from "./lib/replay-dataset";
 export { HfDatasetSubsetSplitSelectors } from "./components/hf-dataset-subset-split-selectors";
 export { ResumeCheckpointPicker } from "./components/resume-checkpoint-picker";
 export { useDatasetPreviewDialogStore } from "./stores/dataset-preview-dialog-store";

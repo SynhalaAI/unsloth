@@ -122,6 +122,13 @@ export interface TrainingConfigState {
   datasetAdvisorNotification: string | null;
   datasetSliceStart: string | null;
   datasetSliceEnd: string | null;
+  /** Optional replay dataset mixed into the main training data (catastrophic-forgetting replay). */
+  replayDatasetEnabled: boolean;
+  replayDataset: string | null;
+  replayDatasetSubset: string | null;
+  replayDatasetSplit: string | null;
+  /** Share of replay rows drawn into the mix, in percent (1-95). */
+  replayDatasetProbability: number;
   uploadedFile: string | null;
   uploadedEvalFile: string | null;
   epochs: number;
@@ -319,6 +326,11 @@ export interface TrainingConfigActions {
   setDrafterLearningRate: (value: number | null) => void;
   setDrafterDraftSteps: (value: number) => void;
   setDrafterCapability: (value: DrafterCapability | null) => void;
+  setReplayDatasetEnabled: (value: boolean) => void;
+  setReplayDataset: (value: string | null) => void;
+  setReplayDatasetSubset: (value: string | null) => void;
+  setReplayDatasetSplit: (value: string | null) => void;
+  setReplayDatasetProbability: (value: number) => void;
   setPacking: (value: boolean) => void;
   setTrainOnCompletions: (value: boolean) => void;
   setGradientCheckpointing: (value: GradientCheckpointing) => void;

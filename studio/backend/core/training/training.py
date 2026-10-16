@@ -256,6 +256,7 @@ def _build_training_worker_config(values: dict[str, Any]) -> dict[str, Any]:
         "dataset_revision": values.get("dataset_revision"),
         "local_datasets": values.get("local_datasets"),
         "local_eval_datasets": values.get("local_eval_datasets"),
+        "replay_datasets": values.get("replay_datasets"),
         "format_type": values.get("format_type", ""),
         "subset": values.get("subset"),
         "train_split": values.get("train_split", "train"),

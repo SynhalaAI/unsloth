@@ -2838,6 +2838,12 @@ def _run_mlx_training(event_queue, stop_queue, config):
     import math
     from pathlib import Path
 
+    if config.get("replay_datasets"):
+        raise ValueError(
+            "Unsloth: replay datasets are not supported on the MLX training backend yet. "
+            "Start the run without a replay dataset."
+        )
+
     def _send(event_type, **kwargs):
         if event_type == "status" and "message" not in kwargs:
             sm = kwargs.get("status_message")
@@ -4665,6 +4671,25 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
                 loaded_eval_dataset = None
             if eval_steps is not None and float(eval_steps) <= 0:
                 loaded_eval_dataset = None
+            if config.get("replay_datasets"):
+                from core.training.replay_mixing import apply_replay_mixing
+
+                if not isinstance(loaded_dataset, dict) or loaded_dataset.get("dataset") is None:
+                    raise ValueError(
+                        "Unsloth: replay datasets need the formatted SFT training path; "
+                        "this run produced no formatted dataset dict to mix into."
+                    )
+                loaded_dataset = apply_replay_mixing(
+                    loaded_dataset,
+                    config["replay_datasets"],
+                    model_name = model_name,
+                    tokenizer = trainer.tokenizer,
+                    format_type = config.get("format_type", ""),
+                    custom_format_mapping = config.get("custom_format_mapping"),
+                    is_vlm = bool(getattr(trainer, "is_vlm", False)),
+                    hf_token = hf_token,
+                    on_status = lambda message: _send_status(event_queue, message),
+                )
             snapshot = getattr(trainer, "dataset_snapshot_path", None)
             if snapshot:
                 config["dataset_snapshot_path"] = snapshot

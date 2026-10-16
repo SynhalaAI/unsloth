@@ -3644,6 +3644,18 @@ export const en = {
       previewLoadingHuggingFace:
         "Fetching dataset preview from Hugging Face...",
       previewLoading: "Loading preview...",
+      replayLabel: "Replay dataset (optional)",
+      replayEnable: "Mix a replay dataset into training",
+      replayTooltip:
+        "Rows from a second Hugging Face dataset are interleaved into the main training data to slow catastrophic forgetting when a later run trains on new data only.",
+      replayDatasetId: "Replay dataset",
+      replayDatasetPlaceholder: "org/replay-pack",
+      replaySubset: "Replay subset",
+      replayOptionalPlaceholder: "(optional)",
+      replaySplit: "Replay split",
+      replaySplitPlaceholder: "train",
+      replayProbability: "Replay share %",
+      replayHint: "The mix stops when the main dataset runs out, so an epoch stays one pass over the main data.",
       mappingRequirements: {
         audioAndText: "audio and text",
         imageAndText: "image and text",

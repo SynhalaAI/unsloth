@@ -7,6 +7,7 @@ import {
 } from "../lib/training-methods";
 import type { SystemInfoResponse } from "@/hooks/use-system";
 import { drafterEligible, drafterRequestFrom } from "../lib/drafter-config";
+import { sendsReplayDataset } from "../lib/replay-dataset";
 import type { TrainingStartRequest } from "../types/api";
 import type { TrainingConfigState } from "../types/config";
 
@@ -354,6 +355,19 @@ export function buildTrainingStartPayload(
     resume_from_checkpoint: config.resumeTrainingEnabled
       ? (config.resumeCheckpointPath ?? null)
       : null,
+   // Spread only when armed: a run without replay posts exactly the fields it did before.
+    ...(sendsReplayDataset(config, system)
+      ? {
+          replay_datasets: [
+            {
+              dataset: (config.replayDataset ?? "").trim(),
+              subset: config.replayDatasetSubset?.trim() || null,
+              split: config.replayDatasetSplit?.trim() || "train",
+              probability: Math.min(0.95, Math.max(0.01, config.replayDatasetProbability / 100)),
+            },
+          ],
+        }
+      : {}),
     // Spread only when sent: a run without a drafter posts exactly the fields it did before.
     ...(sendsDrafter(config, system)
       ? { drafter: drafterRequestFrom(config) }

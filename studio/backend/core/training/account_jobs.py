@@ -127,6 +127,20 @@ def require_explicit_credentials(values: dict) -> None:
                     status_code = 403,
                     detail = "Supply your own Hugging Face token for remote training resources",
                 )
+    for entry in values.get("replay_datasets") or []:
+        replay_reference = (
+            entry.get("dataset") if isinstance(entry, dict) else getattr(entry, "dataset", None)
+        )
+        if (
+            replay_reference
+            and not Path(str(replay_reference)).is_absolute()
+            and not Path(str(replay_reference)).exists()
+        ):
+            if not isinstance(values.get("hf_token"), str) or not values["hf_token"].strip():
+                raise HTTPException(
+                    status_code = 403,
+                    detail = "Supply your own Hugging Face token for remote training resources",
+                )
     if values.get("push_to_hub") and not values.get("hf_token"):
         raise HTTPException(status_code = 403, detail = "Supply your own Hugging Face token to publish")
     s3 = values.get("s3_dataset") or values.get("s3_config")

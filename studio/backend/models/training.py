@@ -137,6 +137,60 @@ class DrafterTrainingConfig(BaseModel):
         return value
 
 
+class ReplayDatasetConfig(BaseModel):
+    """An optional replay dataset mixed into the main training data (catastrophic-forgetting
+    replay). Omitted or empty = off; a run without it posts exactly the fields it did before."""
+
+    model_config = ConfigDict(extra = "ignore")
+
+    dataset: str = Field(
+        ...,
+        min_length = 1,
+        max_length = 256,
+        description = "Hugging Face dataset repo id to replay",
+    )
+    subset: Optional[str] = Field(None, max_length = MAX_HF_DATASET_OPTION_LENGTH)
+    split: str = Field("train", min_length = 1, max_length = MAX_HF_DATASET_OPTION_LENGTH)
+    probability: float = Field(
+        ...,
+        gt = 0.0,
+        lt = 1.0,
+        description = "Share of the mixed dataset drawn from this replay dataset",
+    )
+
+    @field_validator("dataset")
+    @classmethod
+    def _check_dataset(cls, v: str) -> str:
+        v = v.strip()
+        if ".." in v:
+            raise ValueError("replay dataset must not contain .. sequence")
+        if any(_HF_DATASET_ID_SEGMENT_RE.fullmatch(segment) is None for segment in v.split("/")):
+            raise ValueError("replay dataset contains invalid characters or path segments")
+        return v
+
+    @field_validator("subset")
+    @classmethod
+    def _check_subset(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            return None
+        if len(v) > MAX_HF_DATASET_OPTION_LENGTH:
+            raise ValueError(f"subset is too long (max {MAX_HF_DATASET_OPTION_LENGTH} chars)")
+        if not valid_hf_dataset_config_name(v):
+            raise ValueError("subset contains invalid characters")
+        return v
+
+    @field_validator("split")
+    @classmethod
+    def _check_split(cls, v: str) -> str:
+        v = v.strip() or "train"
+        if not valid_hf_dataset_split_name(v):
+            raise ValueError("split contains invalid characters")
+        return v
+
+
 class TrainingStartRequest(BaseModel):
     """Request schema for starting training"""
 
@@ -269,6 +323,12 @@ class TrainingStartRequest(BaseModel):
         le = _MAX_DATASET_SLICE_INDEX,
         description = "Inclusive end row index for dataset slicing",
     )
+    replay_datasets: Optional[List[ReplayDatasetConfig]] = Field(
+        None,
+        max_length = 4,
+        description = "Optional replay datasets interleaved into the training data to slow "
+        "catastrophic forgetting when a later run trains on new data only",
+    )
 
     @model_validator(mode = "before")
     @classmethod
@@ -321,6 +381,28 @@ class TrainingStartRequest(BaseModel):
             raise ValueError(
                 "dataset_slice_end must be greater than or equal to dataset_slice_start"
             )
+        return self
+
+    @model_validator(mode = "after")
+    def _validate_replay_datasets(self) -> "TrainingStartRequest":
+        if not self.replay_datasets:
+            return self
+        total = sum(entry.probability for entry in self.replay_datasets)
+        if total >= 1.0:
+            raise ValueError(
+                f"replay_datasets probabilities sum to {total}; the main dataset must keep "
+                "a share (< 1.0)"
+            )
+        if self.dataset_streaming:
+            raise ValueError("replay_datasets cannot be combined with dataset_streaming")
+        if self.is_dataset_audio:
+            raise ValueError("replay_datasets are not supported for audio training runs yet")
+        if self.format_type == "raw" or self.training_type == "Continued Pretraining":
+            raise ValueError(
+                "replay_datasets are not supported for raw-text / continued-pretraining runs"
+            )
+        if str(self.training_method).upper() in ("DPO", "CPO"):
+            raise ValueError("replay_datasets are only supported for SFT runs")
         return self
 
     @field_validator("hf_dataset")

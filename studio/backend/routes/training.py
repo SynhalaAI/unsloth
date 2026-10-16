@@ -2397,6 +2397,11 @@ async def start_training(
             ),
             "dataset_slice_start": request.dataset_slice_start,
             "dataset_slice_end": request.dataset_slice_end,
+            "replay_datasets": (
+                [entry.model_dump() for entry in request.replay_datasets]
+                if request.replay_datasets
+                else None
+            ),
             "custom_format_mapping": request.custom_format_mapping,
             "num_epochs": request.num_epochs,
             "learning_rate": request.learning_rate,

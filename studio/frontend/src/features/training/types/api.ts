@@ -4,6 +4,13 @@
 import type { ModelInventoryFormat } from "@/features/hub";
 import type { S3Config } from "@/types/training";
 
+export interface ReplayDatasetRequest {
+  dataset: string;
+  subset: string | null;
+  split: string | null;
+  probability: number;
+}
+
 export interface TrainingStartRequest {
   model_name: string;
   actual_model_repo_id?: string | null;
@@ -34,7 +41,9 @@ export interface TrainingStartRequest {
   eval_split: string | null;
   dataset_streaming: boolean;
   dataset_slice_start: number | null;
-  dataset_slice_end: number | null;
+ dataset_slice_end: number | null;
+  /** Omitted unless armed: a run without replay posts exactly the fields it did before. */
+  replay_datasets?: ReplayDatasetRequest[] | null;
   local_datasets: string[];
   local_eval_datasets: string[];
   /** S3 bucket configuration; only sent when the dataset source is "s3". */
