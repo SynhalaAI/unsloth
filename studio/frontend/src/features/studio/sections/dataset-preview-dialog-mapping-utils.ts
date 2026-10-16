@@ -176,6 +176,11 @@ export function deriveViewerMapping(
   }
   const current = { ...detected };
   for (const [manualColumn, manualRole] of Object.entries(manualMapping)) {
+    // A mapping saved for another dataset must not leak into this preview:
+    // entries pointing at absent columns carry no signal here.
+    if (!data.columns.includes(manualColumn)) {
+      continue;
+    }
     for (const [column, role] of Object.entries(current)) {
       if (role === manualRole) {
         delete current[column];

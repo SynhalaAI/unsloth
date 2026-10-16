@@ -62,6 +62,47 @@ def test_audio_dataset_without_instruction_reports_none():
     assert result["detected_instruction_column"] is None
 
 
+def _multimodal_chat_row(**extra):
+    return {
+        "id": "row-1",
+        "modality": "audio",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "What is this?"},
+                    {"type": "audio", "url": "assets/audio/078.wav"},
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "An answer."}],
+            },
+        ],
+        "text": "An answer.",
+        "audio": {"array": [0.0], "sampling_rate": 16000},
+        "image": None,
+        **extra,
+    }
+
+
+def test_multimodal_chat_dataset_keeps_messages_instead_of_audio_format():
+    result = check_dataset_format([_multimodal_chat_row()], is_vlm = False)
+
+    assert result["detected_format"] == "chatml"
+    assert result["chat_column"] == "messages"
+    assert result["requires_manual_mapping"] is False
+    assert result["is_audio"] is True
+    assert result["detected_audio_column"] == "audio"
+
+
+def test_multimodal_chat_dataset_keeps_audio_routing_for_vision_checks():
+    result = check_dataset_format([_multimodal_chat_row()], is_vlm = True)
+
+    assert result["detected_format"] == "audio"
+    assert result["chat_column"] is None
+
+
 def _sign_language_row(**extra):
     """Column layout of a real image/text dataset (SynhalaAI/AehAI-VSION-Sinhala): an
     embedded image, metadata columns, and two text columns the text detector cannot see."""

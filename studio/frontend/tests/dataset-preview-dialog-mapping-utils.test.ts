@@ -71,12 +71,27 @@ test("viewer summary exposes every auto-selected VLM column", () => {
 });
 
 test("viewer summary updates and identifies a manual mapping", () => {
-  const selections = getViewerColumnSelections(base, true, {
-    caption: "text",
-  });
+  const selections = getViewerColumnSelections(
+    { ...base, columns: [...base.columns, "caption"] },
+    true,
+    {
+      caption: "text",
+    },
+  );
   assert.deepEqual(selections, [
     { column: "image", label: "Image", source: "auto" },
     { column: "caption", label: "Assistant response", source: "manual" },
+  ]);
+});
+
+test("viewer summary drops manual entries for columns the dataset lacks", () => {
+  const selections = getViewerColumnSelections(base, true, {
+    instruction: "user",
+    output: "assistant",
+  });
+  assert.deepEqual(selections, [
+    { column: "image", label: "Image", source: "auto" },
+    { column: "text", label: "Assistant response", source: "auto" },
   ]);
 });
 

@@ -752,13 +752,25 @@ def check_dataset_format(dataset, is_vlm: bool = False) -> dict:
         "detected_speaker_column": multimodal_info.get("detected_speaker_column"),
     }
 
+    # A ready-made conversation column is an explicit, complete training signal:
+    # probe it before the audio heuristic so a multimodal chat dataset keeps
+    # the messages column the trainer's text path uses instead of being forced
+    # into audio mapping. Vision checks keep the audio-first routing (the VLM
+    # branch has no omni-chat shape for these rows).
+    chat_probe = detect_dataset_format(dataset) if is_audio and not is_vlm else None
+    chat_ready = bool(
+        chat_probe
+        and chat_probe["format"] in ("chatml", "sharegpt")
+        and chat_probe.get("chat_column") in columns
+    )
+
     # Audio datasets use a fixed audio/text mapping. Check them before the VLM
     # branch so an audio-capable vision model cannot mistake an unrelated
     # `instruction` field for a per-sample visual prompt (the branch order is
     # what keeps it out of the VLM detector). A detected instruction column is
     # still surfaced: the audio-VLM formatter trains it as the per-example
     # user prompt, and the preview maps it only to the audio `user` role.
-    if is_audio:
+    if is_audio and not chat_ready:
         detected_audio = multimodal_info.get("detected_audio_column")
         detected_text = multimodal_info.get("detected_text_column")
         return {
@@ -808,7 +820,9 @@ def check_dataset_format(dataset, is_vlm: bool = False) -> dict:
             **audio_fields,
         }
 
-    detected = detect_dataset_format(dataset)
+    detected = (
+        chat_probe if chat_probe is not None else detect_dataset_format(dataset)
+    )
 
     if detected["format"] == "unknown":
         # A dataset check made before a vision model was selected runs the text-only

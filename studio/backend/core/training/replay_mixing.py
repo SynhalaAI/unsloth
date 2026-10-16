@@ -15,6 +15,7 @@ up front and the schema refuses streaming, raw-text/CPT and preference runs.
 
 __all__ = [
     "apply_replay_mixing",
+    "filter_mapping_to_columns",
     "mix_replay_datasets",
 ]
 
@@ -23,6 +24,23 @@ import logging
 logger = logging.getLogger(__name__)
 
 _MAX_REPLAY_DATASETS = 4
+
+
+def filter_mapping_to_columns(mapping, columns):
+    """Keep only the mapping entries (plus `__` advisor metadata) that name a
+    column the dataset actually has. The run's mapping belongs to the MAIN
+    dataset: applied blindly, entries for absent columns would wipe a replay
+    dataset down to empty conversations.
+    """
+    if not mapping:
+        return None
+    available = set(columns or [])
+    filtered = {
+        key: value
+        for key, value in dict(mapping).items()
+        if key.startswith("__") or key in available
+    }
+    return filtered or None
 
 
 def mix_replay_datasets(main_dataset, replay_datasets, probabilities, *, seed = 3407):
@@ -131,7 +149,9 @@ def _load_and_format_replay(
         is_vlm = is_vlm,
         format_type = format_type,
         dataset_name = name,
-        custom_format_mapping = custom_format_mapping,
+        custom_format_mapping = filter_mapping_to_columns(
+            custom_format_mapping, getattr(dataset, "column_names", None)
+        ),
         lazy_images = True,
     )
     if not info.get("success", True):

@@ -102,6 +102,32 @@ def test_apply_replay_mixing_is_a_noop_without_specs():
     assert result is info
 
 
+def test_filter_mapping_to_columns_drops_absent_columns():
+    from core.training.replay_mixing import filter_mapping_to_columns
+
+    assert filter_mapping_to_columns(None, ["text"]) is None
+    assert filter_mapping_to_columns({}, ["text"]) is None
+    # Entries for columns the replay dataset lacks are dropped (plus advisor
+    # metadata is kept), so the main dataset's mapping can never wipe replay
+    # rows down to empty conversations.
+    assert filter_mapping_to_columns(
+        {"instruction": "user", "output": "assistant"},
+        ["messages", "audio", "text"],
+    ) is None
+    assert filter_mapping_to_columns(
+        {
+            "instruction": "user",
+            "output": "assistant",
+            "__system_prompt": "Be helpful.",
+        },
+        ["messages", "audio", "text"],
+    ) == {"__system_prompt": "Be helpful."}
+    assert filter_mapping_to_columns(
+        {"instruction": "user", "text": "assistant"},
+        ["instruction", "text"],
+    ) == {"instruction": "user", "text": "assistant"}
+
+
 
 def test_replay_local_source_accepts_a_path():
     request = _request(
