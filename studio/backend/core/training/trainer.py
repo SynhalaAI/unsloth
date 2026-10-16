@@ -3158,6 +3158,13 @@ class UnslothTrainer:
         (train_data, eval_data), each a list of dicts with 'input_features' and 'labels'. The 6%
         carve-out is only the fallback for when ``eval_dataset`` is absent."""
         from datasets import Audio
+        # Whisper's decoder refuses labels past config.max_target_positions, so over-long rows
+        # are dropped here instead of crashing the forward pass: the source dataset (often a
+        # Hub upload) is never modified, only this run's view of it.
+        from utils.datasets.whisper_labels import (
+            labels_fit_decoder,
+            resolve_max_target_positions,
+        )
 
         WHISPER_SAMPLE_RATE = 16000
 
@@ -3208,9 +3215,18 @@ class UnslothTrainer:
             f"samples={len(dataset)}\n"
         )
 
+        # The model loads after this pass runs, so the budget comes from the checkpoint's
+        # config.json rather than weights that are not in memory yet.
+        label_limit = resolve_max_target_positions(
+            model = getattr(self, "model", None),
+            model_name = getattr(self, "model_name", None),
+        )
+        bos_token_id = getattr(getattr(self.tokenizer, "tokenizer", None), "bos_token_id", None)
+
         def process_split(ds, split_name = "train"):
             processed = []
             skipped = 0
+            over_limit = 0
             for idx in range(len(ds)):
                 if self.should_stop:
                     logger.info(f"Stopped during Whisper {split_name} preprocessing\n")
@@ -3229,6 +3245,12 @@ class UnslothTrainer:
                     )
                     tokenized_text = self.tokenizer.tokenizer(text)
 
+                    # Counted as the collator hands it over (leading BOS stripped), which is
+                    # the length WhisperForConditionalGeneration.forward validates.
+                    if not labels_fit_decoder(tokenized_text.input_ids, label_limit, bos_token_id):
+                        over_limit += 1
+                        continue
+
                     processed.append(
                         {
                             "input_features": features.input_features[0],
@@ -3246,15 +3268,32 @@ class UnslothTrainer:
                     )
 
             logger.info(
-                f"Whisper {split_name} preprocessing: {len(processed)} examples ({skipped} skipped)\n"
+                f"Whisper {split_name} preprocessing: {len(processed)} examples "
+                f"({skipped} skipped, {over_limit} past the {label_limit}-token label limit)\n"
             )
-            return processed
+            return processed, over_limit
 
-        train_data = process_split(dataset, "train")
-        eval_data = process_split(eval_dataset_raw, "eval") if eval_dataset_raw else None
+        train_data, train_over_limit = process_split(dataset, "train")
+        if eval_dataset_raw:
+            eval_data, eval_over_limit = process_split(eval_dataset_raw, "eval")
+        else:
+            eval_data, eval_over_limit = None, 0
+
+        dropped = train_over_limit + eval_over_limit
+        if dropped:
+            self._record_warning(
+                f"Whisper: skipped {dropped} row(s) whose transcripts exceed the decoder's "
+                f"{label_limit}-token limit (config.max_target_positions). The dataset was not "
+                f"changed; split or shorten those rows to train on them."
+            )
 
         if not train_data:
-            raise ValueError("No valid examples after Whisper preprocessing")
+            reason = (
+                f" (all {train_over_limit} training rows exceed the {label_limit}-token label limit)"
+                if train_over_limit
+                else ""
+            )
+            raise ValueError(f"No valid examples after Whisper preprocessing{reason}")
 
         if eval_dataset_raw and not eval_data and not self.should_stop:
             # Every row was skipped; the trainer branch would silently read [] as "no eval".
