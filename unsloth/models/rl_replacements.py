@@ -2349,15 +2349,62 @@ def grpo_trainer_fix_maybe_apply_chat_template(function_name, function):
 RL_FUNCTIONS["grpo_trainer"].append(grpo_trainer_fix_maybe_apply_chat_template)
 
 
+def _unsloth_vllm_sync_unsafe(model):
+    # FSDP2 turns Params4bit into a DTensor, so also read the load flags the model keeps.
+    if getattr(model, "is_loaded_in_4bit", False) or getattr(model, "is_loaded_in_8bit", False):
+        return True
+    if getattr(model, "peft_config", None):
+        return True
+    for module in model.modules():
+        if hasattr(module, "lora_A") or hasattr(module, "base_layer"):
+            return True
+    for param in model.parameters():
+        if type(param).__name__ in ("Params4bit", "Int8Params"):
+            return True
+        if param.is_floating_point() and param.element_size() == 1:
+            return True
+    return False
+
+
 def grpo_trainer__move_model_to_vllm(function_name, function):
     if function_name != "_move_model_to_vllm":
         return function
 
-    def _move_model_to_vllm(self, *args, **kwargs):
-        return None
+    # Only fast_inference shares weights with vLLM. TRL's own vLLM (colocate or server, e.g. full
+    # finetuning, which fast_inference refuses) must still receive the trainer weights every step.
+    match = re.search(
+        r"^[ \t]*def _move_model_to_vllm\(.*?\).*?:[ \t]*\n",
+        function,
+        re.MULTILINE | re.DOTALL,
+    )
+    body_indent = (
+        re.search(r"^([ \t]+)\S", function[match.end() :], re.MULTILINE) if match else None
+    )
+    if match is None or body_indent is None:
 
-    function = inspect.getsource(_move_model_to_vllm)
-    return function
+        def _move_model_to_vllm(self, *args, **kwargs):
+            return None
+
+        return inspect.getsource(_move_model_to_vllm)
+    indent = body_indent.group(1)
+    # Keep the old no-op where TRL's sync is unsafe:
+    # - LoRA / PEFT: merge_adapter + unmerge_adapter on the live model is a lossy round trip in
+    #   fp16 / bf16, so frozen base weights drift every sync; it also requantizes bitsandbytes bases
+    #   from the fp32 delta (fast_lora backward then fails) and refuses FP8 grouped-linear bases.
+    # - Quantized bases (bitsandbytes, 1-byte floats such as FP8) cannot be loaded into vLLM as is.
+    # So the sync only runs for dense full finetuning.
+    guard = (
+        f"{indent}if getattr(getattr(self, 'llm', None), 'shared_weights', False):\n"
+        f"{indent}    return None\n"
+        f"{indent}if getattr(self, '_unsloth_vllm_sync_skip', None) is None:\n"
+        f"{indent}    from unsloth.models.rl_replacements import _unsloth_vllm_sync_unsafe\n"
+        f"{indent}    self._unsloth_vllm_sync_skip = _unsloth_vllm_sync_unsafe(self.model)\n"
+        f"{indent}    if self._unsloth_vllm_sync_skip:\n"
+        f"{indent}        print('Unsloth: vLLM weight sync is skipped for a LoRA / PEFT or quantized model without fast_inference, so rollouts use the initial weights. Load with fast_inference = True to sample from the trained model.')\n"
+        f"{indent}if self._unsloth_vllm_sync_skip:\n"
+        f"{indent}    return None\n"
+    )
+    return function[: match.end()] + guard + function[match.end() :]
 
 
 RL_FUNCTIONS["grpo_trainer"].append(grpo_trainer__move_model_to_vllm)
@@ -4160,6 +4207,49 @@ def openenv_vllm_reload_weights():
 RL_ADDITIONAL_FUNCTIONS["openenv"].append(openenv_vllm_reload_weights)
 
 
+def _vllm_weight_sync_bucket_bytes():
+    raw = os.environ.get("UNSLOTH_VLLM_WEIGHT_SYNC_BUCKET_MB", "1024")
+    try:
+        mb = float(raw)
+    except ValueError:
+        mb = 1024.0
+    return int(mb * 2**20) if mb > 0 else 0
+
+
+def _unsloth_vllm_sync_colocate(generation, vllm_model):
+    """TRL's colocate sync calls load_weights once per tensor, and every call rebuilds vLLM's
+    parameter lookup (~0.4 ms each). Hand over the same (name, tensor) references in a few calls:
+    no copies, and each weight_loader runs on the same data, so vLLM's weights are bit-identical.
+    UNSLOTH_VLLM_WEIGHT_SYNC_BUCKET_MB = 0 restores the per-tensor loop."""
+    weights = generation._iter_named_params()
+    cap = _vllm_weight_sync_bucket_bytes()
+    state = getattr(getattr(generation, "accelerator", None), "state", None)
+    # ZeRO-3 / FSDP yield gathered tensors that are only valid until the next step of the
+    # iterator, and PEFT unmerges in place once it is exhausted: holding references is wrong there.
+    unsafe = (
+        state is None
+        or getattr(state, "deepspeed_plugin", None) is not None
+        or getattr(state, "fsdp_plugin", None) is not None
+        or getattr(generation.model, "peft_config", None) is not None
+    )
+    if cap == 0 or unsafe:
+        for name, param in weights:
+            vllm_model.load_weights([(name, param)])
+        return
+    bucket, size = [], 0
+    for name, param in weights:
+        bucket.append((name, param))
+        size += param.numel() * param.element_size()
+        if size >= cap:
+            vllm_model.load_weights(bucket)
+            bucket, size = [], 0
+    if bucket:
+        vllm_model.load_weights(bucket)
+    generation._unsloth_bucketed_weight_syncs = (
+        getattr(generation, "_unsloth_bucketed_weight_syncs", 0) + 1
+    )
+
+
 def vllm_generation_init_patch():
     # trl moved vllm code to trl/generation/vllm_generation.py (commit 0eb66d8, 0.28.0+), which must be patched so it does not build a second vLLM instance when fast_inference has one.
 
@@ -4263,6 +4353,23 @@ def vllm_generation_init_patch():
             raise RuntimeError(
                 "Unsloth: Warning - regex did not match, VLLMGeneration.sync_weights patch may have failed"
             )
+        # TRL >= 1.10 colocate loop; older layouts stay per-tensor.
+        colocate_loop = re.compile(
+            r"^(?P<indent>[ \t]*)for name, param in self\._iter_named_params\(\):\n"
+            r"(?P=indent)[ \t]+self\.llm\.llm_engine\.model_executor\.driver_worker\.model_runner\.model"
+            r"\.load_weights\(\[\(name, param\)\]\)\n",
+            re.MULTILINE,
+        )
+        patched_src, n_loops = colocate_loop.subn(
+            lambda m: (
+                f"{m.group('indent')}_unsloth_vllm_sync_colocate(self, "
+                "self.llm.llm_engine.model_executor.driver_worker.model_runner.model)\n"
+            ),
+            patched_src,
+            count = 1,
+        )
+        if n_loops:
+            vllm_generation._unsloth_vllm_sync_colocate = _unsloth_vllm_sync_colocate
         return patched_src
 
     # `generate` is deliberately NOT source-patched: its two anchors drifted (TRL >= 1.x deleted the collective_rpc("reload_weights") call for self.sync_weights(), so the anchor matched 0 times, raised, and took the lora injection with it, making GRPO rollouts come from the BASE model), and the generate regex is not paren-balanced and mis-edits multi-line calls. Intercept on the vLLM engine instead of TRL's method body: self.llm is the vLLM LLM object in colocate mode in every release with VLLMGeneration, and generate / chat / collective_rpc are public stable APIs checked across vLLM 0.11.0-0.27.1. The override is scoped to one VLLMGeneration.generate call and undone in a finally.
