@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
+import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
@@ -8,7 +9,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Switch } from "@/components/ui/switch";
 import { usePlatformStore } from "@/config/env";
-import { DatasetSelector } from "@/features/dataset-picker";
+import { DatasetSelector, datasetDisplayName } from "@/features/dataset-picker";
 import { hfApiToken, useHfTokenStore, useOnlineStatus } from "@/features/hub";
 import {
   HfDatasetSubsetSplitSelectors,
@@ -17,9 +18,11 @@ import {
 } from "@/features/training";
 import { useT } from "@/i18n";
 import { ChevronDownStandardIcon } from "@/lib/chevron-icons";
+import { FileAttachmentIcon, ViewIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { type ReactElement, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
+import { DatasetPreviewDialog } from "./dataset-preview-dialog";
 import { ParamsRow, ParamsSliderRow } from "./params-section-controls";
 
 /** Optional replay dataset: rows from a second dataset (Hugging Face Hub or a local device
@@ -44,9 +47,11 @@ export function ReplayDatasetSection(): ReactElement | null {
       setSubset: state.setReplayDatasetSubset,
       setSplit: state.setReplayDatasetSplit,
       setProbability: state.setReplayDatasetProbability,
+      isVisionModel: state.isVisionModel,
     })),
   );
   const [open, setOpen] = useState(false);
+  const [replayPreviewOpen, setReplayPreviewOpen] = useState(false);
   const hfToken = useHfTokenStore((state) => state.token);
   const online = useOnlineStatus();
 
@@ -90,6 +95,47 @@ export function ReplayDatasetSection(): ReactElement | null {
               label={t("studio.dataset.replayDatasetId")}
             />
           </div>
+          {repoReady && (
+            <div className="flex flex-col items-stretch gap-3 rounded-lg border bg-muted/40 px-3.5 py-3 @md/train-section:flex-row @md/train-section:items-center">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="shrink-0 rounded-md bg-indigo-500/10 p-1.5">
+                  <HugeiconsIcon
+                    icon={FileAttachmentIcon}
+                    className="size-4 text-indigo-500"
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-mono text-sm font-medium">
+                    {isHubSource
+                      ? store.dataset
+                      : datasetDisplayName(store.dataset ?? "")}
+                  </p>
+                  <p className="text-ui-10 text-muted-foreground">
+                    {isHubSource ? (
+                      <>
+                        {t("studio.dataset.huggingFaceDataset")}
+                        {store.subset && ` / ${store.subset}`}
+                        {store.split && ` / ${store.split}`}
+                      </>
+                    ) : (
+                      <>{t("studio.dataset.localDataset")}</>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-end gap-1 @md/train-section:ml-auto @md/train-section:flex-nowrap">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="shrink-0 text-xs"
+                  onClick={() => setReplayPreviewOpen(true)}
+                >
+                  <HugeiconsIcon icon={ViewIcon} className="size-3.5" />
+                  {t("studio.dataset.viewDataset")}
+                </Button>
+              </div>
+            </div>
+          )}
           {isHubSource && repoReady && (
             <HfDatasetSubsetSplitSelectors
               variant="studio"
@@ -121,6 +167,18 @@ export function ReplayDatasetSection(): ReactElement | null {
             step={1}
           />
           <span className="text-xs text-muted-foreground">{t("studio.dataset.replayHint")}</span>
+          {replayPreviewOpen && (
+            <DatasetPreviewDialog
+              open={true}
+              onOpenChange={setReplayPreviewOpen}
+              datasetName={store.dataset}
+              datasetSource={store.source}
+              hfToken={hfToken.trim() || null}
+              datasetSubset={store.subset}
+              datasetSplit={store.split}
+              isVlm={store.isVisionModel}
+            />
+          )}
         </div>
       </CollapsibleContent>
     </Collapsible>
