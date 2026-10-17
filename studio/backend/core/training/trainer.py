@@ -90,6 +90,7 @@ from utils.datasets.pretokenized import (
     has_custom_labels,
     prepare_pretokenized_dataset,
 )
+from utils.datasets.processor_kwargs import strip_leaked_audio_kwargs
 from utils.datasets.raw_text import prepare_raw_text_dataset, resolve_column_names
 from utils.paths import (
     dataset_files_in_dir,
@@ -4809,6 +4810,17 @@ class UnslothTrainer:
                     use_gradient_checkpointing = self._use_gradient_checkpointing,
                 )
                 processor = self.tokenizer
+
+                # transformers 5 copies the tokenizer's padding/truncation state into init_kwargs
+                # (max_length, pad_to_multiple_of) and _merge_kwargs forwards those into
+                # audio_kwargs. Gemma 4's audio feature extractor defaults to truncation=True, so a
+                # leaked max_length=None overrides its 480_000-sample default and the first batch
+                # fails with "make sure that ``max_length`` is defined".
+                leaked = strip_leaked_audio_kwargs(processor)
+                if leaked:
+                    logger.info(
+                        f"Audio VLM: dropped leaked tokenizer init kwargs: {', '.join(leaked)}\n"
+                    )
 
                 audio_col_name = getattr(self, "_audio_vlm_audio_col", "audio")
 
