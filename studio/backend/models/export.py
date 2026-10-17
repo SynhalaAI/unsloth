@@ -3,8 +3,6 @@
 
 """Pydantic schemas for Export API."""
 
-import re
-import sys
 from pathlib import Path, PureWindowsPath
 
 from pydantic import BaseModel, Field, field_validator
@@ -33,152 +31,6 @@ def _validate_save_directory(value: str) -> str:
     ):
         raise ValueError("save_directory may not contain '..' segments")
     return raw
-
-
-_GGUF_SHARD_SIZE_RE = re.compile(r"^(\d+)\s*([MG])B?$", re.IGNORECASE)
-
-
-def _validate_gguf_shard_size(value: Optional[str]) -> Optional[str]:
-    """Validate and normalize a Studio GGUF shard-size request."""
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError("gguf_shard_size must be a string or null")
-    raw = value.strip()
-    if raw.casefold() in ("", "0", "none"):
-        return "0"
-    match = _GGUF_SHARD_SIZE_RE.fullmatch(raw)
-    if match is None:
-        raise ValueError("gguf_shard_size must be a positive whole number in MB or GB, or '0'")
-    magnitude = int(match.group(1))
-    unit = match.group(2).upper()
-    if magnitude == 0:
-        raise ValueError("gguf_shard_size must be positive, or exactly '0'")
-    multiplier = 1_000_000 if unit == "M" else 1_000_000_000
-    if magnitude > sys.maxsize // multiplier:
-        raise ValueError("gguf_shard_size is too large for this platform")
-    return f"{magnitude}{unit}B"
-
-
-class MultiAdapterMergeRequest(BaseModel):
-    """Configuration for merging LoRA adapters into the loaded model.
-
-    A single adapter is a valid merge: it is the plain base + one adapter case,
-    which the core merger supports (``MultiAdapterMergeConfig`` requires at
-    least one path). Only the methods that blend several adapters need more.
-    """
-
-    # One adapter is allowed: base + a single LoRA is the degenerate merge.
-    adapter_paths: List[Union[str, Dict[str, str]]] = Field(..., min_length = 1)
-    weights: Optional[List[float]] = None
-    # The PEFT combination types the core merger supports.
-    method: Literal[
-        "linear", "svd", "cat", "ties", "dare_ties", "dare_linear",
-        "magnitude_prune",
-        "ties_svd", "dare_ties_svd", "dare_linear_svd",
-        "magnitude_prune_svd",
-    ] = "linear"
-    normalize_weights: bool = True
-    density: float = Field(0.5, gt = 0.0, le = 1.0)
-    target_rank: Optional[int] = Field(None, ge = 1)
-    device: Literal["cuda", "cpu"] = Field(
-        "cuda",
-        description = (
-            "Where the merge runs. 'cpu' moves the base model into host RAM first, so a "
-            "float32 base plus the per-module weight deltas the sparsifying and SVD "
-            "combinations build never have to fit beside it on the GPU. The arithmetic "
-            "is identical, only slower - use it when the merge dies with a CUDA "
-            "out-of-memory error."
-        ),
-    )
-
-    @field_validator("weights")
-    @classmethod
-    def _check_weights(cls, value, info):
-        if value is not None and len(value) != len(info.data.get("adapter_paths", [])):
-            raise ValueError("weights must match adapter_paths")
-        return value
-
-
-class MergeAnalyzeRequest(BaseModel):
-    """Request for measuring interference between adapters, without merging.
-
-    Same ``adapter_paths`` shapes as :class:`MultiAdapterMergeRequest`, and the
-    same weight semantics: the metrics describe the merge the user configured,
-    so the weights are the ones that will be used.
-
-    Unlike the merge itself this stays at two or more: every number here is a
-    pairwise comparison between adapters, so one adapter has nothing to report.
-    """
-
-    adapter_paths: List[Union[str, Dict[str, str]]] = Field(..., min_length = 2)
-    weights: Optional[List[float]] = None
-    normalize_weights: bool = True
-    max_sign_elements: int = Field(
-        64_000_000,
-        ge = 0,
-        description = "Cap on weight positions compared for the sign-conflict rate. "
-        "Cosine and norm ratios are exact regardless; only the sign rate is sampled.",
-    )
-
-    @field_validator("weights")
-    @classmethod
-    def _check_analyze_weights(cls, value, info):
-        if value is not None and len(value) != len(info.data.get("adapter_paths", [])):
-            raise ValueError("weights must match adapter_paths")
-        return value
-
-
-class MergeAnalyzeResponse(BaseModel):
-    """Interference report for a set of adapters.
-
-    Every number is measured on the adapters' own weights, so a report is
-    available before any model is loaded. ``interference`` and
-    ``recommendation`` are heuristics over those numbers, not a measurement of
-    merged-model accuracy.
-    """
-
-    success: bool = True
-    adapters: List[Dict[str, Any]] = Field(
-        default_factory = list,
-        description = "Per-adapter stats: name, base model, rank, alpha, module count, delta norm.",
-    )
-    pairs: List[Dict[str, Any]] = Field(
-        default_factory = list,
-        description = "Per-pair metrics: cosine, sign conflict rate, norm ratio, worst modules.",
-    )
-    mean_cosine: float = Field(
-        0.0,
-        description = "Cosine across the merge, pooled by shared modules rather "
-        "than a plain average over pairs.",
-    )
-    max_sign_conflict_rate: float = Field(
-        0.0,
-        description = "Highest sign conflict across all pairs, on the "
-        "excess-over-chance scale (0 = the pair disagrees no more than "
-        "independence predicts, 1 = they disagree everywhere they could).",
-    )
-    interference: Literal["low", "moderate", "high"] = Field(
-        "low", description = "Severity bucket derived from the interference score."
-    )
-    score: float = Field(
-        0.0, ge = 0.0, le = 1.0, description = "Interference score in [0, 1]."
-    )
-    sign_scan_truncated: bool = Field(
-        False,
-        description = "True when the sign budget ran out, so the sign rate is a sample.",
-    )
-    dominance: Dict[str, Any] = Field(
-        default_factory = dict,
-        description = "Widest norm gap between two adapters: ratio, the adapter "
-        "that outranks the other, and its own 0..1 score. A different failure "
-        "from disagreement: adapters can agree perfectly and still leave one "
-        "carrying the merge.",
-    )
-    recommendation: Dict[str, Any] = Field(
-        default_factory = dict,
-        description = "Suggested method, density and a one-line reason.",
-    )
 
 
 class LoadCheckpointRequest(BaseModel):
@@ -212,11 +64,6 @@ class LoadCheckpointRequest(BaseModel):
         None,
         description = "Hugging Face token used to scan/load gated checkpoints and their base models.",
     )
-    merge_adapters: Optional[MultiAdapterMergeRequest] = Field(
-        None,
-        description = "Optional multi-adapter merge to apply after loading the base model.",
-    )
-
     op_id: Optional[str] = Field(
         None,
         max_length = 128,
@@ -465,17 +312,6 @@ class ExportGGUFRequest(BaseModel):
         None,
         description = "Path to a custom imatrix file; overrides the auto-download when set.",
     )
-    gguf_shard_size: Optional[str] = Field(
-        None,
-        description = "Maximum final f32, f16 or bf16 GGUF shard size in MB or GB. "
-        "Pass '0' for one file. Quantized outputs remain single-file.",
-    )
-
-    @field_validator("gguf_shard_size", mode = "before")
-    @classmethod
-    def _check_gguf_shard_size(cls, value):
-        return _validate_gguf_shard_size(value)
-
     private: bool = Field(
         False,
         description = "If True, create a private Hugging Face Hub repository",

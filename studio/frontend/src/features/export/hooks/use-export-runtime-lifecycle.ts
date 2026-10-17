@@ -36,7 +36,6 @@ export function useExportRuntimeLifecycle(): void {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let logPolling = false;
     let logPollTimer: ReturnType<typeof setTimeout> | null = null;
-    let runGeneration = 0;
     let statusPolling = false;
 
     const store = useExportRuntimeStore;
@@ -58,27 +57,16 @@ export function useExportRuntimeLifecycle(): void {
       store.getState().setConnected(false);
     };
 
-    // ── JSON log polling (tunnel-safe fallback) ──────────────────────────
-    // Runs for the whole active run, in parallel with the SSE stream. On
-    // localhost the SSE delivers first and these polls are de-duped away by
-    // seq; over a Cloudflare tunnel the SSE is buffered and these polls are
-    // what actually fill the log panel. A successful poll marks the stream
-    // "connected" so the panel shows "streaming" rather than "connecting...".
-    const pollLogsOnce = async (generation: number) => {
-      if (
-        disposed ||
-        generation !== runGeneration ||
-        !store.getState().isExporting
-      )
-        return;
+    // ── JSON log polling (tunnel-safe fallback) ────────────────────────── Runs for the whole
+    // active run, in parallel with the SSE stream. On localhost the SSE delivers first and these
+    // polls are de-duped away by seq; over a Cloudflare tunnel the SSE is buffered and these polls
+    // are what actually fill the log panel. A successful poll marks the stream "connected" so the
+    // panel shows "streaming" rather than "connecting...".
+    const pollLogsOnce = async () => {
+      if (disposed || !store.getState().isExporting) return;
       try {
         const res = await fetchExportLogs(store.getState().lastSeq);
-        if (
-          disposed ||
-          generation !== runGeneration ||
-          !store.getState().isExporting
-        )
-          return;
+        if (disposed) return;
         store.getState().setConnected(true);
         if (res.entries.length > 0) {
           store.getState().appendLogs(res.entries);
@@ -88,25 +76,19 @@ export function useExportRuntimeLifecycle(): void {
       }
     };
 
-    const logPollLoop = async (generation: number) => {
-      if (disposed || !logPolling || generation !== runGeneration) return;
-      await pollLogsOnce(generation);
-      if (
-        disposed ||
-        !logPolling ||
-        generation !== runGeneration ||
-        !store.getState().isExporting
-      )
-        return;
+    const logPollLoop = async () => {
+      if (disposed || !logPolling) return;
+      await pollLogsOnce();
+      if (disposed || !logPolling) return;
       logPollTimer = setTimeout(() => {
-        void logPollLoop(generation);
+        void logPollLoop();
       }, LOG_POLL_INTERVAL_MS);
     };
 
-    const startLogPolling = (generation: number) => {
+    const startLogPolling = () => {
       if (logPolling || disposed) return;
       logPolling = true;
-      void logPollLoop(generation);
+      void logPollLoop();
     };
 
     function stopLogPolling() {
@@ -117,10 +99,9 @@ export function useExportRuntimeLifecycle(): void {
       }
     }
 
-    const ensureStream = async (generation: number) => {
+    const ensureStream = async () => {
       if (
         disposed ||
-        generation !== runGeneration ||
         openingStream ||
         streamController ||
         !store.getState().isExporting
@@ -137,17 +118,8 @@ export function useExportRuntimeLifecycle(): void {
         await streamExportLogs({
           signal: controller.signal,
           since: store.getState().lastSeq,
-          onOpen: () => {
-            if (generation === runGeneration && store.getState().isExporting) {
-              store.getState().setConnected(true);
-            }
-          },
+          onOpen: () => store.getState().setConnected(true),
           onEvent: (event) => {
-            if (
-              generation !== runGeneration ||
-              !store.getState().isExporting
-            )
-              return;
             if (event.event === "log" && event.entry) {
               store.getState().appendLog(event.entry, event.id ?? undefined);
             }
@@ -169,12 +141,11 @@ export function useExportRuntimeLifecycle(): void {
 
         if (
           !disposed &&
-          generation === runGeneration &&
           !controller.signal.aborted &&
           store.getState().isExporting
         ) {
           reconnectTimer = setTimeout(() => {
-            void ensureStream(generation);
+            void ensureStream();
           }, STREAM_RECONNECT_DELAY_MS);
         }
       }
@@ -188,8 +159,8 @@ export function useExportRuntimeLifecycle(): void {
         if (disposed) return;
         store.getState().applyBackendStatus(status);
         if (store.getState().isExporting) {
-          void ensureStream(runGeneration);
-          startLogPolling(runGeneration);
+          void ensureStream();
+          startLogPolling();
         }
       } catch {
         // ignore transient status failures
@@ -205,9 +176,8 @@ export function useExportRuntimeLifecycle(): void {
       if (state.isExporting === prevExporting) return;
       prevExporting = state.isExporting;
       if (state.isExporting) {
-        runGeneration += 1;
-        void ensureStream(runGeneration);
-        startLogPolling(runGeneration);
+        void ensureStream();
+        startLogPolling();
       } else {
         stopStream();
       }
@@ -215,9 +185,8 @@ export function useExportRuntimeLifecycle(): void {
 
     void pollStatus();
     if (store.getState().isExporting) {
-      runGeneration += 1;
-      void ensureStream(runGeneration);
-      startLogPolling(runGeneration);
+      void ensureStream();
+      startLogPolling();
     }
 
     const statusTimer = setInterval(() => {

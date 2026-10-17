@@ -793,8 +793,6 @@ class ExportBackend:
         trust_remote_code: bool = False,
         hf_token: HfTokenArg = None,
         _device_map_override: Optional[dict] = None,
-        merge_adapters: Optional[dict] = None,
-        merge_report_callback=None,
         base_model: Optional[str] = None,
         offload_layers = "auto",
         _offload_retry: bool = False,
@@ -1030,23 +1028,6 @@ class ExportBackend:
             else:
                 self.is_peft = isinstance(model, (PeftModel, PeftModelForCausalLM))
 
-            if merge_adapters:
-                from unsloth.multi_adapter_merge import merge_adapters_into_model
-
-                model = merge_adapters_into_model(
-                    model,
-                    adapter_paths = merge_adapters["adapter_paths"],
-                    weights = merge_adapters.get("weights"),
-                    method = merge_adapters.get("method", "linear"),
-                    normalize_weights = merge_adapters.get("normalize_weights", True),
-                    density = merge_adapters.get("density", 0.5),
-                    target_rank = merge_adapters.get("target_rank"),
-                    device = merge_adapters.get("device"),
-                    hf_token = token,
-                    report_callback = merge_report_callback,
-                )
-                self.is_peft = False
-
             restored_repo_id = restore_hf_cache_repo_identity(model, base_model)
             if restored_repo_id:
                 logger.info(
@@ -1084,7 +1065,6 @@ class ExportBackend:
         except Exception as e:
             # "balanced" budgets from free memory read BEFORE this process opens a CUDA context, so the shard
             # can OOM when another job owns the other GPUs; fall back once.
-            # Retry the sequential loader on an OOM or CPU spill, including a merge load.
             if (
                 _device_map_override is None
                 and (

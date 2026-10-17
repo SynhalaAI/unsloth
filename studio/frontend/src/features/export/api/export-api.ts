@@ -4,7 +4,6 @@
 import { authFetch } from "@/features/auth";
 import { readFastApiError } from "@/lib/format-fastapi-error";
 import { openStreamResponse } from "@/lib/open-stream-response";
-import { type MergeDeviceType, type MergeMethodType } from "../constants";
 
 const readError = (r: Response): Promise<string> => readFastApiError(r);
 
@@ -159,23 +158,6 @@ export async function fetchCheckpoints(): Promise<CheckpointListResponse> {
   return parseJson<CheckpointListResponse>(response);
 }
 
-export async function fetchAdapterCheckpoints(
-  source: { repoId?: string; localPath?: string },
-  hfToken?: string | null,
-): Promise<string[]> {
-  const headers: Record<string, string> = {};
-  if (hfToken) headers["X-HF-Token"] = hfToken;
-  const query = source.repoId
-    ? `repo_id=${encodeURIComponent(source.repoId)}`
-    : `local_path=${encodeURIComponent(source.localPath ?? "")}`;
-  const response = await authFetch(
-    `/api/export/adapter-checkpoints?${query}`,
-    { headers },
-  );
-  const data = await parseJson<{ checkpoints: string[] }>(response);
-  return data.checkpoints;
-}
-
 /** Estimate a model's fp16-equivalent size to scale the GGUF quant labels; nulls (not error) when unknown. */
 export async function fetchExportSize(
   modelId: string,
@@ -206,17 +188,6 @@ export async function loadCheckpoint(params: {
   approved_remote_code_fingerprint?: string | null;
   /** HF token so the worker scans/loads gated checkpoints and base models with the same auth as preflight. */
   hf_token?: string | null;
-  merge_adapters?: {
-    adapter_paths: (string | { repo_id: string; subfolder?: string })[];
-    weights?: number[];
-    method?: MergeMethodType;
-    normalize_weights?: boolean;
-    density?: number;
-    /** PEFT svd_rank for method="svd"; backend defaults to None. */
-    target_rank?: number;
-    /** Where the merge runs. CPU runs it in host RAM instead of GPU memory. */
-    device?: MergeDeviceType;
-  } | null;
 }): Promise<ExportOperationResponse> {
   const response = await authFetch("/api/export/load-checkpoint", {
     method: "POST",
@@ -332,117 +303,6 @@ export async function exportLoRA(params: {
     body: JSON.stringify(params),
   });
   return parseJson<ExportOperationResponse>(response);
-}
-
-/** One adapter in a merge-interference report. */
-export interface MergeAnalyzeAdapter {
-  name: string;
-  base_model: string;
-  rank: number | null;
-  lora_alpha: number | null;
-  /** alpha / r, the factor the LoRA delta is scaled by. */
-  scaling: number;
-  /** The weight as configured. */
-  weight: number;
-  /** The weight after normalisation, i.e. what the merge would use. */
-  effective_weight: number;
-  modules: number;
-  delta_norm: number;
-}
-
-/** One shared module in a pair, reported when its cosine is low. */
-export interface MergeWorstModule {
-  module: string;
-  cosine: number;
-  sign_conflict_rate: number | null;
-}
-
-/** Interference between one pair of adapters, over the modules they share. */
-export interface MergeAnalyzePair {
-  a: string;
-  b: string;
-  shared_modules: number;
-  /** shared_modules / the larger adapter's module count, in 0..1. */
-  module_overlap: number;
-  /** -1 (opposed) .. 1 (aligned). Negative means the deltas fight. */
-  cosine: number;
-  /**
-   * Disagreement beyond what this pair's own sign balance predicts, 0..1.
-   * 0 means the two disagree exactly as independence does (unrelated), 1 means
-   * they disagree everywhere they could (opposing). Magnitude-weighted, so a
-   * disagreement on a coordinate worth 1e-6 does not outweigh one worth 10.
-   */
-  sign_conflict_rate: number;
-  /** Weight positions actually compared; a sign budget can make this a sample. */
-  sign_positions: number;
-  /** ||di|| / ||dj||; > 1 means the first adapter dominates. */
-  norm_ratio: number;
-  worst_modules: MergeWorstModule[];
-}
-
-export type MergeInterference = "low" | "moderate" | "high";
-
-export interface MergeAnalyzeReport {
-  success: boolean;
-  adapters: MergeAnalyzeAdapter[];
-  pairs: MergeAnalyzePair[];
-  /** Cosine across the merge, pooled by how many modules each pair shares. */
-  mean_cosine: number;
-  /** Worst sign conflict across all pairs, on the excess-over-chance scale. */
-  max_sign_conflict_rate: number;
-  interference: MergeInterference;
-  /** Severity in 0..1: the worse of disagreement and dominance. */
-  score: number;
-  /**
-   * The widest norm gap between two adapters. A different failure from
-   * disagreement: adapters can agree on direction and still leave one
-   * carrying the whole merge, which the score used to miss entirely.
-   */
-  dominance: {
-    /** Largest norm ratio seen over any pair sharing modules; 1 = evenly weighted. */
-    ratio: number;
-    /** Adapter whose delta is larger. Empty when every pair is even. */
-    adapter: string;
-    /** Adapter it outranks. */
-    against: string;
-    /** 0..1, logarithmic in ratio; drives severity when it exceeds disagreement. */
-    score: number;
-  };
-  /** True when the sign budget ran out, so sign rates come from a sample. */
-  sign_scan_truncated: boolean;
-  recommendation: {
-    method: MergeMethodType;
-    density: number;
-    reason: string;
-  };
-}
-
-/**
- * Measure interference between the selected adapters without loading a model.
- *
- * Reads only the adapter weights, so it is the cheap preflight for the merge
- * the user is about to run. Weights default to equal, matching the merge.
- */
-export async function analyzeMerge(params: {
-  adapter_paths: (string | { repo_id: string; subfolder?: string })[];
-  weights?: number[];
-  normalize_weights?: boolean;
-  hf_token?: string | null;
-}): Promise<MergeAnalyzeReport> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (params.hf_token) {
-    headers["X-HF-Token"] = params.hf_token;
-  }
-  const response = await authFetch("/api/export/merge/analyze", {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      adapter_paths: params.adapter_paths,
-      weights: params.weights,
-      normalize_weights: params.normalize_weights ?? true,
-    }),
-  });
-  return parseJson<MergeAnalyzeReport>(response);
 }
 
 export async function cleanupExport(): Promise<ExportOperationResponse> {

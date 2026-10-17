@@ -118,8 +118,6 @@ export interface ExportRunPanelProps {
   onPrivateRepoChange: (v: boolean) => void;
   /** Kick off the export (the page assembles params and calls the store). */
   onStart: () => void;
-  /** True while token/security preparation is still running before export starts. */
-  startRequestInFlight?: boolean;
   /** Collapse the panel; only offered before a run or after a terminal one. */
   onClose: () => void;
   /** Decision model: output goes to the run folder's gguf/ only; this note replaces the destination picker. */
@@ -150,7 +148,6 @@ export function ExportRunPanel(props: ExportRunPanelProps) {
     privateRepo,
     onPrivateRepoChange,
     onStart,
-    startRequestInFlight = false,
     onClose,
   } = props;
 
@@ -160,7 +157,6 @@ export function ExportRunPanel(props: ExportRunPanelProps) {
       isExporting: s.isExporting,
       logLines: s.logLines,
       connected: s.connected,
-      backendActive: s.backendActive,
       reconnecting: s.reconnecting,
       stage: s.stage,
       quantIndex: s.quantIndex,
@@ -531,7 +527,7 @@ export function ExportRunPanel(props: ExportRunPanelProps) {
       {showProgress && (
         <div className="flex flex-col gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-foreground/10 px-2.5 py-1 text-ui-10 font-semibold">
+            <span className="rounded-full bg-[color-mix(in_oklab,var(--foreground)_calc(10%*var(--contrast-wash-gain,1)),transparent)] px-2.5 py-1 text-ui-10 font-semibold">
               {PHASE_LABELS[run.phase] ?? run.phase}
             </span>
             {summaryMethod === "gguf" && run.quantTotal > 1 && (
@@ -553,7 +549,7 @@ export function ExportRunPanel(props: ExportRunPanelProps) {
           </div>
           <Progress
             value={progress}
-            className="h-2 bg-foreground/[0.05]"
+            className="h-2 bg-[color-mix(in_oklab,var(--foreground)_calc(5%*var(--contrast-wash-gain,1)),transparent)]"
             indicatorClassName={
               run.phase === "error"
                 ? "bg-destructive"
@@ -595,11 +591,9 @@ export function ExportRunPanel(props: ExportRunPanelProps) {
                       ? "reconnecting..."
                       : run.connected
                         ? "streaming"
-                        : run.backendActive
-                          ? "server active"
-                          : isExporting
-                            ? "connecting..."
-                            : "idle"}
+                        : isExporting
+                          ? "connecting..."
+                          : "idle"}
                   </span>
                 </div>
               </div>
@@ -635,11 +629,8 @@ export function ExportRunPanel(props: ExportRunPanelProps) {
             <Button variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button
-              onClick={onStart}
-              disabled={startRequestInFlight || hubRepoMissing}
-            >
-              {startRequestInFlight ? "Starting..." : "Start Export"}
+            <Button onClick={onStart} disabled={hubRepoMissing}>
+              Start Export
             </Button>
           </>
         )}

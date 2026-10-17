@@ -522,7 +522,6 @@ class ExportOrchestrator:
         hf_token: HfTokenArg = None,
         allow_ambient: bool = True,
         subject: Optional[str] = None,
-        merge_adapters: Optional[dict] = None,
         base_model: Optional[str] = None,
         op_id: Optional[str] = None,
         offload_layers = "auto",
@@ -555,7 +554,6 @@ class ExportOrchestrator:
             "subject": subject,
             "hf_token": hf_token,
             "allow_ambient": allow_ambient,
-            "merge_adapters": merge_adapters,
         }
         from utils.hardware import get_device, gpu_ids_with_torch_kernels
 

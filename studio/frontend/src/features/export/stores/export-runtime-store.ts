@@ -8,7 +8,6 @@ import {
   exportGGUF,
   exportLoRA,
   exportMerged,
-  fetchExportLogs,
   getExportStatus,
   isRecoverableTransportError,
   loadCheckpoint,
@@ -18,11 +17,7 @@ import {
   type ExportOperationResponse,
   type ExportStatus,
 } from "../api/export-api";
-import type {
-  ExportMethod,
-  MergeDeviceType,
-  MergeMethodType,
-} from "../constants";
+import type { ExportMethod } from "../constants";
 
 // Here, not in export-api: tests swap that module for a stub of its request functions.
 function exportDrafterFrom(
@@ -165,17 +160,6 @@ export interface RunExportParams {
   approvedRemoteCodeFingerprint?: string | null;
   /** HF token for loading a gated/private source model (separate from the Hub upload token). */
   loadToken?: string | null;
-  multiAdapterMerge?: {
-    adapter_paths: (string | { repo_id: string; subfolder?: string })[];
-    weights: number[];
-    method: MergeMethodType;
-    normalize_weights: boolean;
-    density: number;
-    /** PEFT svd_rank for method="svd"; backend defaults to None. */
-    target_rank?: number;
-    /** Where the merge runs; CPU trades speed for host RAM over GPU memory. */
-    device: MergeDeviceType;
-  };
   exportMethod: ExportMethod;
   isAdapter: boolean;
   quantLevels: string[];
@@ -414,23 +398,6 @@ export const useExportRuntimeStore = create<ExportRuntimeStore>()((set, get) => 
   },
 
   runExport: async (params) => {
-    // Baseline the log cursor BEFORE flipping isExporting: the lifecycle hook
-    // opens the SSE stream and the JSON poll the moment isExporting flips, and
-    // the backend's run_start_seq (its default cursor for a since-less request)
-    // only advances once the load-checkpoint POST lands — so a since-less
-    // connect would replay the previous run's buffered log lines into this
-    // run's panel. The current highest seq cuts those off at the source.
-    let logBaseline: number | null = null;
-    try {
-      logBaseline = (await fetchExportLogs(null)).cursor;
-      // A non-numeric cursor (API drift) must degrade to the previous
-      // behavior, never seed `lastSeq` with something the de-duper chokes on.
-      if (!Number.isFinite(logBaseline)) logBaseline = null;
-    } catch {
-      // Baseline read failed: keep lastSeq=null, which restores the previous
-      // (occasionally stale-buffered) seeding behavior without a new failure
-      // mode.
-    }
     const runId = get().runId + 1;
     const quantTotal =
       params.exportMethod === "gguf"
@@ -450,7 +417,7 @@ export const useExportRuntimeStore = create<ExportRuntimeStore>()((set, get) => 
       quantIndex: 0,
       stage: null,
       logLines: [],
-      lastSeq: logBaseline,
+      lastSeq: null,
       connected: false,
       reconnecting: false,
       startedAt: Date.now(),
@@ -504,12 +471,8 @@ export const useExportRuntimeStore = create<ExportRuntimeStore>()((set, get) => 
         const checkpointPath = params.checkpointPath;
         await runRecoverableOp(() =>
           loadCheckpoint({
-            checkpoint_path: params.multiAdapterMerge
-              ? params.baseModelId ?? checkpointPath
-              : checkpointPath,
-            load_in_4bit: params.multiAdapterMerge ? false : undefined,
+            checkpoint_path: checkpointPath,
             hf_token: params.loadToken ?? null,
-            merge_adapters: params.multiAdapterMerge ?? null,
           }),
         );
       } else {
@@ -522,7 +485,6 @@ export const useExportRuntimeStore = create<ExportRuntimeStore>()((set, get) => 
             approved_remote_code_fingerprint:
               params.approvedRemoteCodeFingerprint ?? null,
             hf_token: params.loadToken ?? null,
-            merge_adapters: params.multiAdapterMerge ?? null,
           }),
         );
       }
@@ -655,19 +617,17 @@ export const useExportRuntimeStore = create<ExportRuntimeStore>()((set, get) => 
       }
     } finally {
       // Cleanup is best-effort and runs after the terminal phase is set, so it
-      // does not gate the success banner. It must run unconditionally — even
-      // for a superseded run — because the loaded (possibly multi-adapter
-      // merged) model lives in the persistent export subprocess until
-      // cleanup frees it; gating on isCurrent() leaked it in RAM after
-      // "Export complete". Only the run that still owns the store releases
-      // ownership.
-      try {
-        await cleanupExport();
-      } catch {
-        // ignore
-      }
+      // does not gate the success banner. Only the run that still owns the
+      // store releases ownership and frees the worker.
       if (isCurrent()) {
-        set({ ownsRun: false });
+        try {
+          await cleanupExport();
+        } catch {
+          // ignore
+        }
+        if (isCurrent()) {
+          set({ ownsRun: false });
+        }
       }
     }
   },
@@ -688,18 +648,8 @@ export function selectExportProgressPercent(state: ExportRuntimeStore): number {
   switch (state.phase) {
     case "idle":
       return 0;
-    case "loading": {
-      // If a multi-adapter merge is reporting progress (e.g. "Merge progress: ... (45%)"),
-      // map it smoothly across the 8%..85% loading band so the bar doesn't freeze at 8%.
-      if (state.stage) {
-        const match = state.stage.match(/Merge progress:.*?\((\d+)%\)/i);
-        if (match) {
-          const mergePct = Math.min(100, Math.max(0, parseInt(match[1], 10)));
-          return Math.round(8 + (mergePct / 100) * 77); // 8% -> 85%
-        }
-      }
+    case "loading":
       return 8;
-    }
     case "exporting":
       return exportBand();
     case "success":

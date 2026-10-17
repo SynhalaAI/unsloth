@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 import structlog
 from loggers import get_logger
@@ -51,8 +51,6 @@ from models import (
     ExportBaseModelRequest,
     ExportGGUFRequest,
     ExportLoRAAdapterRequest,
-    MergeAnalyzeRequest,
-    MergeAnalyzeResponse,
     ConvertQ4NXRequest,
     ExportDiffusionLoRARequest,
     LlmCompressorExportProbeResponse,
@@ -61,102 +59,6 @@ from models import (
 
 router = APIRouter()
 logger = get_logger(__name__)
-
-
-@router.get("/adapter-checkpoints")
-async def list_adapter_checkpoints(
-    repo_id: Optional[str] = Query(None, min_length = 1),
-    local_path: Optional[str] = Query(None, min_length = 1),
-    current_subject: str = Depends(get_current_subject),
-    allow_ambient: bool = Depends(allow_ambient_hf_token),
-    hf_token: Optional[str] = Header(None, alias = "X-HF-Token"),
-):
-    """List adapter checkpoint subdirectories in a local adapter or HF repo."""
-    try:
-        if local_path:
-            root = Path(local_path).expanduser()
-            if not root.is_dir():
-                raise HTTPException(status_code = 400, detail = "Local adapter path not found")
-            folders = {""} if (root / "adapter_config.json").is_file() else set()
-            for child in root.iterdir():
-                if child.is_dir() and (child / "adapter_config.json").is_file():
-                    folders.add(child.name)
-            return {"checkpoints": sorted(folders, key = lambda value: (value != "", value))}
-        if not repo_id:
-            raise HTTPException(status_code = 400, detail = "repo_id or local_path is required")
-        from huggingface_hub import HfApi
-
-        token = _resolve_export_hf_token(hf_token, allow_ambient = allow_ambient)
-        info = await asyncio.to_thread(HfApi(token = token).model_info, repo_id)
-        folders = {""}
-        for sibling in info.siblings:
-            name = getattr(sibling, "rfilename", "")
-            if "/adapter_config.json" in name:
-                folders.add(name.rsplit("/", 1)[0])
-        return {"checkpoints": sorted(folders, key = lambda value: (value != "", value))}
-    except Exception as exc:
-        logger.warning("Could not list adapter checkpoints: %s", exc)
-        raise HTTPException(status_code = 400, detail = "Could not list adapter checkpoints")
-
-
-@router.post("/merge/analyze", response_model = MergeAnalyzeResponse)
-async def analyze_merge(
-    request: MergeAnalyzeRequest,
-    current_subject: str = Depends(get_current_subject),
-    allow_ambient: bool = Depends(allow_ambient_hf_token),
-):
-    """Measure interference between LoRA adapters without loading a model.
-
-    Reads only the adapter weights, so it is the cheap preflight the Export
-    page offers next to the merge settings: it tells the user whether the chosen
-    adapters fight each other, and which method to reach for, before a base
-    model is loaded onto a GPU. Wraps core.export.merge_metrics.analyze_adapters.
-    """
-    validate_job_paths(request.model_dump())
-    try:
-        from core.export.merge_metrics import analyze_adapters
-
-        # Off-loop: reconstructing the deltas is a few seconds of CPU, and the
-        # first call on a cold import resolves the unsloth package.
-        report = await asyncio.to_thread(
-            analyze_adapters,
-            request.adapter_paths,
-            weights = request.weights,
-            normalize_weights = request.normalize_weights,
-            max_sign_elements = request.max_sign_elements,
-        )
-    except HTTPException:
-        raise
-    except ValueError as e:
-        # The core merger writes these for display (mismatched base models, a
-        # non-LoRA peft_type, no A/B factors, a zero weight sum) and they name
-        # only what the user just picked, so the text is safe to return; the
-        # real trace still goes to the server log.
-        logger.warning(f"Adapter merge cannot be analyzed: {e}")
-        raise HTTPException(status_code = 400, detail = str(e))
-    except FileNotFoundError as e:
-        logger.warning(f"Adapter not found for merge analysis: {e}")
-        raise HTTPException(status_code = 400, detail = "An adapter folder could not be read.")
-    except ImportError as e:
-        # Name the real cause. A missing `unsloth` package and a missing
-        # PyTorch wheel both land here, and blaming PyTorch sends the user to
-        # the wrong fix for either one.
-        logger.warning(f"Merge analysis needs the Unsloth runtime: {e}")
-        raise HTTPException(
-            status_code = 400,
-            detail = (
-                "The adapter files could not be read because the Unsloth runtime is "
-                f"unavailable ({e}). Install Unsloth with PyTorch in the backend "
-                "environment, then retry."
-            ),
-        )
-    except Exception as e:
-        logger.error(f"Error analyzing adapter merge: {e}", exc_info = True)
-        raise HTTPException(
-            status_code = 500,
-            detail = "Failed to analyze the adapter merge",
-        )
-    return MergeAnalyzeResponse(**report)
 
 
 async def _ensure_export_supported() -> None:
@@ -251,7 +153,6 @@ async def load_checkpoint(
             # A supplied token cannot say whether it came from a session or an API key.
             allow_ambient = allow_ambient,
             subject = current_subject,
-            merge_adapters = request.merge_adapters.model_dump() if request.merge_adapters else None,
             op_id = request.op_id,
         )
 

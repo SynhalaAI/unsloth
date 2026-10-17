@@ -3,7 +3,7 @@
 
 import platform
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import typer
 
@@ -188,80 +188,3 @@ def export(
     typer.echo(message)
     if output_path:
         typer.echo(f"Saved to: {output_path}")
-
-
-MERGE_METHODS = [
-    "linear", "svd", "cat", "ties", "dare_ties", "dare_linear", "magnitude_prune",
-    "ties_svd", "dare_ties_svd", "dare_linear_svd", "magnitude_prune_svd",
-]
-
-
-def merge_adapters(
-    base_model: str = typer.Argument(..., help = "Base model name or local path."),
-    output_dir: Path = typer.Argument(..., help = "Directory to save the merged model."),
-    adapters: List[str] = typer.Option(
-        ..., "--adapter", "-a", help = "Path to a PEFT adapter directory. Repeat for each adapter."
-    ),
-    adapter_weights: Optional[List[float]] = typer.Option(
-        None,
-        "--weight",
-        "-w",
-        help = "Merge weight for each adapter (same order as --adapter). Defaults to equal.",
-    ),
-    method: str = typer.Option(
-        "linear", "--method", "-m", help = f"Merge strategy: {', '.join(MERGE_METHODS)}"
-    ),
-    normalize: bool = typer.Option(True, "--normalize/--no-normalize", help = "Normalize weights."),
-    density: float = typer.Option(
-        0.5, "--density", help = "Fraction of weight deltas kept (TIES/DARE/magnitude-prune, incl. *_svd)."
-    ),
-    target_rank: Optional[int] = typer.Option(
-        None, "--target-rank", help = "Output adapter rank (svd and *_svd methods)."
-    ),
-    save_method: str = typer.Option(
-        "merged_16bit",
-        "--save-method",
-        help = "Save format: merged_16bit, merged_4bit, lora.",
-    ),
-    max_seq_length: int = typer.Option(2048, "--max-seq-length"),
-    load_in_4bit: bool = typer.Option(False, "--load-in-4bit/--no-load-in-4bit"),
-    hf_token: Optional[str] = typer.Option(
-        None, "--hf-token", envvar = "HF_TOKEN", help = "HuggingFace token."
-    ),
-):
-    """Merge multiple LoRA adapters into a base model and save the result."""
-    if method not in MERGE_METHODS:
-        typer.echo(
-            f"Error: Invalid method '{method}'. Choose from: {', '.join(MERGE_METHODS)}",
-            err = True,
-        )
-        raise typer.Exit(code = 2)
-
-    if adapter_weights and len(adapter_weights) != len(adapters):
-        typer.echo(
-            f"Error: Number of --weight values ({len(adapter_weights)}) must match "
-            f"number of --adapter values ({len(adapters)}).",
-            err = True,
-        )
-        raise typer.Exit(code = 2)
-
-    import unsloth
-    from unsloth import FastLanguageModel
-
-    typer.echo(f"Loading base model: {base_model}")
-    model, tokenizer = FastLanguageModel.merge_adapters(
-        model_name = base_model,
-        adapters = adapters,
-        weights = adapter_weights,
-        method = method,
-        normalize_weights = normalize,
-        density = density,
-        target_rank = target_rank,
-        max_seq_length = max_seq_length,
-        load_in_4bit = load_in_4bit,
-        token = hf_token,
-    )
-
-    typer.echo(f"Saving merged model to: {output_dir}")
-    model.save_pretrained_merged(str(output_dir), tokenizer, save_method = save_method)
-    typer.echo("Done!")

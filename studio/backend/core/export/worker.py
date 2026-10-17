@@ -262,7 +262,6 @@ def _handle_load(backend, cmd: dict, resp_queue: Any) -> None:
                 checkpoint_path,
             )
     trust_remote_code = cmd.get("trust_remote_code", False)
-    merge_adapters = cmd.get("merge_adapters")
     base_model = cmd.get("base_model") or None
 
     # Auto-enable trust_remote_code for NemotronH/Nano models.
@@ -291,11 +290,6 @@ def _handle_load(backend, cmd: dict, resp_queue: Any) -> None:
     from utils.security import evaluate_file_security, load_scan_target, security_load_subdirs
 
     requested_security_targets = [checkpoint_path]
-    if merge_adapters:
-        requested_security_targets.extend(
-            path["repo_id"] if isinstance(path, dict) else path
-            for path in merge_adapters.get("adapter_paths", [])
-        )
     try:
         from utils.models.model_config import get_base_model_from_lora_identifier
 
@@ -370,11 +364,6 @@ def _handle_load(backend, cmd: dict, resp_queue: Any) -> None:
             return
 
     try:
-        if merge_adapters:
-            # Open the log forwarding gate early for multi-adapter merging so
-            # merge progress and diagnostics stream live to the export panel.
-            _log_forward_gate.set()
-
         _send_response(
             resp_queue,
             {
@@ -391,15 +380,6 @@ def _handle_load(backend, cmd: dict, resp_queue: Any) -> None:
             offload_layers = cmd.get("offload_layers", "auto"),
             trust_remote_code = trust_remote_code,
             hf_token = hf_token,
-            merge_adapters = merge_adapters,
-            merge_report_callback = (
-                lambda message: _send_response(
-                    resp_queue,
-                    {"type": "status", "message": message, "ts": time.time()},
-                )
-                if merge_adapters
-                else None
-            ),
             base_model = base_model,
         )
 

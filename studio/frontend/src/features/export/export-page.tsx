@@ -1,4 +1,3 @@
-import { Input } from "@/components/ui/input";
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
@@ -60,26 +59,13 @@ import {
   Key01Icon,
   PackageIcon,
   Search01Icon,
-  TestTube01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useSearch } from "@tanstack/react-router";
-import { dump as dumpYaml, load as loadYaml } from "js-yaml";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ChangeEvent,
-} from "react";
-import { InfoHint } from "@/components/ui/info-hint";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
-  analyzeMerge,
-  fetchAdapterCheckpoints,
   type DecisionExportInfo,
-  type MergeAnalyzeReport,
   type DiffusionLmExportInfo,
   type ModelCheckpoints,
   fetchCheckpointExportProbe,
@@ -87,7 +73,6 @@ import {
 import { adapterCompatibilityTip, type AdapterFormat } from "./constants";
 import { ExportRunPanel } from "./components/export-run-panel";
 import { ImageLoraExportCard } from "./components/image-lora-export-card";
-import { MergeTestPanel } from "./components/merge-test-panel";
 import { MethodPicker } from "./components/method-picker";
 import { Q4nxConvertCard } from "./components/q4nx-convert-card";
 import { QuantPicker } from "./components/quant-picker";
@@ -97,15 +82,6 @@ import {
   GUIDE_STEPS,
   MERGED_FORMATS,
   type MergedFormatOption,
-  MERGE_METHODS,
-  MERGE_METHOD_CATEGORY_LABELS,
-  MERGE_METHOD_CATEGORY_ORDER,
-  MERGE_METHODS_WITH_DENSITY,
-  MERGE_METHODS_WITH_RANK,
-  MERGE_DEVICES,
-  type MergeDeviceType,
-  type MergeMethodCategory,
-  type MergeMethodType,
   Q4NX_SOURCE_QUANTS,
   QUANT_OPTIONS,
   buildQuantSizeLabels,
@@ -135,202 +111,9 @@ const SEARCH_INPUT_REASONS = new Set([
 
 // GGUF LoRA output float types (Q8_0 default). Q8_0 falls back to F16 per tensor for dims not divisible by 32; no "auto".
 const LORA_GGUF_OUTTYPES = ["q8_0", "f16", "bf16", "f32"] as const;
-const ROOT_CHECKPOINT_VALUE = "__repository_root__";
 
 type SourceTab = "local" | "checkpoint" | "hf";
 type SourceMode = "checkpoint" | "model";
-
-type AdapterMergeSelection = {
-  id: string;
-  path: string;
-  weight: string;
-  source: "local" | "hf";
-  checkpoint: string;
-};
-
-/**
- * The adapter paths a merge request carries: a local directory (with the chosen
- * checkpoint appended) or an HF repo id + subfolder. Pure so the merge payload
- * and the Test button's analysis payload cannot drift apart, and so a test can
- * pin the resolution without mounting the page.
- */
-function buildAdapterMergePaths(
-  selections: AdapterMergeSelection[],
-  localMetaById: Map<string, LocalModelInfo>,
-): (string | { repo_id: string; subfolder: string })[] {
-  return selections.map((item) => {
-    if (item.source === "hf") {
-      return {
-        repo_id: item.path,
-        subfolder:
-          item.checkpoint === ROOT_CHECKPOINT_VALUE ? "" : item.checkpoint,
-      };
-    }
-    const localDir = localMetaById.get(item.path)?.path ?? item.path;
-    return item.checkpoint && item.checkpoint !== ROOT_CHECKPOINT_VALUE
-      ? `${localDir.replace(/[\\/]+$/, "")}/${item.checkpoint}`
-      : localDir;
-  });
-}
-
-const makeAdapterSelection = (
-  partial?: Partial<Omit<AdapterMergeSelection, "id">> & { id?: string },
-): AdapterMergeSelection => ({
-  id: partial?.id || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)),
-  path: partial?.path ?? "",
-  weight: partial?.weight ?? "1",
-  source: partial?.source ?? "local",
-  checkpoint: partial?.checkpoint ?? "",
-});
-
-type AdapterMergeConfig = {
-  adapters: AdapterMergeSelection[];
-  method: MergeMethodType;
-  density: string;
-  rank?: string;
-  normalizeWeights?: boolean;
-  device?: MergeDeviceType;
-  destination: "local" | "hub";
-  hfUsername: string;
-  modelName: string;
-  privateRepo: boolean;
-};
-
-
-type AdapterSourcePickerProps = {
-  source: "local" | "hf";
-  value: string;
-  index: number;
-  hfToken: string;
-  localResultIds: string[];
-  localMetaById: Map<string, LocalModelInfo>;
-  selectedPaths: string[];
-  excludedPath?: string;
-  onChange: (value: string) => void;
-};
-
-function AdapterSourcePicker({
-  source,
-  value,
-  index,
-  hfToken,
-  localResultIds,
-  localMetaById,
-  selectedPaths,
-  excludedPath,
-  onChange,
-}: AdapterSourcePickerProps) {
-  const anchorRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef(value);
-  const [inputValue, setInputValue] = useState(value);
-  const debouncedQuery = useDebouncedValue(inputValue);
-  const adapterSearchQuery = source === "hf" ? debouncedQuery : "";
-  const { results: adapterHfResults, isLoading: isLoadingAdapterHf } =
-    useHubModelSearch(adapterSearchQuery, {
-      accessToken: hfApiToken(hfToken),
-      excludeGguf: true,
-      ownerScope: adapterSearchQuery.trim() ? "all" : "unsloth",
-    });
-  const adapterHfResultIds = adapterHfResults
-    .map((result) => result.id)
-    .filter((id) => id !== excludedPath);
-  if (source === "hf" && value && !adapterHfResultIds.includes(value)) {
-    adapterHfResultIds.push(value);
-  }
-  const available = (ids: string[]) =>
-    ids.filter((id) => id === value || !selectedPaths.includes(id));
-  const items = available(source === "hf" ? adapterHfResultIds : localResultIds);
-  const filteredItems =
-    source === "hf"
-      ? items
-      : items.filter((id) => {
-          const query = inputValue.trim().toLowerCase();
-          if (!query) return true;
-          const meta = localMetaById.get(id);
-          return (
-            id.toLowerCase().includes(query) ||
-            meta?.display_name.toLowerCase().includes(query) ||
-            meta?.path.toLowerCase().includes(query)
-          );
-        });
-
-  useEffect(() => {
-    inputRef.current = value;
-    setInputValue(value);
-  }, [value]);
-
-  const applyValue = (next: string) => {
-    inputRef.current = next;
-    setInputValue(next);
-    onChange(next);
-  };
-
-  return (
-    <div ref={anchorRef} className="min-w-0">
-      <Combobox
-        items={items}
-        filteredItems={filteredItems}
-        filter={null}
-        value={inputValue || null}
-        onValueChange={(next) => applyValue(next ?? "")}
-        onInputValueChange={(next) => {
-          inputRef.current = next;
-          setInputValue(next);
-          onChange(next);
-        }}
-        itemToStringValue={(id) => id}
-        autoHighlight={true}
-      >
-        <ComboboxInput
-          placeholder={source === "hf" ? "Search models..." : "./models/my-model"}
-          aria-label={`${source === "hf" ? "Hugging Face" : "Local"} adapter ${index + 1}`}
-          className="w-full"
-          onBlur={() => applyValue(inputRef.current)}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter") return;
-            event.preventDefault();
-            applyValue(inputRef.current);
-          }}
-        >
-          <InputGroupAddon>
-            <HugeiconsIcon
-              icon={source === "hf" ? Search01Icon : FolderSearchIcon}
-              className="size-4"
-            />
-          </InputGroupAddon>
-        </ComboboxInput>
-        <ComboboxContent anchor={anchorRef}>
-          {isLoadingAdapterHf && source === "hf" ? (
-            <div className="flex items-center justify-center gap-2 py-4 text-xs text-muted-foreground">
-              <Spinner className="size-4" /> Searching...
-            </div>
-          ) : items.length === 0 ? (
-            <ComboboxEmpty>
-              {source === "hf" ? "No models found" : "No local models found"}
-            </ComboboxEmpty>
-          ) : null}
-          <ComboboxList>
-            {(id: string) => {
-              const meta = localMetaById.get(id);
-              return (
-                <ComboboxItem key={id} value={id} className="gap-2">
-                  <span className="block min-w-0 flex-1 truncate">
-                    {source === "local" ? (meta?.display_name ?? id) : id}
-                  </span>
-                  {source === "local" && meta && (
-                    <span className="ml-auto shrink-0 text-ui-10 text-muted-foreground">
-                      {meta.path}
-                    </span>
-                  )}
-                </ComboboxItem>
-              );
-            }}
-          </ComboboxList>
-        </ComboboxContent>
-      </Combobox>
-    </div>
-  );
-}
 
 function safePathSegment(
   value: string | null | undefined,
@@ -460,85 +243,6 @@ export function ExportPage() {
   const [loraGgufOuttype, setLoraGgufOuttype] = useState<string>("q8_0");
   // GGUF method: export the full model as GGUF quants, or (for an adapter checkpoint) a GGUF LoRA.
   const [ggufTarget, setGgufTarget] = useState<"model" | "lora">("model");
-  const [mergeMethod, setMergeMethod] = useState<MergeMethodType>("linear");
-  const [mergeDensity, setMergeDensity] = useState("0.5");
-  // SVD output rank, shown only for the svd merge method.
-  const [mergeTargetRank, setMergeTargetRank] = useState("");
-  // Where the merge arithmetic runs. GPU by default; CPU is the escape hatch for
-  // a merge that dies with a CUDA out-of-memory error on a card too small to
-  // hold a float32 base plus the weight deltas the sparsifying methods build.
-  const [mergeDevice, setMergeDevice] = useState<MergeDeviceType>("cuda");
-  // Rescale the per-adapter weights to sum to 1 before merging. Off by default,
-  // so the raw weights as entered are used unless normalization is asked for.
-  const [mergeNormalizeWeights, setMergeNormalizeWeights] = useState(false);
-  const [mergeCategory, setMergeCategory] = useState<MergeMethodCategory>(
-    "recommended",
-  );
-
-  const [adapterMergeSelections, setAdapterMergeSelections] = useState<
-    AdapterMergeSelection[]
-  >([]);
-
-  // How many adapters the user has actually filled in. Each adapter entry with a path takes part in the merge.
-  const filledAdapterCount = adapterMergeSelections.filter(
-    (item) => item.path.trim() !== "",
-  ).length;
-  // The merge is a weighted average, so raw weights summing to N blend N
-  // adapters' worth of change at once. Surfaced next to the method hint.
-  const mergeWeightSum = adapterMergeSelections
-    .filter((item) => item.path.trim() !== "")
-    .reduce((total, item) => total + (Number(item.weight) || 0), 0);
-
-  // Methods available in the currently selected category. The two dropdowns
-  // stay in sync: changing the category resets the method to the category's
-  // first method, and any method set programmatically (e.g. from an imported
-  // config) moves the category to the method's group.
-  const mergeMethodsForCategory = useMemo(
-    () => MERGE_METHODS.filter((method) => method.category === mergeCategory),
-    [mergeCategory],
-  );
-  useEffect(() => {
-    if (!mergeMethodsForCategory.some((method) => method.value === mergeMethod)) {
-      const first = mergeMethodsForCategory[0];
-      if (first) {
-        setMergeMethod(first.value);
-      }
-    }
-  }, [mergeCategory, mergeMethod, mergeMethodsForCategory]);
-  const handleMergeCategoryChange = useCallback((value: MergeMethodCategory) => {
-    setMergeCategory(value);
-    const first = MERGE_METHODS.find((method) => method.category === value);
-    if (first) {
-      setMergeMethod(first.value);
-    }
-  }, []);
-  const handleMergeMethodChange = useCallback((value: MergeMethodType) => {
-    setMergeMethod(value);
-    const category = MERGE_METHODS.find(
-      (method) => method.value === value,
-    )?.category;
-    if (category) {
-      setMergeCategory(category);
-    }
-  }, []);
-  // Adding an adapter row with a path IS the opt-in — no separate toggle.
-  const multiAdapterMerge = adapterMergeSelections.some(
-    (item) => item.path.trim() !== "",
-  );
-  const [adapterCheckpointOptions, setAdapterCheckpointOptions] = useState<
-    Record<string, string[]>
-  >({});
-  const configFileInputRef = useRef<HTMLInputElement>(null);
-  const startRequestInFlightRef = useRef(false);
-  const [startRequestInFlight, setStartRequestInFlight] = useState(false);
-
-  // Test merge: the interference report from the last run of the button, and
-  // whether one is in flight. Cleared whenever the selection changes, so a
-  // report can never be read as describing different adapters than the ones
-  // currently picked.
-  const [mergeReport, setMergeReport] = useState<MergeAnalyzeReport | null>(null);
-  const [mergeTestPending, setMergeTestPending] = useState(false);
-  const [mergeTestError, setMergeTestError] = useState<string | null>(null);
 
   const hardware = useHardwareInfo();
   // On Mac, GGUF LoRA adapters ship through the LoRA method's toggle, not the GGUF method.
@@ -607,12 +311,6 @@ export function ExportPage() {
   const runExport = useExportRuntimeStore((s) => s.runExport);
   const resetExportRun = useExportRuntimeStore((s) => s.reset);
   const isExporting = useExportRuntimeStore((s) => s.isExporting);
-  useEffect(() => {
-    if (!isExporting) {
-      startRequestInFlightRef.current = false;
-      setStartRequestInFlight(false);
-    }
-  }, [isExporting]);
   const panelActive = useExportRuntimeStore(isExportPanelActive);
 
   const hfComboboxAnchorRef = useRef<HTMLDivElement>(null);
@@ -720,6 +418,7 @@ export function ExportPage() {
     () => selectedModelData?.checkpoints ?? [],
     [selectedModelData],
   );
+
   const baseModelName = selectedModelData?.base_model ?? "—";
   const isAdapter = !!selectedModelData?.peft_type;
   const isQuantized = !!selectedModelData?.is_quantized;
@@ -912,8 +611,8 @@ export function ExportPage() {
       sourceMode === "model"
         ? [
             "Select a Hugging Face or local model to export from",
-            "Select Merged Model to combine LoRA adapters",
-            "Add local adapter paths or Hugging Face adapter repos",
+            "GGUF is used for non-finetuned model exports",
+            "Pick one or more GGUF quantization levels",
             "Click Export and choose your destination",
             "Test your model and compare outputs in Chat",
           ]
@@ -925,7 +624,6 @@ export function ExportPage() {
 
   useEffect(() => {
     setCheckpoint(null);
-    setAdapterMergeSelections([]);
   }, [selectedModelIdx]);
 
   // Default to the newest checkpoint when none is chosen. Declared after the reset effect above
@@ -982,7 +680,6 @@ export function ExportPage() {
     setSelectedSourceModel(null);
     setLocalModelInput("");
     setModelInput("");
-    setAdapterMergeSelections([]);
     hfModelInputRef.current = "";
     localModelInputRef.current = "";
   }, []);
@@ -1001,60 +698,8 @@ export function ExportPage() {
     localModelInputRef.current = localModelInput;
   }, [localModelInput]);
 
-  useEffect(() => {
-    const repos = Array.from(
-      new Set(
-        adapterMergeSelections
-          .filter((item): item is AdapterMergeSelection => Boolean(item.path.trim()))
-          .map((item) => item.path.trim()),
-      ),
-    );
-    for (const path of repos) {
-      const source = adapterMergeSelections.find((item) => item.path.trim() === path)?.source;
-      const cacheKey = `${source}:${path}`;
-      if (adapterCheckpointOptions[cacheKey]) continue;
-      // A Local picker value is a model ID; the checkpoint scan needs its real
-      // directory, so resolve it (a manually typed entry is already a path).
-      const localDir = source === "hf" ? path : (localMetaById.get(path)?.path ?? path);
-      void fetchAdapterCheckpoints(
-        source === "hf" ? { repoId: path } : { localPath: localDir },
-        hfToken,
-      )
-        .then((checkpoints) => {
-          const options =
-            checkpoints.length > 0
-              ? checkpoints.map((checkpoint) => checkpoint || ROOT_CHECKPOINT_VALUE)
-              : // An empty scan (no adapter_config.json anywhere) must still leave
-                // the dropdown selectable: fall back to the repository root.
-                [ROOT_CHECKPOINT_VALUE];
-          setAdapterCheckpointOptions((current) => ({
-            ...current,
-            [cacheKey]: options,
-          }));
-          // Surface "Repository root" instead of a blank placeholder once the
-          // list lands ("" already means root in the merge payload).
-          setAdapterMergeSelections((current) =>
-            current.map((item) =>
-              item.path.trim() === path && !item.checkpoint
-                ? { ...item, checkpoint: ROOT_CHECKPOINT_VALUE }
-                : item,
-            ),
-          );
-        })
-        .catch(() =>
-          setAdapterCheckpointOptions((current) => ({
-            ...current,
-            [cacheKey]: [ROOT_CHECKPOINT_VALUE],
-          })),
-        );
-    }
-  }, [adapterMergeSelections, adapterCheckpointOptions, hfToken, localMetaById]);
-
   const handleMethodChange = (method: ExportMethod) => {
     setExportMethod(method);
-    if (method !== "merged") {
-      setAdapterMergeSelections([]);
-    }
     if (method !== "gguf") {
       setQuantLevels([]);
     }
@@ -1141,22 +786,7 @@ export function ExportPage() {
     !hubMultiFormat &&
     (exportMethod !== "gguf" || ggufAsLora || quantLevels.length > 0) &&
     (exportMethod !== "merged" || selectedFormats.length > 0) &&
-    (!isDecision || (exportMethod === "gguf" && !decisionIneligible)) &&
-    (!multiAdapterMerge || exportMethod !== "merged" ||
-      (adapterMergeSelections.length >= 1 &&
-        new Set(adapterMergeSelections.map((item) => item.path)).size ===
-          adapterMergeSelections.length &&
-        adapterMergeSelections.every(
-          (item) => item.path && Number.isFinite(Number(item.weight)),
-        ) &&
-        (!MERGE_METHODS_WITH_DENSITY.has(mergeMethod) ||
-          (Number.isFinite(Number(mergeDensity)) &&
-            Number(mergeDensity) > 0 &&
-            Number(mergeDensity) <= 1)) &&
-        (!MERGE_METHODS_WITH_RANK.has(mergeMethod) ||
-          mergeTargetRank.trim() === "" ||
-          (Number.isInteger(Number(mergeTargetRank)) &&
-            Number(mergeTargetRank) >= 1))))
+    (!isDecision || (exportMethod === "gguf" && !decisionIneligible))
   );
 
   const applyHfSourceModel = useCallback((value: string) => {
@@ -1224,227 +854,19 @@ export function ExportPage() {
 
   // ---- Export handlers ----
   // Assemble the run params and hand off to the global runtime store, which drives the run.
-  const handleExportAdapterConfig = () => {
-    const config = {
-      adapters: adapterMergeSelections.map(({ path, weight, source, checkpoint }) => ({
-        path,
-        weight,
-        source,
-        checkpoint,
-      })),
-      method: mergeMethod,
-      density: mergeDensity,
-      rank: mergeTargetRank,
-      normalizeWeights: mergeNormalizeWeights,
-      device: mergeDevice,
-      destination,
-      hfUsername,
-      modelName,
-      privateRepo,
-    };
-    const blob = new Blob([dumpYaml(config)], {
-      type: "application/yaml",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "unsloth-multi-adapter-merge.yaml";
-    link.style.display = "none";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
-  };
-
-  const handleImportAdapterConfig = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      try {
-        const config = loadYaml(String(reader.result)) as Partial<AdapterMergeConfig>;
-        if (!Array.isArray(config.adapters) || config.adapters.length === 0) return;
-        const rawAdapters = config.adapters.filter(
-          (adapter): adapter is AdapterMergeSelection =>
-            typeof adapter?.path === "string" &&
-            (adapter.source === "local" || adapter.source === "hf") &&
-            typeof adapter.weight === "string" &&
-            typeof adapter.checkpoint === "string",
-        );
-        if (rawAdapters.length === 0) return;
-        const adapters = rawAdapters.map((item) =>
-          makeAdapterSelection({
-            path: item.path,
-            weight: item.weight,
-            source: item.source,
-            checkpoint: item.checkpoint,
-          }),
-        );
-        setAdapterMergeSelections(adapters);
-        if (config.method && MERGE_METHODS.some((item) => item.value === config.method)) {
-          setMergeMethod(config.method);
-          const category = MERGE_METHODS.find(
-            (item) => item.value === config.method,
-          )?.category;
-          if (category) {
-            setMergeCategory(category);
-          }
-        }
-        if (typeof config.density === "string") {
-          setMergeDensity(config.density);
-        }
-        if (typeof config.rank === "string") {
-          setMergeTargetRank(config.rank);
-        }
-        if (typeof config.normalizeWeights === "boolean") {
-          setMergeNormalizeWeights(config.normalizeWeights);
-        }
-        if (MERGE_DEVICES.some((item) => item.value === config.device)) {
-          setMergeDevice(config.device as MergeDeviceType);
-        }
-        if (config.destination === "local" || config.destination === "hub") {
-          setDestination(config.destination);
-        }
-        if (typeof config.hfUsername === "string") setHfUsername(config.hfUsername);
-        if (typeof config.modelName === "string") setModelName(config.modelName);
-        if (typeof config.privateRepo === "boolean") setPrivateRepo(config.privateRepo);
-      } catch {
-        // Ignore invalid config files; the current merge setup is preserved.
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  // Test needs the same inputs the merge does: two distinct adapters, each with
-  // a real path and a finite weight. A single adapter has no pair to compare,
-  // and a repeated path would silently compare an adapter with itself.
-  const mergeTestReady = useMemo(() => {
-    const filled = adapterMergeSelections.filter(
-      (item) => item.path.trim() !== "",
-    );
-    if (filled.length < 2) return false;
-    if (new Set(filled.map((item) => item.path)).size !== filled.length) {
-      return false;
-    }
-    return filled.every((item) => Number.isFinite(Number(item.weight)));
-  }, [adapterMergeSelections]);
-
-  // The report describes one exact set of adapters, so it is dropped when that
-  // set changes; a stale verdict next to different adapters is worse than none.
-  const mergeTestKey = useMemo(
-    () =>
-      JSON.stringify(
-        adapterMergeSelections.map((item) => [
-          item.source,
-          item.path,
-          item.checkpoint,
-          item.weight,
-        ]),
-      ),
-    [adapterMergeSelections],
-  );
-  useEffect(() => {
-    setMergeReport(null);
-    setMergeTestError(null);
-  }, [mergeTestKey]);
-
-  // Test merge: measure how much the selected adapters interfere, without
-  // loading the base model. Same paths and weights the merge would use, so the
-  // report describes the merge that is about to run.
-  const handleTestMerge = useCallback(async () => {
-    if (mergeTestPending) return;
-    const selections = adapterMergeSelections.filter(
-      (item) => item.path.trim() !== "",
-    );
-    if (selections.length < 2) return;
-    setMergeTestPending(true);
-    setMergeTestError(null);
-    try {
-      const report = await analyzeMerge({
-        adapter_paths: buildAdapterMergePaths(selections, localMetaById),
-        weights: selections.map((item) => Number(item.weight)),
-        normalize_weights: mergeNormalizeWeights,
-        hf_token: hfToken,
-      });
-      setMergeReport(report);
-    } catch (error) {
-      setMergeReport(null);
-      setMergeTestError(
-        error instanceof Error ? error.message : "Could not analyze the adapters",
-      );
-    } finally {
-      setMergeTestPending(false);
-    }
-  }, [adapterMergeSelections, hfToken, localMetaById, mergeTestPending, mergeNormalizeWeights]);
-
-  // Applies what the report recommends, so a verdict is one click from being
-  // acted on. Both fields move together: the method decides whether density is
-  // read at all, and TIES with the wrong density is the difference between a
-  // clean merge and a lossy one.
-  const handleApplyMergeRecommendation = useCallback(
-    (method: MergeMethodType, density: number) => {
-      handleMergeMethodChange(method);
-      setMergeDensity(String(density));
-    },
-    [handleMergeMethodChange],
-  );
-
   const handleStart = useCallback(async () => {
-    if (startRequestInFlightRef.current || isExporting) return;
-    startRequestInFlightRef.current = true;
-    setStartRequestInFlight(true);
     const source =
       sourceMode === "checkpoint" ? checkpoint : selectedSourceModel;
-    if (!source || !exportMethod) {
-      startRequestInFlightRef.current = false;
-      setStartRequestInFlight(false);
-      return;
-    }
+    if (!source || !exportMethod) return;
     // No supported accelerator (or PyTorch/MLX missing): the backend would reject anyway; don't submit.
-    if (exportUnsupported) {
-      startRequestInFlightRef.current = false;
-      setStartRequestInFlight(false);
-      return;
-    }
+    if (exportUnsupported) return;
+    if (diffusionDisabledMethods.includes(exportMethod)) return;
     // GGUF with no quant, or merged with no format, would run an empty export; require at least one.
-    if (exportMethod === "gguf" && !ggufAsLora && quantLevels.length === 0) {
-      startRequestInFlightRef.current = false;
-      setStartRequestInFlight(false);
+    if (exportMethod === "gguf" && !ggufAsLora && quantLevels.length === 0)
       return;
-    }
-    if (exportMethod === "merged" && selectedFormats.length === 0) {
-      startRequestInFlightRef.current = false;
-      setStartRequestInFlight(false);
-      return;
-    }
-    if (
-      multiAdapterMerge &&
-      (adapterMergeSelections.length < 1 ||
-        new Set(adapterMergeSelections.map((item) => item.path)).size !==
-          adapterMergeSelections.length ||
-        adapterMergeSelections.some(
-          (item) => !item.path || !Number.isFinite(Number(item.weight)),
-        ) ||
-        (MERGE_METHODS_WITH_DENSITY.has(mergeMethod) &&
-          (!Number.isFinite(Number(mergeDensity)) ||
-            Number(mergeDensity) <= 0 ||
-            Number(mergeDensity) > 1)) ||
-        (MERGE_METHODS_WITH_RANK.has(mergeMethod) &&
-          mergeTargetRank.trim() !== "" &&
-          (!Number.isInteger(Number(mergeTargetRank)) ||
-            Number(mergeTargetRank) < 1)))
-    ) {
-      startRequestInFlightRef.current = false;
-      setStartRequestInFlight(false);
-      return;
-    }
+    if (exportMethod === "merged" && selectedFormats.length === 0) return;
     // A Hub merged push writes each format to the repo root; several would collide (mirrors canExport).
-    if (hubMultiFormat) {
-      startRequestInFlightRef.current = false;
-      setStartRequestInFlight(false);
-      return;
-    }
+    if (hubMultiFormat) return;
     if (isDecision && (exportMethod !== "gguf" || decisionIneligible)) {
       return;
     }
@@ -1453,32 +875,8 @@ export function ExportPage() {
       sourceMode === "checkpoint"
         ? checkpointsForModel.find((cp) => cp.display_name === checkpoint)
         : null;
-    if (sourceMode === "checkpoint" && !selectedCp) {
-      startRequestInFlightRef.current = false;
-      setStartRequestInFlight(false);
-      return;
-    }
+    if (sourceMode === "checkpoint" && !selectedCp) return;
     const checkpointPath = selectedCp?.path ?? null;
-    const mergeDensityValue = Number(mergeDensity);
-    const mergeConfig = multiAdapterMerge && exportMethod === "merged"
-      ? {
-          adapter_paths: buildAdapterMergePaths(
-            adapterMergeSelections,
-            localMetaById,
-          ),
-          weights: adapterMergeSelections.map((item) => Number(item.weight)),
-          method: mergeMethod,
-          normalize_weights: mergeNormalizeWeights,
-          density: mergeDensityValue,
-          target_rank:
-            MERGE_METHODS_WITH_RANK.has(mergeMethod) &&
-            Number.isInteger(Number(mergeTargetRank)) &&
-            Number(mergeTargetRank) >= 1
-              ? Number(mergeTargetRank)
-              : undefined,
-          device: mergeDevice,
-        }
-      : undefined;
 
     const pushToHub = destination === "hub";
     if (pushToHub && !isDecision && (!hfUsername.trim() || !modelName.trim()))
@@ -1486,10 +884,7 @@ export function ExportPage() {
     const preparedToken = await prepareHfTokenForUse(hfToken, {
       allowAnonymous: !pushToHub,
     });
-    if (!preparedToken.proceed) {
-      startRequestInFlightRef.current = false;
-      return;
-    }
+    if (!preparedToken.proceed) return;
     const actionHfToken = preparedToken.token ?? "";
 
     const repoId =
@@ -1524,11 +919,7 @@ export function ExportPage() {
           approvedRemoteCodeFingerprint = fingerprint;
         },
       });
-      if (!remoteCodeOk) {
-        startRequestInFlightRef.current = false;
-        setStartRequestInFlight(false);
-        return;
-      }
+      if (!remoteCodeOk) return;
     }
 
     let installMissingDependencies = false;
@@ -1548,7 +939,6 @@ export function ExportPage() {
       trustRemoteCode,
       approvedRemoteCodeFingerprint,
       loadToken: actionHfToken || null,
-      multiAdapterMerge: mergeConfig,
       exportMethod: effectiveMethod,
       isAdapter: adapterExport,
       quantLevels,
@@ -1606,14 +996,6 @@ export function ExportPage() {
     isMacHost,
     loraGgufOuttype,
     adapterFormat,
-    multiAdapterMerge,
-    adapterMergeSelections,
-    localMetaById,
-    mergeMethod,
-    mergeCategory,
-    mergeDensity,
-    mergeTargetRank,
-    mergeNormalizeWeights,
     exportUnsupported,
     destination,
     saveDirectory,
@@ -1623,7 +1005,6 @@ export function ExportPage() {
     privateRepo,
     modelSource,
     runExport,
-    isExporting,
     isDecision,
     decisionIneligible,
     diffusionDisabledMethods,
@@ -1672,7 +1053,7 @@ export function ExportPage() {
 
   return (
     <div className="min-h-[calc(100dvh-var(--studio-titlebar-height,0px))] bg-background">
-      <main className="mx-auto max-w-7xl px-5 py-8 sm:px-9">
+      <main className="mx-auto max-w-7xl 3xl:max-w-[calc(1440px*var(--ui-space-scale,1))] 4xl:max-w-[calc(1760px*var(--ui-space-scale,1))] px-5 py-8 max-sm:px-4 sm:px-9">
         <GuidedTour {...tour.tourProps} />
 
         <div className="mb-8 flex flex-col gap-0.5">
@@ -2098,17 +1479,16 @@ export function ExportPage() {
                         </div>
                       )}
 
-                      <div className="rounded-xl bg-foreground/[0.04] p-3">
+                      <div className="rounded-xl bg-[color-mix(in_oklab,var(--foreground)_calc(4%*var(--contrast-wash-gain,1)),transparent)] p-3">
                         <p className="text-ui-11 text-muted-foreground">
-                          Select Merged Model to combine local or Hugging Face
-                          LoRA adapters with this base model.
+                          Direct model exports currently support GGUF only.
                         </p>
                       </div>
                     </div>
                   )}
 
                   {sourceMode === "checkpoint" && (
-                    <div className="rounded-xl bg-foreground/[0.04] p-3 flex flex-col gap-2">
+                    <div className="rounded-xl bg-[color-mix(in_oklab,var(--foreground)_calc(4%*var(--contrast-wash-gain,1)),transparent)] p-3 flex flex-col gap-2">
                       <span className="text-ui-11 font-medium text-muted-foreground uppercase tracking-wider">
                         Training Info
                       </span>
@@ -2156,7 +1536,7 @@ export function ExportPage() {
                         key={step}
                         className="flex items-start gap-2 text-xs text-muted-foreground"
                       >
-                        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-foreground/10 text-ui-10 font-semibold">
+                        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklab,var(--foreground)_calc(10%*var(--contrast-wash-gain,1)),transparent)] text-ui-10 font-semibold">
                           {i + 1}
                         </span>
                         {step}
@@ -2344,393 +1724,6 @@ export function ExportPage() {
                   </div>
                 </div>
               )}
-
-              {exportMethod === "merged" &&
-                (sourceMode === "model" || effectiveIsAdapter) &&
-                !exportUnsupported && (
-                  <div className="space-y-3 rounded-lg border p-3">
-                    <div className="flex flex-nowrap items-center justify-between gap-3">
-                      <div className="space-y-0.5">
-                        <div className="text-sm font-medium">
-                          Adapter merge
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          Blend one or more LoRA checkpoints into the base model.
-                        </div>
-                      </div>
-                      <div className="flex min-w-0 max-w-full flex-1 flex-nowrap items-center gap-2 overflow-x-auto [&>*]:shrink-0" data-testid="merge-toolbar-row">
-                        <input
-                          ref={configFileInputRef}
-                          type="file"
-                          accept="application/yaml,text/yaml,.yaml,.yml"
-                          className="hidden"
-                          onChange={handleImportAdapterConfig}
-                        />
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={() => configFileInputRef.current?.click()}
-                        >
-                          Import
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={handleExportAdapterConfig}
-                        >
-                          Save config
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={handleTestMerge}
-                          disabled={!mergeTestReady || mergeTestPending}
-                          aria-label="Test merge"
-                        >
-                          {mergeTestPending ? (
-                            <Spinner className="size-3.5" />
-                          ) : (
-                            <HugeiconsIcon
-                              icon={TestTube01Icon}
-                              className="size-3.5"
-                            />
-                          )}
-                          Test
-                        </Button>
-                        <InfoHint>
-                          Compares the selected adapters&apos; weights before
-                          anything is loaded: how much they disagree, and which
-                          method fits. Needs at least two adapters, so it stays
-                          disabled for a single-adapter merge.
-                        </InfoHint>
-                        <Select
-                          value={mergeCategory}
-                          onValueChange={(value: MergeMethodCategory) =>
-                            handleMergeCategoryChange(value)
-                          }
-                        >
-                          <SelectTrigger
-                            className="w-40"
-                            aria-label="Merge method category"
-                          >
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {MERGE_METHOD_CATEGORY_ORDER.map((category) => (
-                                <SelectItem key={category} value={category}>
-                                  {MERGE_METHOD_CATEGORY_LABELS[category]}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        <Select
-                          value={mergeMethod}
-                          onValueChange={(value: MergeMethodType) =>
-                            handleMergeMethodChange(value)
-                          }
-                        >
-                          <SelectTrigger
-                            className="w-36"
-                            aria-label="Merge method"
-                          >
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {mergeMethodsForCategory.map((method) => (
-                              <SelectItem key={method.value} value={method.value}>
-                                {method.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <InfoHint>
-                          {(() => {
-                            const selected = MERGE_METHODS.find(
-                              (method) => method.value === mergeMethod,
-                            );
-                            if (!selected) {
-                              return (
-                                "How several LoRA checkpoints are blended into one model."
-                              );
-                            }
-                            return (
-                              <span className="block space-y-1 text-left">
-                                <span className="block">
-                                  {selected.description}
-                                </span>
-                                <span className="block">
-                                  <span className="font-medium text-foreground">
-                                    Best for:{" "}
-                                  </span>
-                                  {selected.bestFor}
-                                </span>
-                                {mergeMethod === "linear" && filledAdapterCount >= 2 && (
-                                  <span className="block">
-                                    <span className="font-medium text-foreground">
-                                      Note:{" "}
-                                    </span>
-                                    Linear blends the LoRA factors, so several
-                                    adapters merge approximately — SVD gives the
-                                    exact weighted sum.
-                                  </span>
-                                )}
-                                {!mergeNormalizeWeights &&
-                                  filledAdapterCount >= 2 &&
-                                  Math.abs(mergeWeightSum - 1) > 0.05 && (
-                                    <span className="block">
-                                      <span className="font-medium text-foreground">
-                                        Note:{" "}
-                                      </span>
-                                      weights sum to {mergeWeightSum.toFixed(2)},
-                                      so the merged model is scaled by that factor —
-                                      turn on Normalize weights for a weighted
-                                      average.
-                                    </span>
-                                  )}
-                              </span>
-                            );
-                          })()}
-                        </InfoHint>
-                        <Select
-                          value={mergeDevice}
-                          onValueChange={(value: MergeDeviceType) =>
-                            setMergeDevice(value)
-                          }
-                        >
-                          <SelectTrigger className="w-28" aria-label="Merge device">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {MERGE_DEVICES.map((item) => (
-                              <SelectItem key={item.value} value={item.value}>
-                                {item.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <InfoHint>
-                          Where the merge runs. GPU is faster; CPU runs the whole
-                          merge in host RAM instead, which is the fix for a merge
-                          that fails with a CUDA out-of-memory error - a float32
-                          base plus the weight deltas these methods build do not
-                          fit beside each other on a small card. Same result,
-                          only slower.
-                        </InfoHint>
-                        {MERGE_METHODS_WITH_DENSITY.has(mergeMethod) && (
-                          <span className="flex items-center gap-1">
-                            <Input
-                              type="number"
-                              min="0.01"
-                              max="1"
-                              step="0.05"
-                              aria-label="Merge density"
-                              value={mergeDensity}
-                              onChange={(event) => setMergeDensity(event.target.value)}
-                              className="w-24"
-                            />
-                            <InfoHint>
-                              Fraction of each adapter's strongest weight changes to
-                              keep (0.01–1). Lower = cleaner merge, higher = more
-                              detail preserved. Used by TIES, DARE-TIES,
-                              DARE-Linear, Mag-Prune and their SVD variants.
-                            </InfoHint>
-                          </span>
-                        )}
-                        {MERGE_METHODS_WITH_RANK.has(mergeMethod) && (
-                          <span className="flex items-center gap-1">
-                            <Input
-                              type="number"
-                              min="1"
-                              step="1"
-                              placeholder="auto"
-                              aria-label="SVD output rank"
-                              value={mergeTargetRank}
-                              onChange={(event) => setMergeTargetRank(event.target.value)}
-                              className="w-24"
-                            />
-                            <InfoHint>
-                              Output adapter rank for the SVD merge (≥1). Leave
-                              empty to keep the full rank of the widest adapter.
-                            </InfoHint>
-                          </span>
-                        )}
-                        <span className="flex items-center gap-1">
-                          <Switch
-                            checked={mergeNormalizeWeights}
-                            onCheckedChange={(checked) =>
-                              setMergeNormalizeWeights(checked)
-                            }
-                            aria-label="Normalize merge weights"
-                          />
-                          <span className="text-xs text-muted-foreground">
-                            Normalize weights
-                          </span>
-                          <InfoHint>
-                            Rescales the per-adapter weights to sum to 1 before
-                            merging, keeping their ratios. Turn off to use the raw
-                            weights exactly as entered.
-                          </InfoHint>
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                        {adapterMergeSelections.map((selection, index) => (
-                          <div
-                            key={selection.id}
-                            className="grid grid-cols-1 gap-2 sm:grid-cols-[7rem_minmax(0,1fr)_minmax(10rem,auto)_6rem_auto] sm:items-center"
-                          >
-                            <Select
-                              value={selection.source}
-                              onValueChange={(source: "local" | "hf") =>
-                                setAdapterMergeSelections((current) =>
-                                  current.map((item) =>
-                                    item.id === selection.id
-                                      ? { ...item, source, path: "", checkpoint: "" }
-                                      : item,
-                                  ),
-                                )
-                              }
-                            >
-                              <SelectTrigger className="w-full">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="local">Local</SelectItem>
-                                <SelectItem value="hf">Hugging Face</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <AdapterSourcePicker
-                              source={selection.source}
-                              value={selection.path}
-                              index={index}
-                              hfToken={hfToken}
-                              localResultIds={localResultIds}
-                              localMetaById={localMetaById}
-                              selectedPaths={adapterMergeSelections
-                                .filter((item) => item.id !== selection.id)
-                                .map((item) => item.path)}
-                              excludedPath={sourceBaseModelName}
-                              onChange={(path) =>
-                                setAdapterMergeSelections((current) =>
-                                  current.map((item) =>
-                                    item.id === selection.id
-                                      ? { ...item, path, checkpoint: "" }
-                                      : item,
-                                  ),
-                                )
-                              }
-                            />
-                            {selection.path.trim() ? (
-                              <Select
-                                value={selection.checkpoint}
-                                onValueChange={(checkpoint) =>
-                                  setAdapterMergeSelections((current) =>
-                                    current.map((item) =>
-                                      item.id === selection.id ? { ...item, checkpoint } : item,
-                                    ),
-                                  )
-                                }
-                              >
-                                <SelectTrigger className="w-full">
-                                  <SelectValue placeholder="Checkpoint" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {(adapterCheckpointOptions[
-                                    `${selection.source}:${selection.path}`
-                                  ] ?? [ROOT_CHECKPOINT_VALUE]).map(
-                                    (checkpoint) => (
-                                      <SelectItem key={checkpoint} value={checkpoint}>
-                                        {checkpoint === ROOT_CHECKPOINT_VALUE
-                                          ? "Repository root"
-                                          : checkpoint}
-                                      </SelectItem>
-                                    ),
-                                  )}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <div className="text-xs text-muted-foreground sm:col-span-2">
-                                Enter an adapter path or repository first.
-                              </div>
-                            )}
-                            <Input
-                              type="number"
-                              min="-10"
-                              max="10"
-                              step="0.1"
-                              aria-label={`Weight for adapter ${index + 1}`}
-                              value={selection.weight}
-                              onChange={(event) =>
-                                setAdapterMergeSelections((current) =>
-                                  current.map((item) =>
-                                    item.id === selection.id
-                                      ? { ...item, weight: event.target.value }
-                                      : item,
-                                  ),
-                                )
-                              }
-                              className="w-full"
-                            />
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                setAdapterMergeSelections((current) =>
-                                  current.filter((item) => item.id !== selection.id),
-                                )
-                              }
-                            >
-                              Remove
-                            </Button>
-                          </div>
-                        ))}
-
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setAdapterMergeSelections((current) => {
-                                const previous = current[current.length - 1];
-                                return [
-                                  ...current,
-                                  makeAdapterSelection({
-                                    path: "",
-                                    weight: "1",
-                                    source: previous?.source ?? "local",
-                                    checkpoint: "",
-                                  }),
-                                ];
-                              });
-                            }}
-                          >
-                            Add adapter
-                          </Button>
-                        </div>
-                        {adapterMergeSelections.length < 1 && (
-                          <p className="text-xs text-muted-foreground">
-                            Add an adapter to merge it into the base model. One
-                            adapter is enough; leave this panel empty to merge
-                            the selected checkpoint on its own.
-                          </p>
-                        )}
-                        <MergeTestPanel
-                          pending={mergeTestPending}
-                          error={mergeTestError}
-                          report={mergeReport}
-                          onApplyRecommendation={
-                            handleApplyMergeRecommendation
-                          }
-                        />
-                      </div>
-                  </div>
-                )}
 
               {exportMethod === "lora" &&
                 effectiveIsAdapter &&
@@ -2952,11 +1945,12 @@ export function ExportPage() {
                           </div>
                           <div className="text-xs text-muted-foreground">
                             {requiresImatrix
-                              ? "Required for the selected IQ low-bit quant. Auto-downloads the upstream Unsloth imatrix for the base model."
-                              : "Improves quant quality and unlocks the IQ low-bit quants. Auto-downloads the upstream Unsloth imatrix for the base model."}
+                              ? "Required for the selected IQ low-bit quant."
+                              : "Improves quant quality and unlocks the IQ low-bit quants."}
                           </div>
                         </div>
                         <Switch
+                          aria-label="Importance matrix (imatrix)"
                           checked={effectiveImatrix}
                           onCheckedChange={setUseImatrix}
                           disabled={requiresImatrix}
@@ -3053,7 +2047,6 @@ export function ExportPage() {
                   privateRepo={privateRepo}
                   onPrivateRepoChange={setPrivateRepo}
                   onStart={handleStart}
-                  startRequestInFlight={startRequestInFlight}
                   onClose={handleClosePanel}
                   decisionNote={
                     decisionInfo

@@ -7833,59 +7833,6 @@ def not_implemented_save(*args, **kwargs):
     raise NotImplementedError("Unsloth: Sorry GGUF is currently not supported for vision models!")
 
 
-def _unsloth_merge_multi_adapters(
-    self,
-    adapters,
-    weights = None,
-    method = "linear",
-    normalize_weights = True,
-    density = 0.5,
-    target_rank = None,
-    device = None,
-):
-    """Merge multiple LoRA adapters into this model in-place.
-
-    Parameters
-    ----------
-    adapters : list[str]
-        Paths to PEFT adapter directories on disk.
-    weights : list[float] | None
-        Per-adapter merge weights.  Defaults to equal weighting.
-    method : ``"linear"`` | ``"svd"`` | ``"cat"`` | ``"ties"`` | ``"dare_ties"`` | ``"dare_linear"`` | ``"magnitude_prune"``
-                 | ``"ties_svd"`` | ``"dare_ties_svd"`` | ``"dare_linear_svd"`` |
-                 | ``"magnitude_prune_svd"``
-        PEFT combination type used to combine the adapters.
-    normalize_weights : bool
-        If ``True``, weights are normalised to sum to 1.
-    density : float
-        PEFT density for ``ties``/``dare_ties``/``dare_linear``/
-        ``magnitude_prune`` and their ``*_svd`` variants: fraction of
-        weight deltas kept.
-    target_rank : int | None
-        PEFT ``svd_rank`` for ``method="svd"`` and the ``*_svd`` variants.
-    device : str | None
-        ``"cpu"`` runs the merge in host RAM instead of on the GPU. Use it when
-        the merge dies with a CUDA out-of-memory error; the arithmetic is
-        identical, only slower.
-
-    Returns
-    -------
-    model : The model with merged ΔW applied.
-    """
-    from .multi_adapter_merge import merge_adapters_into_model
-
-    return merge_adapters_into_model(
-        self,
-        adapter_paths = adapters,
-        weights = weights,
-        method = method,
-        normalize_weights = normalize_weights,
-        density = density,
-        target_rank = target_rank,
-        device = device,
-    )
-
-
 class _TokenizerBoundMethod:
     """Picklable `types.MethodType`: a bound method pickles as getattr(obj, func.__name__), which no
     tokenizer has. Unpickled it becomes the class's own method (or None), so readers need no Unsloth."""
@@ -8158,9 +8105,6 @@ def patch_saving_functions(model, vision = False):
             model.save_pretrained_ggml = _bind_saving_method(
                 unsloth_convert_lora_to_ggml_and_save_locally, model, "save_pretrained_ggml"
             )
-            model.merge_multi_adapters = types.MethodType(
-                _unsloth_merge_multi_adapters, model
-            )
     else:
         model.push_to_hub_merged = _bind_saving_method(
             unsloth_generic_push_to_hub_merged, model, "push_to_hub_merged"
@@ -8182,9 +8126,6 @@ def patch_saving_functions(model, vision = False):
         )
         model.push_to_hub_openvino = _bind_saving_method(
             unsloth_push_to_hub_openvino, model, "push_to_hub_openvino"
-        )
-        model.merge_multi_adapters = _bind_saving_method(
-            _unsloth_merge_multi_adapters, model, "merge_multi_adapters"
         )
     return model
 
