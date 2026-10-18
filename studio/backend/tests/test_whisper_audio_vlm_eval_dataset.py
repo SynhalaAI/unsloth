@@ -582,6 +582,92 @@ def test_whisper_carve_out_is_skipped_when_the_cadence_is_unusable(audio_trainer
     assert seen["eval_split"] == "validation"
 
 
+def _whisper_auto_split_harness(audio_trainer, monkeypatch, rows, seen):
+    datasets = pytest.importorskip("datasets")
+
+    def fake(
+        dataset,
+        eval_split = None,
+        custom_format_mapping = None,
+        eval_dataset = None,
+    ):
+        seen["eval_split"] = eval_split
+        seen["eval_rows"] = None if eval_dataset is None else len(eval_dataset)
+        train = [{"input_features": [0.0], "labels": [1]}] * len(dataset)
+        ev = (
+            None
+            if eval_dataset is None
+            else [{"input_features": [0.0], "labels": [2]}] * len(eval_dataset)
+        )
+        return (train, ev)
+
+    audio_trainer._audio_type = "whisper"
+    monkeypatch.setattr(audio_trainer, "_preprocess_whisper_dataset", fake, raising = True)
+    monkeypatch.setattr(tmod, "ensure_audio_decoding", lambda: True, raising = False)
+    # The Hub split probe would hit the network for this fake dataset; the fallback under test
+    # is what runs when it finds nothing.
+    monkeypatch.setattr(
+        audio_trainer, "_auto_detect_eval_split_from_hf", lambda *a, **k: None, raising = True
+    )
+    monkeypatch.setattr(
+        tmod,
+        "load_dataset",
+        lambda *a, **k: datasets.Dataset.from_dict(
+            {"audio": ["a"] * rows, "text": ["x"] * rows}
+        ),
+        raising = False,
+    )
+
+
+def test_whisper_auto_splits_when_eval_is_enabled_without_a_split(
+    audio_trainer, monkeypatch
+):
+    """Eval Steps alone must hold out a split for Whisper, as it does on the text path."""
+    seen = {}
+    _whisper_auto_split_harness(audio_trainer, monkeypatch, rows = 40, seen = seen)
+
+    _train, evaluation = audio_trainer.load_and_format_dataset(
+        "some/dataset", eval_split = None, eval_steps = 0.1
+    )
+
+    assert seen["eval_split"] is None, "the auto-split pretended to be a chosen split"
+    assert seen["eval_rows"] == 16, "no held-out split was created for Whisper"
+    assert evaluation is not None and len(evaluation) == 16
+
+
+def test_whisper_auto_split_needs_enough_rows(audio_trainer, monkeypatch):
+    """Below MIN_TOTAL_ROWS_FOR_EVAL the text path warns and skips; so must Whisper."""
+    seen = {}
+    _whisper_auto_split_harness(audio_trainer, monkeypatch, rows = 20, seen = seen)
+
+    _train, evaluation = audio_trainer.load_and_format_dataset(
+        "some/dataset", eval_split = None, eval_steps = 0.1
+    )
+
+    assert seen["eval_rows"] is None
+    assert evaluation is None
+    assert any("at least 32" in w for w in audio_trainer.training_progress.warnings)
+
+
+def test_whisper_does_not_auto_split_when_a_split_is_chosen(audio_trainer, monkeypatch):
+    """A chosen eval_split keeps the existing load path; the fallback must not double-split."""
+    seen = {}
+    _whisper_auto_split_harness(audio_trainer, monkeypatch, rows = 40, seen = seen)
+    monkeypatch.setattr(
+        audio_trainer,
+        "_resolve_eval_split_from_dataset",
+        lambda *a, **k: pytest.fail("auto-split ran despite an explicit eval split"),
+        raising = True,
+    )
+
+    audio_trainer.load_and_format_dataset(
+        "some/dataset", eval_split = "validation", eval_steps = 0.1
+    )
+
+    assert seen["eval_split"] == "validation"
+    assert seen["eval_rows"] == 40, "the loaded eval split did not reach Whisper"
+
+
 def test_whisper_eval_split_whose_rows_are_all_skipped_warns(audio_trainer):
     class _EmptyRows(_FakeAudioDataset):
         def __getitem__(self, idx):

@@ -3898,6 +3898,19 @@ class UnslothTrainer:
                 )
 
             elif self._audio_type == "whisper":
+                # The 6% carve-out below only fires for an explicit eval_split, unlike the text
+                # path, so Eval Steps alone used to produce no eval loss at all. Mirror the text
+                # and MLX backends here: with evaluation on and no split or eval file chosen,
+                # hold out a bounded split from the training rows.
+                if (
+                    eval_enabled
+                    and eval_dataset is None
+                    and not eval_split
+                    and not dataset_streaming
+                ):
+                    split_result = self._resolve_eval_split_from_dataset(dataset)
+                    if split_result is not None:
+                        dataset, eval_dataset = split_result
                 train_data, eval_data = self._preprocess_whisper_dataset(
                     dataset,
                     # Whisper's 6% carve-out keys off eval_split, not the cadence, so gate it here.
