@@ -117,6 +117,7 @@ const DICTATION_LANGUAGES: { value: string; label: string }[] = [
   { value: "sv-SE", label: "Svenska" },
   { value: "da-DK", label: "Dansk" },
   { value: "hi-IN", label: "हिन्दी" },
+  { value: "si-LK", label: "සිංහල (Sinhala)" },
   { value: "ar-SA", label: "العربية" },
   { value: "he-IL", label: "עברית" },
 ];

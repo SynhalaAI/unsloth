@@ -1032,6 +1032,7 @@ export function useAudioModelSlot({
 
   // Scan rows carry no modality until the backend tags them; without this trained checkpoints are unreachable.
   const [trainedTtsModels, setTrainedTtsModels] = useState<ModelOption[]>([]);
+  const [trainedSttModels, setTrainedSttModels] = useState<ModelOption[]>([]);
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
@@ -1074,6 +1075,35 @@ export function useAudioModelSlot({
     };
   }, [active, isMac]);
 
+  // Trained STT (Whisper) checkpoints, so fine-tuned transcription models show up in the picker.
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    listLoras()
+      .then((res) => {
+        if (cancelled) return;
+        setTrainedSttModels(
+          res.loras
+            .filter((lora) => lora.audio_type === "whisper")
+            .map((lora) => ({
+              id: lora.adapter_path,
+              name: audioModelLabel(lora.adapter_path),
+              description:
+                lora.export_type === "merged"
+                  ? `Fine-tuned - ${lora.base_model || "unknown base"}`
+                  : `LoRA - ${lora.base_model || "unknown base"}`,
+              audioType: lora.audio_type ?? null,
+            })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setTrainedSttModels([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active]);
+
   const pickRecommendedModel = useCallback(
     async (id: string) => {
       if (busyRef.current !== null) return;
@@ -1114,6 +1144,7 @@ export function useAudioModelSlot({
     pickRecommendedModel,
     handleEject,
     trainedTtsModels,
+    trainedSttModels,
   };
 }
 

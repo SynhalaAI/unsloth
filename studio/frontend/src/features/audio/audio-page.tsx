@@ -491,6 +491,7 @@ export function AudioPage({
     pickRecommendedModel,
     handleEject,
     trainedTtsModels,
+    trainedSttModels,
   } = useAudioModelSlot({
     active,
     activeRef,
@@ -1705,7 +1706,7 @@ export function AudioPage({
               models={selectorModels}
               additionalOnDeviceModels={
                 mode === "transcribe"
-                  ? sttOnDeviceModels
+                  ? [...sttOnDeviceModels, ...trainedSttModels]
                   : // Trained speech checkpoints only speak (or make music); no other page loads them.
                     ttsWorkflow !== "speak" && ttsWorkflow !== "music"
                     ? []
