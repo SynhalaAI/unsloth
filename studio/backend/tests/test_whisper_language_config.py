@@ -159,8 +159,22 @@ def test_route_forwards_whisper_language_to_the_worker_payload():
 
 def test_worker_forwards_whisper_language_to_load_model():
     src = (Path(__file__).resolve().parents[1] / "core" / "training" / "worker.py").read_text(encoding = "utf-8")
-    assert src.count('whisper_language = config.get("whisper_language")') == 2
-    assert src.count('whisper_task = config.get("whisper_task")') == 2
+    # Two load_model call sites (initial + cached-files fallback) plus the pre-detect
+    # label-tokenizer call, which builds the training labels.
+    assert src.count('whisper_language = config.get("whisper_language")') == 3
+    assert src.count('whisper_task = config.get("whisper_task")') == 3
+
+
+def test_pre_detect_builds_whisper_labels_with_the_run_language():
+    src = (Path(__file__).resolve().parents[1] / "core" / "training" / "trainer.py").read_text(encoding = "utf-8")
+    # The dataset is tokenized by the pre-detect processor, so the label prefix must be
+    # chosen there; a generation-config-only fix leaves the labels English.
+    assert "def pre_detect_and_load_tokenizer(" in src
+    assert "whisper_language: Optional[str] = None," in src
+    start = src.index("def pre_detect_and_load_tokenizer(")
+    branch = src[start : src.index("def resolve_spark_tts_repo(")]
+    assert "language = whisper_language or DEFAULT_WHISPER_LANGUAGE" in branch
+    assert "task = normalize_whisper_task(whisper_task)" in branch
 
 
 def test_trainer_uses_the_helper_instead_of_hardcoding_english():

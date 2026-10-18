@@ -633,12 +633,18 @@ class UnslothTrainer:
         local_files_only: bool = False,
         model_revision: Optional[str] = None,
         load_in_4bit: bool = True,
+        whisper_language: Optional[str] = None,
+        whisper_task: Optional[str] = None,
     ) -> None:
         """Lightweight detection and tokenizer load: no model weights, no VRAM. Sets is_vlm,
         _audio_type, is_audio_vlm, model_name and loads a lightweight tokenizer for dataset
         formatting. Call before load_and_format_dataset() so the dataset is processed before the
         training model loads (avoids VRAM contention). load_model() later re-detects and loads
-        the full model + tokenizer, overwriting the lightweight one set here."""
+        the full model + tokenizer, overwriting the lightweight one set here.
+
+        Whisper takes its decoder language/task here too: the labels are tokenized with THIS
+        processor, before load_model() replaces it, so setting the language only on the loaded
+        model's generation config would leave the label prefix English forever."""
         self.model_name = model_name
         self.max_seq_length = max_seq_length
         self.trust_remote_code = trust_remote_code
@@ -700,8 +706,17 @@ class UnslothTrainer:
         def _load_tokenizer_for_detected_type():
             if self._audio_type == "whisper":
                 from transformers import AutoProcessor
+                from utils.datasets.whisper_language import (
+                    DEFAULT_WHISPER_LANGUAGE,
+                    normalize_whisper_task,
+                )
+
+                # The language/task tokens land in every label this processor tokenizes,
+                # so choose them here, not only on the loaded model's generation config.
                 self.tokenizer = AutoProcessor.from_pretrained(
                     lookup_name,
+                    language = whisper_language or DEFAULT_WHISPER_LANGUAGE,
+                    task = normalize_whisper_task(whisper_task),
                     trust_remote_code = trust_remote_code,
                     token = hf_token,
                     local_files_only = local_files_only,

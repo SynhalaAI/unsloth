@@ -846,6 +846,10 @@ def _pre_detect_training_model(
         local_files_only = local_files_only,
         model_revision = model_revision,
         load_in_4bit = _pre_detect_load_in_4bit(config, model_load_name, hf_token),
+        # Whisper labels are tokenized before load_model, so the run's language has to reach
+        # the pre-detect processor too, not just the loaded model's generation config.
+        whisper_language = config.get("whisper_language"),
+        whisper_task = config.get("whisper_task"),
     )
     _check_finetune_targets_after_detect(trainer, config)
     _apply_diffusion_lm_overrides(trainer, config)
