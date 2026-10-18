@@ -101,6 +101,8 @@ export interface TrainingStartRequest {
   finetune_mlp_modules: boolean;
   is_dataset_image: boolean;
   is_dataset_audio: boolean;
+  whisper_language?: string | null;
+  whisper_task?: string | null;
   is_embedding: boolean;
   is_decision: boolean;
   model_subfolder: string | null;
