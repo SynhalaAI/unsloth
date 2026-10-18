@@ -196,6 +196,7 @@ export interface TrainingConfigState {
   isPreferenceDataset: boolean;
   isDatasetImage: boolean | null;
   isDatasetAudio: boolean;
+  whisperLanguage: string | null;
   datasetCheckFailed: boolean;
   trustRemoteCode: boolean;
   approvedRemoteCodeFingerprint?: string | null;
@@ -305,6 +306,7 @@ export interface TrainingConfigActions {
   setCpoAlpha: (value: number) => void;
   setMaxPromptLength: (value: number) => void;
   setOptimizerType: (value: string) => void;
+  setWhisperLanguage: (value: string | null) => void;
   setLrSchedulerType: (value: string) => void;
   setLoraRank: (rank: number) => void;
   setLoraAlpha: (alpha: number) => void;

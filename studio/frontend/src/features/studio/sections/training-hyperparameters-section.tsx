@@ -91,6 +91,7 @@ export function TrainingHyperparametersSection({
       maxPromptLength: state.maxPromptLength,
       isDecision: state.modelType === "decision",
       isEmbedding: state.isEmbeddingModel || state.modelType === "embeddings",
+      isAudioModel: state.isAudioModel,
       optimizerType: state.optimizerType,
       lrSchedulerType: state.lrSchedulerType,
       batchSize: state.batchSize,
@@ -116,6 +117,8 @@ export function TrainingHyperparametersSection({
       setEvalSteps: state.setEvalSteps,
       setEarlyStoppingPatience: state.setEarlyStoppingPatience,
       setRandomSeed: state.setRandomSeed,
+      whisperLanguage: state.whisperLanguage,
+      setWhisperLanguage: state.setWhisperLanguage,
     })),
   );
   // Only mounted in advanced mode, so start expanded when the user switches to it.
@@ -479,6 +482,23 @@ export function TrainingHyperparametersSection({
                 className="w-28 font-mono"
               />
             </ParamsRow>
+            {store.isAudioModel && (
+              <ParamsRow
+                label="Whisper language"
+                tooltip="Language the Whisper decoder is trained to emit (e.g. Sinhala). Leave blank for English."
+              >
+                <Input
+                  type="text"
+                  value={store.whisperLanguage ?? ""}
+                  onChange={(event) => {
+                    const value = event.target.value.trim();
+                    store.setWhisperLanguage(value === "" ? null : value);
+                  }}
+                  placeholder="English"
+                  className="w-28 font-mono"
+                />
+              </ParamsRow>
+            )}
           </TabsContent>
 
           <TrainingMemoryParams />

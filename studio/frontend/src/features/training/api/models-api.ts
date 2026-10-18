@@ -43,6 +43,8 @@ interface BackendTrainingDefaults {
   // Shipped YAML may decode this value as a boolean.
   gradient_checkpointing?: "none" | "true" | "unsloth" | boolean;
   trust_remote_code?: boolean;
+  whisper_language?: string | null;
+  whisper_task?: string | null;
 }
 
 interface BackendLoraDefaults {

@@ -1576,6 +1576,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
         setMaxPromptLength: (maxPromptLength) =>
           setUserEdit({ maxPromptLength }),
         setOptimizerType: (optimizerType) => setUserEdit({ optimizerType }),
+  setWhisperLanguage: (whisperLanguage) => setUserEdit({ whisperLanguage }),
         setLrSchedulerType: (lrSchedulerType) =>
           setUserEdit({ lrSchedulerType }),
         setLoraRank: (loraRank) => {

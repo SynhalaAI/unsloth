@@ -1338,6 +1338,8 @@ class UnslothTrainer:
         model_revision: Optional[str] = None,
         use_gradient_checkpointing: Union[str, bool] = "unsloth",
         on_model_resolved: Optional[Callable[[str], None]] = None,
+        whisper_language: Optional[str] = None,
+        whisper_task: Optional[str] = None,
         offload_layers: Union[int, str] = 0,
         prefetch_depth: Union[int, str] = 2,
         offload_plan_shape: Optional[dict] = None,
@@ -1539,6 +1541,17 @@ class UnslothTrainer:
             elif self._audio_type == "whisper":
                 from unsloth import FastModel
                 from transformers import WhisperForConditionalGeneration
+                from utils.datasets.whisper_language import (
+                    DEFAULT_WHISPER_LANGUAGE,
+                    apply_whisper_decoder_language,
+                    normalize_whisper_task,
+                )
+
+                # The language token is trained into every label, so it has to be the
+                # dataset's language here, at infer-time it is too late. Unset means
+                # English, which is what runs without this setting trained with.
+                whisper_language = whisper_language or DEFAULT_WHISPER_LANGUAGE
+                whisper_task = normalize_whisper_task(whisper_task)
 
                 self.model, self.tokenizer = FastModel.from_pretrained(
                     model_name = lookup_name,
@@ -1547,8 +1560,8 @@ class UnslothTrainer:
                     device_map = device_map,
                     full_finetuning = full_finetuning,
                     auto_model = WhisperForConditionalGeneration,
-                    whisper_language = "English",
-                    whisper_task = "transcribe",
+                    whisper_language = whisper_language,
+                    whisper_task = whisper_task,
                     token = hf_token,
                     trust_remote_code = trust_remote_code,
                     revision = model_revision,
@@ -1556,11 +1569,14 @@ class UnslothTrainer:
                     use_gradient_checkpointing = use_gradient_checkpointing,
                     on_model_resolved = on_model_resolved,
                 )
-                self.model.generation_config.language = "<|en|>"
-                self.model.generation_config.task = "transcribe"
+                language_token = apply_whisper_decoder_language(
+                    self.model, self.tokenizer, whisper_language, whisper_task
+                )
                 self.model.config.suppress_tokens = []
                 self.model.generation_config.forced_decoder_ids = None
-                logger.info("Loaded Whisper audio model (FastModel)")
+                logger.info(
+                    f"Loaded Whisper audio model (FastModel), language={language_token}"
+                )
 
             elif self._audio_type == "snac":
                 # Orpheus: language model with audio codec tokens
@@ -1788,6 +1804,8 @@ class UnslothTrainer:
                     offload_layers = offload_layers,
                     prefetch_depth = prefetch_depth,
                     offload_plan_shape = offload_plan_shape,
+                    whisper_language = whisper_language,
+                    whisper_task = whisper_task,
                 )
             error_msg = str(e)
             error_lower = error_msg.lower()

@@ -195,6 +195,7 @@ export const DEFAULT_HYPERPARAMS = {
   tensorboardDir: "runs",
   logFrequency: 10,
   trustRemoteCode: false,
+  whisperLanguage: null as string | null,
   finetuneVisionLayers: true,
   finetuneLanguageLayers: true,
   finetuneAttentionModules: true,

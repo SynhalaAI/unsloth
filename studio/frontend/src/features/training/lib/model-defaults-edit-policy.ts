@@ -41,6 +41,7 @@ export const MODEL_DEFAULT_STATE_KEYS = [
   "finetuneAttentionModules",
   "finetuneMLPModules",
   "targetModules",
+  "whisperLanguage",
 ] as const satisfies readonly (keyof TrainingConfigState)[];
 
 export type ModelDefaultsPatch = Partial<

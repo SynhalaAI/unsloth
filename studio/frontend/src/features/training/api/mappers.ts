@@ -338,6 +338,7 @@ export function buildTrainingStartPayload(
     is_dataset_image: isEmbedding ? false : !!config.isDatasetImage,
     // The decision trainer reads its rows itself; this flag selects the chat audio path.
     is_dataset_audio: isEmbedding || isDecision ? false : config.isDatasetAudio,
+    whisper_language: isEmbedding || isDecision ? null : config.whisperLanguage,
     is_embedding: isEmbedding && !isDecision,
     is_decision: isDecision,
     model_subfolder: isDecision ? config.modelSubfolder : null,

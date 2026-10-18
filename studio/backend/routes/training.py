@@ -2445,6 +2445,8 @@ async def start_training(
             "finetune_mlp_modules": request.finetune_mlp_modules,
             "is_dataset_image": request.is_dataset_image,
             "is_dataset_audio": request.is_dataset_audio,
+            "whisper_language": request.whisper_language,
+            "whisper_task": request.whisper_task,
             "is_ocr_training": request.is_ocr_training,
             "is_embedding": request.is_embedding,
             "is_decision": request.is_decision,

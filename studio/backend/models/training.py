@@ -762,6 +762,17 @@ class TrainingStartRequest(BaseModel):
     finetune_mlp_modules: bool = Field(True, description = "Finetune MLP modules")
     is_dataset_image: bool = Field(False, description = "Whether the dataset contains image data")
     is_dataset_audio: bool = Field(False, description = "Whether the dataset contains audio data")
+    whisper_language: Optional[str] = Field(
+        None,
+        description = "Whisper language for audio training: a Whisper language name "
+        "('Sinhala'), or a token ('<|si|>'). None keeps 'English', the historical "
+        "Studio default, so existing runs are unchanged.",
+    )
+    whisper_task: Optional[str] = Field(
+        None,
+        description = "Whisper task for audio training: 'transcribe' or 'translate'. "
+        "None keeps 'transcribe'.",
+    )
     is_ocr_training: bool = Field(
         False,
         description = "Whether this run is an OCR/vision transcription training task.",

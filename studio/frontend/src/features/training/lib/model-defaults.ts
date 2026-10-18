@@ -117,6 +117,9 @@ export function mapBackendModelConfigToTrainingPatch(
   const lrSchedulerType = toStringValue(training?.lr_scheduler_type);
   if (lrSchedulerType !== undefined) patch.lrSchedulerType = lrSchedulerType;
 
+  const whisperLanguage = toStringValue(training?.whisper_language);
+  if (whisperLanguage !== undefined) patch.whisperLanguage = whisperLanguage;
+
   const batchSize = toNumber(training?.batch_size);
   if (batchSize !== undefined) patch.batchSize = batchSize;
 
