@@ -103,6 +103,7 @@ const STT_RUNTIME_NAMES = new Set(["whisper.cpp", "llama.cpp"]);
 // Languages shared by browser speech recognition and local STT.
 const DICTATION_LANGUAGES: { value: string; label: string }[] = [
   { value: "auto", label: "" }, // label rendered via i18n
+  { value: "si-LK", label: "සිංහල (Sinhala)" },
   { value: "en-US", label: "English (US)" },
   { value: "en-GB", label: "English (UK)" },
   { value: "zh-CN", label: "中文 (简体)" },
@@ -117,7 +118,6 @@ const DICTATION_LANGUAGES: { value: string; label: string }[] = [
   { value: "sv-SE", label: "Svenska" },
   { value: "da-DK", label: "Dansk" },
   { value: "hi-IN", label: "हिन्दी" },
-  { value: "si-LK", label: "සිංහල (Sinhala)" },
   { value: "ar-SA", label: "العربية" },
   { value: "he-IL", label: "עברית" },
 ];

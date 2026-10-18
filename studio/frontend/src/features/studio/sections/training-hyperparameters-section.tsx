@@ -32,6 +32,91 @@ import { ParamsRow, ParamsSliderRow } from "./params-section-controls";
 import { TrainingMemoryParams } from "./training-memory-params";
 
 type HyperparameterTab = "optimization" | "schedule" | "memory";
+
+// Whisper language names accepted by WhisperProcessor.from_pretrained(language=...).
+// Keep in sync with transformers.models.whisper.tokenization_whisper.LANGUAGES.
+const WHISPER_LANGUAGES = [
+  "English",
+  "Sinhala",
+  "Hindi",
+  "Tamil",
+  "Telugu",
+  "Malayalam",
+  "Kannada",
+  "Bengali",
+  "Marathi",
+  "Gujarati",
+  "Punjabi",
+  "Urdu",
+  "Nepali",
+  "Arabic",
+  "Hebrew",
+  "Persian",
+  "Turkish",
+  "Chinese",
+  "Cantonese",
+  "Japanese",
+  "Korean",
+  "Thai",
+  "Vietnamese",
+  "Indonesian",
+  "Malay",
+  "French",
+  "German",
+  "Spanish",
+  "Catalan",
+  "Italian",
+  "Portuguese",
+  "Dutch",
+  "Russian",
+  "Ukrainian",
+  "Polish",
+  "Czech",
+  "Romanian",
+  "Greek",
+  "Swedish",
+  "Norwegian",
+  "Danish",
+  "Finnish",
+  "Hungarian",
+  "Bulgarian",
+  "Serbian",
+  "Croatian",
+  "Slovak",
+  "Slovenian",
+  "Lithuanian",
+  "Latvian",
+  "Estonian",
+  "Icelandic",
+  "Welsh",
+  "Irish",
+  "Scottish Gaelic",
+  "Afrikaans",
+  "Swahili",
+  "Yoruba",
+  "Hausa",
+  "Zulu",
+  "Amharic",
+  "Somali",
+  "Kazakh",
+  "Uzbek",
+  "Azerbaijani",
+  "Georgian",
+  "Armenian",
+  "Mongolian",
+  "Tibetan",
+  "Burmese",
+  "Khmer",
+  "Lao",
+  "Javanese",
+  "Sundanese",
+  "Tagalog",
+  "Maori",
+  "Hawaiian",
+  "Latin",
+  "Esperanto",
+];
+
 type StudioT = ReturnType<typeof useT>;
 
 function formatOptimizerLabel(
@@ -485,18 +570,25 @@ export function TrainingHyperparametersSection({
             {store.isAudioModel && (
               <ParamsRow
                 label="Whisper language"
-                tooltip="Language the Whisper decoder is trained to emit (e.g. Sinhala). Leave blank for English."
+                tooltip="Language the Whisper decoder is trained to emit. Leave blank for English."
               >
-                <Input
-                  type="text"
-                  value={store.whisperLanguage ?? ""}
-                  onChange={(event) => {
-                    const value = event.target.value.trim();
-                    store.setWhisperLanguage(value === "" ? null : value);
-                  }}
-                  placeholder="English"
-                  className="w-28 font-mono"
-                />
+                <Select
+                  value={store.whisperLanguage ?? "English"}
+                  onValueChange={(value) =>
+                    store.setWhisperLanguage(value === "English" ? null : value)
+                  }
+                >
+                  <SelectTrigger className="w-40 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {WHISPER_LANGUAGES.map((lang) => (
+                      <SelectItem key={lang} value={lang}>
+                        {lang}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </ParamsRow>
             )}
           </TabsContent>

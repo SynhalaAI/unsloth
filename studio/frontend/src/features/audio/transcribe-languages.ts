@@ -8,7 +8,7 @@ const NAMES = new Intl.DisplayNames(["en"], { type: "language" });
 export const TRANSCRIBE_LANGUAGES: readonly { code: string; name: string }[] = [
   { code: "", name: "Detect automatically" },
   ...(
-    "en zh es fr de it pt ru ja ko ar hi nl pl tr uk vi id th sv da fi no cs " +
+    "en si zh es fr de it pt ru ja ko ar hi nl pl tr uk vi id th sv da fi no cs " +
     "el he hu ro ms yue"
   )
     .split(" ")
