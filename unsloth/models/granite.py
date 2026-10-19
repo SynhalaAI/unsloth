@@ -25,6 +25,7 @@ from ..utils.attention_dispatch import (
     SDPA,
 )
 from .llama import (
+    _decode_rotary_seq_len,
     LlamaRotaryEmbedding,
     LlamaLinearScalingRotaryEmbedding,
     _gqa_decode_scores,
@@ -140,7 +141,9 @@ def GraniteAttention_fast_forward(
 
     use_varlen = attention_mask is None and seq_info is not None and not had_cache
 
-    backend = SDPA if attention_mask is not None else select_attention_backend(use_varlen)
+    backend = (
+        SDPA if attention_mask is not None else select_attention_backend(use_varlen, dropout_p)
+    )
 
     window = (kv_seq_len, kv_seq_len)
     softmax_scale = getattr(self, "scaling", None)
@@ -456,8 +459,12 @@ def GraniteModel_fast_forward_inference(
         attention_mask = None
 
     # Decode positions run past max_seq_length; the cache is only built for the rows asked for.
+    # Explicit positions can run past both: one host sync at most, here and not per layer.
+    rotary_seq_len = _decode_rotary_seq_len(self.model.rotary_emb, seq_len + q_len, position_ids)
+    if rotary_seq_len > max(self.max_seq_length, seq_len + q_len):
+        self.model.rotary_emb.extend_rope_embedding(hidden_states, rotary_seq_len + 1)
     position_embeddings = self.model.rotary_emb.get_cached(
-        max(self.max_seq_length, seq_len + q_len), hidden_states.device.index
+        max(self.max_seq_length, seq_len + q_len, rotary_seq_len), hidden_states.device.index
     )
 
     next_decoder_cache = []
