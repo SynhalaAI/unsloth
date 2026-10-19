@@ -3,6 +3,7 @@
 
 import {
   getTrainingRun,
+  isEvaluationConfigured,
   useTrainingConfigStore,
   useTrainingRuntimeStore,
 } from "@/features/training";
@@ -80,6 +81,7 @@ export function LiveTrainingView(): ReactElement {
       projectName: state.projectName,
       trainingMethod: state.trainingMethod,
       modelType: state.modelType,
+      evalSteps: state.evalSteps,
     })),
   );
 
@@ -133,6 +135,14 @@ export function LiveTrainingView(): ReactElement {
   }, [runtime.jobId, fetchedRunConfig, fetchAttempt]);
   const runConfigOverride = activeRunOverride(fetchedRunConfig, runtime.jobId);
 
+  // The backend's eval_enabled only reaches us through (owner-gated) status polling, so a run
+  // whose eval is still being prepared can look unconfigured. The run's own saved eval_steps
+  // is authoritative for "was evaluation configured", so the card doesn't tell the user to set
+  // eval_steps they already set.
+  const evalConfigured =
+    runtime.evalEnabled ||
+    isEvaluationConfigured(runConfigOverride?.evalSteps ?? config.evalSteps);
+
   const activeProjectName =
     runtime.startProjectName !== null
       ? runtime.startProjectName.trim() || null
@@ -152,7 +162,7 @@ export function LiveTrainingView(): ReactElement {
     elapsedSeconds: runtime.elapsedSeconds,
     etaSeconds: runtime.etaSeconds,
     sessionStartStep: runtime.sessionStartStep,
-    evalEnabled: runtime.evalEnabled,
+    evalEnabled: evalConfigured,
     message: runtime.message,
     error: runtime.error,
     warnings: runtime.warnings,
@@ -208,7 +218,6 @@ export function LiveTrainingView(): ReactElement {
         <ChartsSection
           currentStep={viewData.currentStep}
           totalSteps={viewData.totalSteps}
-          isTraining={viewData.isTrainingRunning}
           evalEnabled={viewData.evalEnabled}
           lossHistory={viewData.lossHistory}
           lrHistory={viewData.lrHistory}

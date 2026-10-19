@@ -57,11 +57,9 @@ function collectLossValues(
 
 export function ChartsContent({
   metrics,
-  isTraining,
   evalEnabled,
 }: {
   metrics: TrainingChartSeries;
-  isTraining: boolean;
   evalEnabled: boolean;
 }): ReactElement {
   const {
@@ -332,7 +330,6 @@ export function ChartsContent({
         data={reducedEvalLossData}
         domain={evalLossDomain}
         ticks={evalLossStepTicks}
-        isTraining={isTraining}
         evalEnabled={evalEnabled}
       />
       {(reducedPreferenceData.length > 0 || reducedEvalPreferenceData.length > 0) && (

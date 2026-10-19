@@ -7,6 +7,7 @@ import {
   type TrainingRunDetailResponse,
   type TrainingViewData,
   getTrainingRun,
+  isEvaluationConfigured,
   onTrainingRunUpdated,
   parseBackendTrainingMethod,
   useTrainingActions,
@@ -82,7 +83,9 @@ function mapToViewData(
         : 0,
     elapsedSeconds: run.duration_seconds,
     etaSeconds: null,
-    evalEnabled: evalLossHistory.length > 0,
+    // Read the run's saved eval_steps, not whether eval data arrived: a configured run that
+    // stopped before its first eval step (or was too small to split) still had eval configured.
+    evalEnabled: isEvaluationConfigured(detail.config?.eval_steps),
     message:
       run.status === "completed"
         ? t("studio.history.message.completed")
@@ -234,7 +237,6 @@ export function HistoricalTrainingView({
       <ChartsSection
         currentStep={viewData.currentStep}
         totalSteps={viewData.totalSteps}
-        isTraining={false}
         evalEnabled={viewData.evalEnabled}
         lossHistory={viewData.lossHistory}
         lrHistory={viewData.lrHistory}

@@ -19,6 +19,7 @@ export interface RunConfigOverride {
   loraAlpha?: number;
   loraDropout?: number;
   loraVariant?: string;
+  evalSteps?: number;
 }
 
 /** Map a saved run's config (GET /api/train/runs/{id} `detail.config`) into the
@@ -43,6 +44,7 @@ export function mapRunConfigToOverride(
     maxSteps: config.max_steps as number | undefined,
     contextLength: config.max_seq_length as number | undefined,
     warmupSteps: config.warmup_steps as number | undefined,
+    evalSteps: config.eval_steps as number | undefined,
     optimizerType: config.optim as string | undefined,
     loraRank: config.lora_r as number | undefined,
     loraAlpha: config.lora_alpha as number | undefined,

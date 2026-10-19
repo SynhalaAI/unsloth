@@ -341,6 +341,29 @@ test("matching progress updates metrics without replacing the run identity", () 
   assert.deepEqual(current.lossHistory, [{ step: 4, value: 1.25 }]);
 });
 
+test("an arriving eval loss marks evaluation enabled and sticks", () => {
+  useTrainingRuntimeStore.getState().resetRuntime();
+  useTrainingRuntimeStore.getState().setStartPending("job-current", "Starting");
+  assert.equal(useTrainingRuntimeStore.getState().evalEnabled, false);
+
+  useTrainingRuntimeStore
+    .getState()
+    .applyProgress(
+      { ...progressPayload("job-current", 3), eval_loss: 0.42 },
+      3,
+    );
+
+  const afterEval = useTrainingRuntimeStore.getState();
+  assert.equal(afterEval.evalEnabled, true);
+  assert.deepEqual(afterEval.evalLossHistory, [{ step: 3, value: 0.42 }]);
+
+  // A later step without an eval loss must not drop the flag (status polling may lag).
+  useTrainingRuntimeStore
+    .getState()
+    .applyProgress(progressPayload("job-current", 4), 4);
+  assert.equal(useTrainingRuntimeStore.getState().evalEnabled, true);
+});
+
 test("accepting a job already adopted from status preserves live progress", () => {
   useTrainingRuntimeStore.getState().resetRuntime();
   const runtime = useTrainingRuntimeStore.getState();

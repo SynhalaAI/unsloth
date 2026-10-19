@@ -29,13 +29,11 @@ export function EvalLossChartCard({
   data,
   domain,
   ticks,
-  isTraining,
   evalEnabled,
 }: {
   data: { step: number; loss: number }[];
   domain: [number, number];
   ticks?: number[];
-  isTraining: boolean;
   evalEnabled: boolean;
 }): ReactElement {
   const t = useT();
@@ -159,12 +157,12 @@ export function EvalLossChartCard({
                 className="size-5 text-muted-foreground/50"
               />
               <p className="text-sm font-medium text-muted-foreground">
-                {isTraining && evalEnabled
+                {evalEnabled
                   ? t("studio.charts.waitingForFirstEvaluationStep")
                   : t("studio.charts.evaluationNotConfigured")}
               </p>
               <p className="text-xs text-muted-foreground/60">
-                {isTraining && evalEnabled
+                {evalEnabled
                   ? t("studio.charts.evalChartWillAppear")
                   : t("studio.charts.setEvalDatasetAndSteps")}
               </p>

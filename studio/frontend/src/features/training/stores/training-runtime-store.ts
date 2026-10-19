@@ -650,6 +650,9 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
             step > 0 && currentGradNorm !== null
               ? upsertPoint(state.gradNormHistory, step, currentGradNorm)
               : state.gradNormHistory,
+          // An arriving eval loss is proof eval ran, so the card stops waiting even if the
+          // next owner-gated status poll hasn't reported eval_enabled yet.
+          evalEnabled: state.evalEnabled || (step > 0 && evalLoss !== null),
           evalLossHistory:
             step > 0 && evalLoss !== null
               ? upsertPoint(state.evalLossHistory, step, evalLoss)

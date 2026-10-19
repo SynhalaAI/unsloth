@@ -19,7 +19,6 @@ const SKELETON_KEYS = [
 interface ChartsSectionProps {
   currentStep: number;
   totalSteps: number;
-  isTraining: boolean;
   evalEnabled: boolean;
   lossHistory: TrainingSeriesPoint[];
   lrHistory: TrainingSeriesPoint[];
@@ -34,7 +33,6 @@ interface ChartsSectionProps {
 export function ChartsSection({
   currentStep,
   totalSteps,
-  isTraining,
   evalEnabled,
   lossHistory,
   lrHistory,
@@ -111,11 +109,7 @@ export function ChartsSection({
         </div>
       }
     >
-      <ChartsContent
-        metrics={series}
-        isTraining={isTraining}
-        evalEnabled={evalEnabled}
-      />
+      <ChartsContent metrics={series} evalEnabled={evalEnabled} />
     </Suspense>
   );
 }
