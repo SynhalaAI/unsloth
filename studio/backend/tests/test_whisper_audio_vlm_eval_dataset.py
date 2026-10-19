@@ -287,6 +287,45 @@ def test_audio_vlm_without_an_eval_upload_returns_none(audio_trainer, tmp_path, 
     assert evaluation is None
 
 
+def test_audio_vlm_eval_steps_alone_carve_out_a_split(audio_trainer, tmp_path, monkeypatch):
+    """Eval Steps with no explicit eval split used to train this path with no evaluation:
+    the audio-VLM branch returned before the text path's held-out carve-out ran."""
+    audio_trainer._audio_type = None
+    audio_trainer.is_audio_vlm = True
+    monkeypatch.setattr(
+        audio_trainer, "_format_audio_vlm_dataset", lambda ds, m = None: ds, raising = True
+    )
+
+    texts = [f"row-{i}" for i in range(40)]
+    train, evaluation = audio_trainer.load_and_format_dataset(
+        None,
+        local_datasets = [_rows(tmp_path / "train.jsonl", texts)],
+        eval_steps = 0.1,
+    )
+
+    assert evaluation is not None, "eval_steps alone produced no eval split on the audio-VLM path"
+    train_texts = set(_texts(train))
+    eval_texts = set(_texts(evaluation))
+    assert len(train_texts) + len(eval_texts) == len(texts)
+    assert not (train_texts & eval_texts), "the carved-out eval split overlaps the train split"
+
+
+def test_audio_vlm_tiny_dataset_stays_unevaluated(audio_trainer, tmp_path, monkeypatch):
+    """Below MIN_TOTAL_ROWS_FOR_EVAL the carve-out is skipped, not crashed on."""
+    audio_trainer._audio_type = None
+    audio_trainer.is_audio_vlm = True
+    monkeypatch.setattr(
+        audio_trainer, "_format_audio_vlm_dataset", lambda ds, m = None: ds, raising = True
+    )
+
+    _train, evaluation = audio_trainer.load_and_format_dataset(
+        None,
+        local_datasets = [_rows(tmp_path / "train.jsonl", [f"row-{i}" for i in range(10)])],
+        eval_steps = 0.1,
+    )
+    assert evaluation is None
+
+
 def test_audio_vlm_unpreparable_eval_split_warns_instead_of_failing_the_run(
     audio_trainer, tmp_path, monkeypatch
 ):

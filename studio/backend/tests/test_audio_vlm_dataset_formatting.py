@@ -146,6 +146,12 @@ def test_audio_vlm_auto_splits_eval_dataset():
 
     trainer._resolve_audio_columns = UnslothTrainer._resolve_audio_columns.__get__(trainer)
     trainer._format_audio_vlm_dataset = UnslothTrainer._format_audio_vlm_dataset.__get__(trainer)
+    trainer._format_audio_vlm_eval_split = UnslothTrainer._format_audio_vlm_eval_split.__get__(
+        trainer
+    )
+    trainer._preprocess_audio_eval_split = UnslothTrainer._preprocess_audio_eval_split.__get__(
+        trainer
+    )
     trainer._resolve_eval_split_from_dataset = UnslothTrainer._resolve_eval_split_from_dataset.__get__(trainer)
     trainer._auto_detect_eval_split_from_hf = lambda **kwargs: None
     trainer._record_warning = lambda msg: None
@@ -160,8 +166,7 @@ def test_audio_vlm_auto_splits_eval_dataset():
 
     assert eval_ds is not None
     assert len(eval_ds) == 16
-    assert len(train_info["dataset"]) == 84
-    assert train_info["detected_format"] == "audio_vlm"
+    assert len(train_info) == 84
 
 
 

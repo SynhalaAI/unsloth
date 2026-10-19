@@ -4033,6 +4033,19 @@ class UnslothTrainer:
                 return (dataset_info, eval_dataset)
 
             elif self.is_audio_vlm:
+                # Eval Steps alone must carve out a held-out split, mirroring the text and
+                # Whisper paths: without this, an audio-VLM run that sets eval_steps but no
+                # explicit eval split (the auto-detect path leaves eval_dataset None) silently
+                # trains with no evaluation at all.
+                if (
+                    eval_enabled
+                    and eval_dataset is None
+                    and not eval_split
+                    and not dataset_streaming
+                ):
+                    split_result = self._resolve_eval_split_from_dataset(dataset)
+                    if split_result is not None:
+                        dataset, eval_dataset = split_result
                 formatted = self._format_audio_vlm_dataset(dataset, custom_format_mapping)
                 return (
                     formatted,
