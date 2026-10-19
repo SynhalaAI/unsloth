@@ -20,6 +20,7 @@ import type {
   TrainingMethodProvenance,
 } from "../types/config";
 import { drafterStateFrom } from "../lib/drafter-config";
+import { isWhisperTrainingModel } from "../lib/model-modality-inference";
 import {
   createHfBrowseDatasetSelection,
   createUploadBrowseDatasetSelection,
@@ -463,6 +464,11 @@ export function mergeTrainingConfig(
     ...persistedState,
     wandbToken: current.wandbToken,
     trainOnCompletions,
+    // Configs saved before this flag existed fall back to the persisted model name.
+    isWhisperModel:
+      typeof persistedState.isWhisperModel === "boolean"
+        ? persistedState.isWhisperModel
+        : isWhisperTrainingModel({ identifiers: [persistedState.selectedModel] }),
     modelDefaultsAppliedFor,
     advancedSettingsBaseline,
     trainOnCompletionsDefaultPendingFor,

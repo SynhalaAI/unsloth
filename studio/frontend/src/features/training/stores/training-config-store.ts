@@ -36,6 +36,7 @@ import { resolveDeletedLocalDatasetSelection } from "../lib/dataset-selection";
 import { requiresExplicitCachedDatasetSplit } from "../lib/dataset-split-policy";
 import { isMissingLocalDatasetCacheError } from "../lib/local-cache-errors";
 import { mapBackendModelConfigToTrainingPatch } from "../lib/model-defaults";
+import { isWhisperTrainingModel } from "../lib/model-modality-inference";
 import {
   MODEL_DEFAULT_STATE_KEYS,
   type ModelDefaultsPatch,
@@ -393,6 +394,10 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
                 isVisionModel: modelDetails.is_vision,
                 isEmbeddingModel: !!modelDetails.is_embedding,
                 isAudioModel: !!modelDetails.is_audio,
+                isWhisperModel: isWhisperTrainingModel({
+                  audioType: modelDetails.audio_type,
+                  identifiers: [modelName, modelDetails.base_model],
+                }),
                 audioCapabilityUnknown: modelDetails.audio_type_known === false,
                 isLoadingModelDefaults: false,
                 isCheckingVision: false,
@@ -652,6 +657,10 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
               isVisionModel: modelDetails.is_vision,
               isEmbeddingModel: isEmbedding,
               isAudioModel: isAudio,
+              isWhisperModel: isWhisperTrainingModel({
+                audioType: modelDetails.audio_type,
+                identifiers: [modelName, modelDetails.base_model],
+              }),
               audioCapabilityUnknown: modelDetails.audio_type_known === false,
               isLoadingModelDefaults: autoSelectionPromise !== null,
               isCheckingVision: false,
@@ -1098,6 +1107,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
           approvedRemoteCodeFingerprint?: string | null;
           isVisionModel?: boolean;
           isAudioModel?: boolean;
+          isWhisperModel?: boolean;
           audioCapabilityUnknown?: boolean;
           isEmbeddingModel?: boolean;
           modelDefaultsAppliedFor?: string | null;
@@ -1125,6 +1135,10 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
           patch.audioCapabilityUnknown = false;
           patch.isAudioModel =
             options?.isAudio ?? effectiveModelType === "audio";
+          // A cheap name check now; the model details below replace it with the detected audio type.
+          patch.isWhisperModel =
+            options?.isWhisper ??
+            isWhisperTrainingModel({ identifiers: [selectedModel] });
           patch.isEmbeddingModel =
             options?.isEmbedding ?? effectiveModelType === "embeddings";
           patch.modelDefaultsAppliedFor = null;
@@ -1145,6 +1159,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             isVisionModel: false,
             isEmbeddingModel: false,
             isAudioModel: false,
+            isWhisperModel: false,
             audioCapabilityUnknown: false,
             isDatasetAudio: false,
             isLoadingModelDefaults: false,

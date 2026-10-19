@@ -41,6 +41,7 @@ export interface TrainingModelSelectionOptions
   extends ModelCacheReferenceOptions {
   isEmbedding?: boolean | null;
   isAudio?: boolean | null;
+  isWhisper?: boolean | null;
   isVision?: boolean | null;
 }
 
@@ -186,6 +187,7 @@ export interface TrainingConfigState {
   isVisionModel: boolean;
   isEmbeddingModel: boolean;
   isAudioModel: boolean;
+  isWhisperModel: boolean;
   audioCapabilityUnknown: boolean;
   isLoadingModelDefaults: boolean;
   modelDefaultsError: string | null;

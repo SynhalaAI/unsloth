@@ -36,6 +36,7 @@ const AUDIO_NAME_RE = new RegExp(
   `${SEP}(?:whisper|tts|parakeet|parler|musicgen|bark|orpheus|csm|voice|speech|audio)${END}`,
   "i",
 );
+const WHISPER_NAME_RE = new RegExp(`${SEP}whisper${END}`, "i");
 
 function hasAny(tagSet: Set<string>, wanted: Set<string>): boolean {
   for (const tag of wanted) {
@@ -67,4 +68,23 @@ export function inferTrainingModelModalityFlags({
     isAudio: hasAny(tagSet, AUDIO_TAGS) || AUDIO_NAME_RE.test(names),
     isVision: hasAny(tagSet, VISION_TAGS) || VISION_NAME_RE.test(names),
   };
+}
+
+/** Whether the Whisper-only training options apply. ``audioType`` is the backend's detected
+ *  audio family; identifiers cover local folders and adapters whose type is not known yet. */
+export function isWhisperTrainingModel({
+  audioType,
+  identifiers = [],
+}: {
+  audioType?: string | null;
+  identifiers?: readonly (string | null | undefined)[];
+}): boolean {
+  if ((audioType ?? "").trim().toLowerCase() === "whisper") {
+    return true;
+  }
+  return identifiers
+    .map((identifier) => identifier?.trim())
+    .filter((identifier): identifier is string => Boolean(identifier))
+    .map(pathDisplayName)
+    .some((name) => WHISPER_NAME_RE.test(name));
 }

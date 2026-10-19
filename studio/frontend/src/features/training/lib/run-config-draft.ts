@@ -3,6 +3,7 @@
 
 import { translate } from "@/i18n";
 import type { TrainingConfigState } from "../types/config";
+import { isWhisperTrainingModel } from "./model-modality-inference";
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
@@ -86,6 +87,7 @@ export function runConfigDraftSelections(
       : null,
     isVisionModel: modelType === "vision",
     isAudioModel: modelType === "audio",
+    isWhisperModel: isWhisperTrainingModel({ identifiers: [selectedModel] }),
     isEmbeddingModel: modelType === "embeddings",
     projectName: stringValue(config.project_name) ?? "",
     trainingMethod:

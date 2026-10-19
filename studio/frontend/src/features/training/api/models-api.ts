@@ -105,6 +105,8 @@ export interface ModelConfigResponse {
   decision_checkpoints?: DecisionCheckpoint[] | null;
   decision_layout?: DecisionLayout | null;
   is_audio: boolean;
+  // Detected audio family: "whisper", "audio_vlm", a TTS codec, or null for non-audio.
+  audio_type?: string | null;
   // False when the repo's tokenizer_config.json was unreadable (gated, offline,
   // upstream error), so is_audio false means unknown rather than "not audio".
   audio_type_known?: boolean;

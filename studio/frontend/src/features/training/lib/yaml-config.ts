@@ -135,7 +135,7 @@ export function serializeConfigToYaml(
     prefetch_depth: state.prefetchDepth,
     optim: state.optimizerType,
     lr_scheduler_type: state.lrSchedulerType,
-    whisper_language: state.whisperLanguage,
+    whisper_language: state.isWhisperModel ? state.whisperLanguage : null,
   };
   // Only when on, so a file exported without the feature reads exactly as before.
   if (state.drafterEnabled) {

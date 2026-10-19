@@ -176,7 +176,7 @@ export function TrainingHyperparametersSection({
       maxPromptLength: state.maxPromptLength,
       isDecision: state.modelType === "decision",
       isEmbedding: state.isEmbeddingModel || state.modelType === "embeddings",
-      isAudioModel: state.isAudioModel,
+      isWhisperModel: state.isWhisperModel,
       optimizerType: state.optimizerType,
       lrSchedulerType: state.lrSchedulerType,
       batchSize: state.batchSize,
@@ -567,7 +567,7 @@ export function TrainingHyperparametersSection({
                 className="w-28 font-mono"
               />
             </ParamsRow>
-            {store.isAudioModel && (
+            {store.isWhisperModel && (
               <ParamsRow
                 label="Whisper language"
                 tooltip="Language the Whisper decoder is trained to emit. Leave blank for English."

@@ -105,6 +105,7 @@ export const initialTrainingConfigState: TrainingConfigState = {
   isVisionModel: false,
   isEmbeddingModel: false,
   isAudioModel: false,
+  isWhisperModel: false,
   audioCapabilityUnknown: false,
   isLoadingModelDefaults: false,
   modelDefaultsError: null,
