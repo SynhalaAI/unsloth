@@ -421,13 +421,16 @@ def _verify_config_pins(config: dict, event_queue: Any) -> bool:
     if require_model or require_dataset:
         from core.training.provenance import (
             ExactResumeResourcesUnavailable,
-            validate_exact_dataset_pin,
+            resolve_resume_dataset_target,
             validate_exact_model_pin,
         )
 
+        dataset_revision = None
         try:
             model_snapshot = validate_exact_model_pin(config) if require_model else None
-            dataset_snapshot = validate_exact_dataset_pin(config) if require_dataset else None
+            dataset_snapshot = None
+            if require_dataset:
+                dataset_snapshot, dataset_revision = resolve_resume_dataset_target(config)
         except ExactResumeResourcesUnavailable as error:
             event_queue.put(
                 {
@@ -443,6 +446,11 @@ def _verify_config_pins(config: dict, event_queue: Any) -> bool:
             config["model_revision"] = Path(model_snapshot).name
         if dataset_snapshot is not None:
             config["dataset_snapshot_path"] = dataset_snapshot
+        elif dataset_revision is not None:
+            # Nothing for the pinned commit is cached; the loader downloads that exact
+            # revision, and the worker attests the resulting snapshot after it loads.
+            config["dataset_snapshot_path"] = None
+            config["dataset_revision"] = dataset_revision
 
     for message in config.get("cache_pin_warnings") or []:
         _send_status(event_queue, message)

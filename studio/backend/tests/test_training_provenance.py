@@ -23,6 +23,7 @@ from core.training.provenance import (
     exact_dataset_snapshot_path,
     exact_model_snapshot_path,
     normalize_worker_provenance_event,
+    resolve_resume_dataset_target,
     resource_provenance_allows_resume,
     validate_exact_dataset_pin,
     validate_exact_model_pin,
@@ -938,6 +939,16 @@ def test_resume_refuses_when_only_a_different_dataset_commit_is_cached(tmp_path)
     ):
         validate_exact_dataset_pin(persisted)
     assert resource_provenance_allows_resume(persisted) is False
+
+
+def test_resume_downloads_the_recorded_dataset_commit_when_nothing_is_cached(tmp_path):
+    config, event, _, dataset = _complete_event(tmp_path)
+    persisted = {**config, **normalize_worker_provenance_event(event, config)}
+    shutil.rmtree(dataset.parent.parent)
+
+    assert resolve_resume_dataset_target(persisted) == (None, "dataset-commit")
+    assert exact_resume_resource_requirements(persisted) == (True, True)
+    assert resource_provenance_allows_resume(persisted) is True
 
 
 @pytest.mark.parametrize(

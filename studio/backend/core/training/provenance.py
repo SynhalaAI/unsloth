@@ -890,18 +890,41 @@ def _dataset_pin_commit(config: dict[str, Any]) -> Optional[str]:
     return _normalized_commit(config.get("dataset_revision"))
 
 
-def validate_exact_dataset_pin(config: dict[str, Any]) -> str:
-    repo_id = config.get("hf_dataset")
+def resolve_resume_dataset_target(
+    config: dict[str, Any],
+) -> tuple[Optional[str], Optional[str]]:
+    """Where a resumed run reads its pinned dataset from.
+
+    Returns ``(snapshot_path, None)`` when the exact revision is already on disk, and
+    ``(None, commit)`` when the pin names a commit that is not cached at all: the loader
+    then downloads exactly that revision, so the run still sees the dataset it trained
+    from. A cache that holds only a different revision is refused rather than reused.
+    """
+    repo_id = _normalized_repo_id(config.get("hf_dataset"))
     dataset_snapshot = exact_dataset_snapshot_path(
         config.get("dataset_snapshot_path"),
         repo_id,
     )
-    if dataset_snapshot is None:
-        # The recorded snapshot left the cache, but the same commit may still be on disk
-        # under a moved or re-selected cache root. Any other revision stays refused.
-        commit = _dataset_pin_commit(config)
-        if commit is not None:
-            dataset_snapshot = exact_dataset_snapshot_for_commit(repo_id, commit)
+    if dataset_snapshot is not None:
+        return dataset_snapshot, None
+    # The recorded snapshot left the cache, but the same commit may still be on disk
+    # under a moved or re-selected cache root.
+    commit = _dataset_pin_commit(config)
+    if repo_id is not None and commit is not None:
+        dataset_snapshot = exact_dataset_snapshot_for_commit(repo_id, commit)
+        if dataset_snapshot is not None:
+            return dataset_snapshot, None
+        from hub.utils.dataset_cache import latest_cached_dataset_snapshot
+        if latest_cached_dataset_snapshot(repo_id) is None:
+            # Nothing for this repo is cached, so resuming can fetch the pinned commit.
+            return None, commit
+    raise ExactResumeResourcesUnavailable(
+        "The exact dataset snapshot for this run is no longer available."
+    )
+
+
+def validate_exact_dataset_pin(config: dict[str, Any]) -> str:
+    dataset_snapshot, _ = resolve_resume_dataset_target(config)
     if dataset_snapshot is None:
         raise ExactResumeResourcesUnavailable(
             "The exact dataset snapshot for this run is no longer available."
@@ -968,7 +991,7 @@ def exact_resume_resource_requirements(config: dict[str, Any]) -> tuple[bool, bo
             raise ExactResumeResourcesUnavailable(
                 "The dataset revision used by this run was not attested."
             )
-        validate_exact_dataset_pin(config)
+        resolve_resume_dataset_target(config)
     return require_model, require_dataset
 
 

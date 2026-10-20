@@ -587,37 +587,45 @@ def resolve_training_model_load_target(values: dict[str, Any]) -> str:
 def _apply_cache_pins(config: dict[str, Any]) -> None:
     warnings: list[str] = []
     resume = bool(config.get("resume_from_checkpoint"))
+    requested_ds_pin = config.get("dataset_snapshot_path")
+    pinned_ds_revision: Optional[str] = None
     if resume:
         from .provenance import (
-            validate_exact_dataset_pin,
+            resolve_resume_dataset_target,
             validate_exact_model_pin,
-            validate_exact_resource_pins,
         )
-        if config.get("require_exact_resume_resources"):
-            model_snapshot, dataset_snapshot = validate_exact_resource_pins(config)
-            config["model_snapshot_path"] = model_snapshot
-            config["dataset_snapshot_path"] = dataset_snapshot
-        else:
-            if config.get("require_exact_model_resource"):
-                config["model_snapshot_path"] = validate_exact_model_pin(config)
-            if config.get("require_exact_dataset_resource"):
-                config["dataset_snapshot_path"] = validate_exact_dataset_pin(config)
+        if config.get("require_exact_resume_resources") or config.get(
+            "require_exact_model_resource"
+        ):
+            config["model_snapshot_path"] = validate_exact_model_pin(config)
+        if config.get("require_exact_resume_resources") or config.get(
+            "require_exact_dataset_resource"
+        ):
+            config["dataset_snapshot_path"], pinned_ds_revision = (
+                resolve_resume_dataset_target(config)
+            )
     _apply_model_cache_pin(config, warnings)
 
     hf_dataset = config.get("hf_dataset") or ""
-    requested_ds_pin = config.get("dataset_snapshot_path")
     ds_claimed = bool(config.get("dataset_known_cached") or config.get("dataset_local_path"))
     config["dataset_revision"] = None
     if not hf_dataset or config.get("dataset_streaming"):
         config["dataset_snapshot_path"] = None
-    elif resume and requested_ds_pin:
+    elif resume and (requested_ds_pin or pinned_ds_revision):
         from hub.utils.dataset_cache import (
             dataset_cache_path_from_cache_path,
             dataset_snapshot_from_cache_path,
         )
 
-        snap = dataset_cache_path_from_cache_path(requested_ds_pin, hf_dataset)
-        if snap is None:
+        pin = config.get("dataset_snapshot_path") or requested_ds_pin
+        snap = dataset_cache_path_from_cache_path(pin, hf_dataset) if pin else None
+        if snap is None and pinned_ds_revision is not None:
+            warnings.append(
+                f"The cached copy of dataset {hf_dataset} is no longer on disk; resuming "
+                f"by downloading its recorded revision {pinned_ds_revision} from "
+                f"Hugging Face."
+            )
+        elif snap is None:
             if config.get("require_exact_resume_resources") or config.get(
                 "require_exact_dataset_resource"
             ):
@@ -635,6 +643,8 @@ def _apply_cache_pins(config: dict[str, Any]) -> None:
         )
         if snapshot is not None:
             config["dataset_revision"] = snapshot.name
+        elif pinned_ds_revision is not None:
+            config["dataset_revision"] = pinned_ds_revision
     elif ds_claimed:
         from hub.utils.dataset_cache import training_dataset_cache_pin
 

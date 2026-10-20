@@ -2859,6 +2859,59 @@ def test_apply_cache_pins_attested_resume_rejects_evicted_dataset(tmp_path):
         _apply_cache_pins(config)
 
 
+def test_apply_cache_pins_attested_resume_downloads_evicted_dataset_commit(tmp_path):
+    from core.training.training import _apply_cache_pins
+
+    model = tmp_path / "models--unsloth--test" / "snapshots" / "model-rev"
+    model.mkdir(parents = True)
+    (model / "config.json").write_text("{}")
+    (model / "model.safetensors").write_bytes(b"x")
+
+    config = {
+        "model_name": "unsloth/test",
+        "model_snapshot_path": str(model),
+        "hf_dataset": "org/dataset",
+        "dataset_snapshot_path": str(
+            tmp_path / "datasets--org--dataset" / "snapshots" / "dataset-rev"
+        ),
+        "resume_from_checkpoint": "/outputs/run/checkpoint-5",
+        "load_in_4bit": False,
+        "require_exact_resume_resources": True,
+    }
+    _apply_cache_pins(config)
+
+    assert config["dataset_snapshot_path"] is None
+    assert config["dataset_revision"] == "dataset-rev"
+    assert any(
+        "recorded revision dataset-rev" in warning for warning in config["cache_pin_warnings"]
+    )
+
+
+def test_worker_allows_resume_to_download_a_missing_pinned_dataset(tmp_path):
+    from core.training import worker
+
+    model = tmp_path / "models--unsloth--test" / "snapshots" / "model-rev"
+    model.mkdir(parents = True)
+    (model / "config.json").write_text("{}")
+    (model / "model.safetensors").write_bytes(b"x")
+
+    config = {
+        "model_name": "unsloth/test",
+        "model_snapshot_path": str(model),
+        "hf_dataset": "org/dataset",
+        "dataset_snapshot_path": None,
+        "dataset_revision": "dataset-rev",
+        "require_exact_resume_resources": True,
+        "load_in_4bit": False,
+    }
+    events: list[dict] = []
+
+    assert worker._verify_config_pins(config, SimpleNamespace(put = events.append)) is True
+    assert events == []
+    assert config["dataset_snapshot_path"] is None
+    assert config["dataset_revision"] == "dataset-rev"
+
+
 def test_apply_cache_pins_resume_pin_rejects_foreign(tmp_path):
     from core.training.training import _apply_cache_pins
 
