@@ -876,11 +876,32 @@ def validate_exact_model_pin(config: dict[str, Any]) -> str:
     return model_snapshot
 
 
+def _dataset_pin_commit(config: dict[str, Any]) -> Optional[str]:
+    """The revision a persisted dataset pin names.
+
+    A stored snapshot path ends in its commit, so it survives the cache being moved or the
+    same revision being downloaded into another root. ``dataset_revision`` is the fallback
+    for configs whose pin path was not recorded.
+    """
+    path_value = config.get("dataset_snapshot_path")
+    commit = Path(path_value).name if isinstance(path_value, str) and path_value.strip() else None
+    if _normalized_commit(commit) is not None:
+        return commit
+    return _normalized_commit(config.get("dataset_revision"))
+
+
 def validate_exact_dataset_pin(config: dict[str, Any]) -> str:
+    repo_id = config.get("hf_dataset")
     dataset_snapshot = exact_dataset_snapshot_path(
         config.get("dataset_snapshot_path"),
-        config.get("hf_dataset"),
+        repo_id,
     )
+    if dataset_snapshot is None:
+        # The recorded snapshot left the cache, but the same commit may still be on disk
+        # under a moved or re-selected cache root. Any other revision stays refused.
+        commit = _dataset_pin_commit(config)
+        if commit is not None:
+            dataset_snapshot = exact_dataset_snapshot_for_commit(repo_id, commit)
     if dataset_snapshot is None:
         raise ExactResumeResourcesUnavailable(
             "The exact dataset snapshot for this run is no longer available."

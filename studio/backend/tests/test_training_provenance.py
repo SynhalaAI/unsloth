@@ -4,6 +4,7 @@
 import importlib.util
 import json
 import os
+import shutil
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +24,7 @@ from core.training.provenance import (
     exact_model_snapshot_path,
     normalize_worker_provenance_event,
     resource_provenance_allows_resume,
+    validate_exact_dataset_pin,
     validate_exact_model_pin,
 )
 from hub.utils import dataset_cache, hf_cache_state
@@ -906,6 +908,35 @@ def test_resume_revalidates_dataset_payload(tmp_path):
     persisted = {**config, **normalize_worker_provenance_event(event, config)}
     (dataset / "train.parquet").unlink()
 
+    assert resource_provenance_allows_resume(persisted) is False
+
+
+def test_resume_finds_the_recorded_dataset_commit_under_a_moved_cache_root(tmp_path, monkeypatch):
+    config, event, _, dataset = _complete_event(tmp_path)
+    persisted = {**config, **normalize_worker_provenance_event(event, config)}
+    moved_root = tmp_path / "moved-cache"
+    moved_root.mkdir()
+    moved_repo = moved_root / dataset.parent.parent.name
+    dataset.parent.parent.rename(moved_repo)
+    monkeypatch.setattr(hf_cache_state, "hf_cache_roots", lambda **kwargs: [tmp_path, moved_root])
+
+    relocated = moved_repo / "snapshots" / dataset.name
+
+    assert validate_exact_dataset_pin(persisted) == str(relocated.resolve())
+    assert resource_provenance_allows_resume(persisted) is True
+
+
+def test_resume_refuses_when_only_a_different_dataset_commit_is_cached(tmp_path):
+    config, event, _, dataset = _complete_event(tmp_path)
+    persisted = {**config, **normalize_worker_provenance_event(event, config)}
+    shutil.rmtree(dataset.parent.parent)
+    _dataset_snapshot(tmp_path, "org/dataset", "new-commit")
+
+    with pytest.raises(
+        ExactResumeResourcesUnavailable,
+        match = "exact dataset snapshot",
+    ):
+        validate_exact_dataset_pin(persisted)
     assert resource_provenance_allows_resume(persisted) is False
 
 
