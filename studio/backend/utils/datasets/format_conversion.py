@@ -21,6 +21,28 @@ def _quiet_bar_kwargs() -> dict:
         return {}
 
 
+def _own_image_path(path, account):
+    """A local image a managed account names must be one it may read (a no-op for the owner). ``account`` is
+    captured when the conversion starts: URL datasets convert in a thread pool, which does not carry it."""
+    from utils.account_context import run_as
+    from utils.security.dataset_media import require_readable_media
+
+    run_as(account, require_readable_media, path)
+    return path
+
+
+def _own_lazy_image(image, account):
+    """Check the path a deferred reference reopens, exactly as the eager branch checks it before opening.
+
+    ``to_pil`` prefers held bytes, so only a reference with no bytes reads its path - at collate time, long
+    after the context that started the conversion is gone."""
+    if image is not None and getattr(image, "bytes", None) is None:
+        path = getattr(image, "path", None)
+        if path is not None:
+            _own_image_path(path, account)
+    return image
+
+
 def _normalize_role_alias(role) -> str:
     """Stripped and lowercased, as `standardize_data_formats` and the preview do it."""
     if role is None:
@@ -402,7 +424,10 @@ def convert_to_vlm_format(
     model trains on are identical - only WHEN they are decoded changes.
     """
     from PIL import Image
+    from utils.account_context import current_account
     from .vlm_processing import generate_smart_vlm_instruction
+
+    account = current_account()
 
     LazyImage = None
     if lazy_images:
@@ -468,7 +493,7 @@ def convert_to_vlm_format(
                 cache_dir = active_hf_hub_cache(),
             )
             return Image.open(local_path).convert("RGB")
-        return Image.open(image_data).convert("RGB")
+        return Image.open(_own_image_path(image_data, account)).convert("RGB")
 
     def _convert_single_sample(sample):
         """Convert a single sample to VLM format."""
@@ -480,7 +505,8 @@ def convert_to_vlm_format(
         if LazyImage is None:
             image_data = _resolve_image_now(image_data)
         else:
-            image_data = LazyImage.from_value(image_data) or _resolve_image_now(image_data)
+            lazy_image = _own_lazy_image(LazyImage.from_value(image_data), account)
+            image_data = lazy_image or _resolve_image_now(image_data)
 
         text_data = sample[text_column]
         if isinstance(text_data, list) and len(text_data) > 0:
@@ -777,6 +803,9 @@ def convert_sharegpt_with_images_to_vlm_format(
     """Convert ShareGPT/ChatML datasets carrying a separate image column and ``<image>`` placeholders in the conversation text, e.g. {"image": "sam/images/sa_545504.jpg", "conversations": [{"from": "human", "value": "<image> What is this photo about?"}, ...]}. Returns a list of dicts in standard VLM messages format, PIL Images inline (deferred references instead when ``lazy_images`` is set, which is what keeps the whole dataset out of RAM)."""
     from PIL import Image
     from tqdm import tqdm
+    from utils.account_context import current_account
+
+    account = current_account()
 
     LazyImage = None
     if lazy_images:
@@ -843,7 +872,7 @@ def convert_sharegpt_with_images_to_vlm_format(
     def _resolve_image(image_data):
         """Resolve image data to a PIL Image, or to the reference that stands in for one."""
         if LazyImage is not None:
-            lazy = LazyImage.from_value(image_data)
+            lazy = _own_lazy_image(LazyImage.from_value(image_data), account)
             if lazy is not None:
                 return lazy
         if hasattr(image_data, "size") and hasattr(image_data, "mode"):
@@ -866,13 +895,13 @@ def convert_sharegpt_with_images_to_vlm_format(
                 )
                 return Image.open(local_path).convert("RGB")
             else:
-                return Image.open(image_data).convert("RGB")
+                return Image.open(_own_image_path(image_data, account)).convert("RGB")
         if isinstance(image_data, dict) and ("bytes" in image_data or "path" in image_data):
             if image_data.get("bytes"):
                 from io import BytesIO
                 return Image.open(BytesIO(image_data["bytes"])).convert("RGB")
             if image_data.get("path"):
-                return Image.open(image_data["path"]).convert("RGB")
+                return Image.open(_own_image_path(image_data["path"], account)).convert("RGB")
         raise ValueError(f"Cannot resolve image: {type(image_data)}")
 
     def _convert_single_sample(sample):
@@ -942,6 +971,9 @@ def convert_sharegpt_with_images_to_vlm_format(
 def convert_llava_to_vlm_format(dataset, lazy_images = False):
     """Convert Llava format to standard VLM format: Llava carries messages whose content blocks name an image by {'type': 'image', 'index': 0} plus a parallel images list, while the standard form inlines the PIL object as {'type': 'image', 'image': PIL_Image}."""
     from PIL import Image
+    from utils.account_context import current_account
+
+    account = current_account()
 
     is_iterable = is_streaming_dataset(dataset)
 
@@ -1014,13 +1046,15 @@ def convert_llava_to_vlm_format(dataset, lazy_images = False):
 
                     pil_image = images[img_idx]
                     if LazyImage is not None:
-                        lazy = LazyImage.from_value(pil_image)
+                        lazy = _own_lazy_image(LazyImage.from_value(pil_image), account)
                         if lazy is not None:
                             pil_image = lazy
                         elif isinstance(pil_image, str):
-                            pil_image = Image.open(pil_image).convert("RGB")
+                            pil_image = Image.open(
+                                _own_image_path(pil_image, account)
+                            ).convert("RGB")
                     elif isinstance(pil_image, str):
-                        pil_image = Image.open(pil_image).convert("RGB")
+                        pil_image = Image.open(_own_image_path(pil_image, account)).convert("RGB")
                     if not isinstance(pil_image, accepted_image_types):
                         raise ValueError(
                             f"Unsupported Llava image value at index {img_idx}: "
