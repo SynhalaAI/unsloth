@@ -348,8 +348,19 @@ export const BUDGET = {
   // REAP on the Export page (#14130) passes its options through the eager export runtime store (the card is
   // in the lazy export page): +371 B raw / +119 B transfer (6,878,631 -> 6,879,002 B raw, 2,071,507 ->
   // 2,071,626 B transfer against 4df9ce74f, one machine and build, Node 24, 97 chunks). Raised by that.
-  transferBytes: 2_071_693,
-  rawBytes: 6_879_150,
+  // The NPU setup card (#14524): +439 B raw / +122 B transfer against fc91656ff (Node 24, 97 chunks), where main
+  // was already 1 B transfer over; transfer set to the measured build, raw raised by the growth.
+  // #14524 set transfer to its own measured build with no headroom; merged next to #14508 the startup set
+  // compresses 7 B larger (2_071_823 B at 5ab80ffdb4, Node 24), so main is over. Measured + 189 B, raw unchanged
+  // (already 244 B above the measured 6_879_345).
+  // Chat fork affordances (the sidebar fork mark, the "Forked from" divider and the shared fork toasts) in the
+  // eager chat chunk: +1_460 B raw / +361 B transfer against 77e742c8e2 (6_879_345 -> 6_880_805 raw,
+  // 2_071_823 -> 2_072_184 transfer, 97 chunks). Raised by that growth.
+  // Projects recency and the polling cuts behind projects and sources (#14586) live in the eager chat chunk:
+  // +505 B raw / +309 B transfer (6,879,331 -> 6,879,836 B raw, 2,071,848 -> 2,072,157 B transfer against
+  // 2749eeedaa, one machine and build, Node 26, 97 chunks). Raised by that, on top of the fork affordances above.
+  transferBytes: 2_072_682,
+  rawBytes: 6_881_554,
 };
 
 // The chunk count is reported but not budgeted. Splitting a page out of the entry raises it while lowering the
