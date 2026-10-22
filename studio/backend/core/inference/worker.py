@@ -2574,6 +2574,11 @@ def run_inference_process(
 
         logger.info("Subprocess loaded transformers %s", transformers.__version__)
 
+        # Checkpoints saved by transformers >= 5.20 write vision rope_type "axial",
+        # which the older tiers only implement as "default".
+        from utils.gemma4_axial_compat import install_gemma4_axial_compat
+        install_gemma4_axial_compat()
+
     except Exception as exc:
         _send_response(
             resp_queue,

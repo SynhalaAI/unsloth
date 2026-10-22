@@ -4816,6 +4816,12 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
         import transformers
 
         logger.info("Subprocess loaded transformers %s", transformers.__version__)
+
+        # Checkpoints saved by transformers >= 5.20 write vision rope_type "axial",
+        # which the older tiers only implement as "default".
+        from utils.gemma4_axial_compat import install_gemma4_axial_compat
+        install_gemma4_axial_compat()
+
         # unsloth_zoo injects its vendored fla when the trainer imports unsloth above.
         logger.info(
             "flash-linear-attention fast path importable: %s",
