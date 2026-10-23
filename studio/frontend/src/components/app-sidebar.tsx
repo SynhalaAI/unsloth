@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
+import { ChevronDownStandardIcon } from "@/lib/chevron-icons";
 import {
   Sidebar,
   SidebarContent,
@@ -151,7 +152,7 @@ import {
 } from "@/components/ui/tooltip";
 import { Tooltip as TooltipPrimitive } from "radix-ui";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
-import { ArrowRightIcon, ChevronDown, Copy, GitBranchIcon, Moon } from "lucide-react";
+import { ArrowRightIcon, Copy, GitBranchIcon, Moon } from "lucide-react";
 import { ForkIcon } from "@/lib/fork-icon";
 import {
   Link,
@@ -363,6 +364,7 @@ type NavRowDef = {
   pendingTooltip?: string;
   // Greyed out but clickable: Train on an upgradable Chat only install opens the full install dialog.
   dimmed?: boolean;
+  tooltipAction?: { label: string; onClick: () => void };
   badge?: string;
   onClick: () => void;
   onIntent?: () => void;
@@ -400,7 +402,7 @@ const SELECT_WITH_META =
 // zoom or UI scale instead of rounding differently per row.
 // DROP_CUE_CLASS: the carried row's copy covers the spot it is aimed at, so the drag draws each
 // cue's border again above it.
-const DROP_CUE_BASE = `${DROP_CUE_CLASS} before:pointer-events-none before:absolute before:inset-x-2 before:z-10 before:h-0 before:border-t-[1.5px] before:border-primary before:content-['']`;
+const DROP_CUE_BASE = `${DROP_CUE_CLASS} before:pointer-events-none before:absolute before:inset-x-2 before:z-10 before:h-0 before:border-t-[1.5px] before:border-foreground before:content-['']`;
 const DROP_CUE_TOP = `${DROP_CUE_BASE} before:top-0`;
 // bottom-px: on the last row, DROP_ROW_HIT's extra pixel is clipped by the list.
 const DROP_CUE_BOTTOM = `${DROP_CUE_BASE} before:bottom-px`;
@@ -409,7 +411,7 @@ const DROP_CUE_BOTTOM = `${DROP_CUE_BASE} before:bottom-px`;
 const DROP_CUE_IN_FOLDER = "before:left-[calc(39px*var(--ui-space-scale,1))]";
 // A row dropped onto a folder or section joins it, so the whole target is tinted and outlined,
 // with the same border as the line. Kept inside the box for the same clipping reason.
-const DROP_INTO_CUE = `${DROP_CUE_CLASS} before:pointer-events-none before:absolute before:inset-x-1 before:inset-y-0 before:rounded-2xl before:bg-primary/8 before:border-[1.5px] before:border-primary before:content-['']`;
+const DROP_INTO_CUE = `${DROP_CUE_CLASS} before:pointer-events-none before:absolute before:inset-x-1 before:inset-y-0 before:rounded-2xl before:bg-wash-8 before:border-[1.5px] before:border-foreground before:content-['']`;
 // "Move to": the whole submenu stays inside the window, and each group's list scrolls past about
 // seven rows, the next one half showing, so a long list of projects keeps the Sections group, and
 // each group's Remove, in reach. No scrollbar: it would take its width out of the rows' right
@@ -423,7 +425,7 @@ const MOVE_TO_LIST =
 // Most projects, and most sections, a "Move to" lists: the most recent, so a long list stays light.
 const MOVE_TO_MAX = 12;
 // Folder rows match their hover pill.
-const DROP_INTO_ROW_CUE = `${DROP_CUE_CLASS} before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:bottom-px before:rounded-full before:bg-primary/8 before:border-[1.5px] before:border-primary before:content-['']`;
+const DROP_INTO_ROW_CUE = `${DROP_CUE_CLASS} before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:bottom-px before:rounded-full before:bg-wash-8 before:border-[1.5px] before:border-foreground before:content-['']`;
 /** Reports while it is mounted, so a folder row ProgressiveRows has not drawn reads nothing. */
 function MountedFolder({
   id,
@@ -469,7 +471,7 @@ function landedOrder(
 
 // A closed section has no body to light, so its header takes the tint.
 const DROP_INTO_HEADER_CUE =
-  "rounded-full bg-primary/8 outline-solid outline-[length:1.5px] outline-primary -outline-offset-[1.5px]";
+  "rounded-full bg-wash-8 outline-solid outline-[length:1.5px] outline-foreground -outline-offset-[1.5px]";
 
 // The sort a list is on and its setter: a reorder switches a sorted list to Manual, or the
 // sort would undo the drop.
@@ -643,6 +645,7 @@ function NavItem({
   className,
   spinner,
   tooltip,
+  tooltipAction,
   alwaysTooltip,
   onIntent,
   badge,
@@ -665,6 +668,7 @@ function NavItem({
   testId?: string;
   // Overrides the hover tooltip; explains why a disabled item is greyed out.
   tooltip?: string;
+  tooltipAction?: { label: string; onClick: () => void };
   // Show that tooltip on the expanded row too, not just the collapsed rail where it
   // stands in for the hidden label.
   alwaysTooltip?: boolean;
@@ -674,10 +678,25 @@ function NavItem({
   // Wraps the row in a hover flyout that names it, so the label tooltip is dropped.
   flyout?: (row: ReactNode) => ReactNode;
 }) {
+  const rowTooltip =
+    tooltip && tooltipAction
+      ? {
+          className: "tooltip-compact",
+          children: (
+            <div className="flex flex-col items-start gap-1.5">
+              <span>{tooltip}</span>
+              <Button size="xs" onClick={tooltipAction.onClick}>
+                {tooltipAction.label}
+              </Button>
+            </div>
+          ),
+        }
+      : (tooltip ?? label);
   const row = (
     <div className="relative">
       <SidebarMenuButton
-        tooltip={flyout ? undefined : (tooltip ?? label)}
+        tooltip={flyout ? undefined : rowTooltip}
+        interactiveTooltip={Boolean(tooltip && tooltipAction)}
         alwaysTooltip={alwaysTooltip && Boolean(tooltip)}
         disabled={disabled}
         onClick={onClick}
@@ -818,7 +837,8 @@ function MediaNavDisclosure({
       )}
     >
       <span className="sidebar-row-action-glyph">
-        <ChevronDown
+        <HugeiconsIcon
+          icon={ChevronDownStandardIcon}
           className={cn(
             "size-3.5 transition-transform duration-200",
             !expanded && "-rotate-90",
@@ -3417,8 +3437,11 @@ export function AppSidebar() {
       disabled: chatOnlyMeasured && !fullInstall,
       dimmed: chatOnlyMeasured && fullInstall !== null,
       tooltip: fullInstall
-        ? "Training is not installed. Click to install it (at least 5 GB of disk space)."
+        ? "Training is not installed. It needs at least 5 GB of disk space."
         : trainDisabledHint,
+      tooltipAction: fullInstall
+        ? { label: "Install Training", onClick: () => setFullInstallOpen(true) }
+        : undefined,
       spinner: trainingInProgress,
       pending: capabilitiesUnknown,
       pendingTooltip: t("shell.navigation.trainChecking"),
@@ -4663,7 +4686,7 @@ export function AppSidebar() {
           >
             <CollapsibleTrigger className="cursor-pointer flex min-w-0 flex-1 items-center gap-1 group/sb-collap">
               Pinned
-              <ChevronDown className="size-3.5 opacity-0 transition-[transform,opacity] duration-200 group-hover/sb-section:opacity-100 group-hover/sb-collap:opacity-100 group-focus-visible/sb-collap:opacity-100 data-[state=open]:rotate-0 [[data-state=closed]_&]:rotate-[-90deg] [[data-state=closed]_&]:opacity-100" />
+              <HugeiconsIcon icon={ChevronDownStandardIcon} className="size-3.5 opacity-0 transition-[transform,opacity] duration-200 group-hover/sb-section:opacity-100 group-hover/sb-collap:opacity-100 group-focus-visible/sb-collap:opacity-100 data-[state=open]:rotate-0 [[data-state=closed]_&]:rotate-[-90deg] [[data-state=closed]_&]:opacity-100" />
             </CollapsibleTrigger>
             {/* Pinning is the grouping, so no organize half and no "+". */}
             {renderSidebarHeaderMenu({
@@ -4801,7 +4824,7 @@ export function AppSidebar() {
           >
             <CollapsibleTrigger className="cursor-pointer flex min-w-0 flex-1 items-center gap-1 group/sb-collap">
               <span className="min-w-0 truncate">{section.name}</span>
-              <ChevronDown className="size-3.5 shrink-0 opacity-0 transition-[transform,opacity] duration-200 group-hover/sb-section:opacity-100 group-hover/sb-collap:opacity-100 group-focus-visible/sb-collap:opacity-100 data-[state=open]:rotate-0 [[data-state=closed]_&]:rotate-[-90deg] [[data-state=closed]_&]:opacity-100" />
+              <HugeiconsIcon icon={ChevronDownStandardIcon} className="size-3.5 shrink-0 opacity-0 transition-[transform,opacity] duration-200 group-hover/sb-section:opacity-100 group-hover/sb-collap:opacity-100 group-focus-visible/sb-collap:opacity-100 data-[state=open]:rotate-0 [[data-state=closed]_&]:rotate-[-90deg] [[data-state=closed]_&]:opacity-100" />
             </CollapsibleTrigger>
             {/* As Recents has, a chat started here is filed here. */}
             <button
@@ -4923,7 +4946,7 @@ export function AppSidebar() {
           >
             <CollapsibleTrigger className="cursor-pointer flex min-w-0 flex-1 items-center gap-1 group/sb-collap">
               {t("shell.navigation.projects")}
-              <ChevronDown className="size-3.5 opacity-0 transition-[transform,opacity] duration-200 group-hover/sb-section:opacity-100 group-hover/sb-collap:opacity-100 group-focus-visible/sb-collap:opacity-100 data-[state=open]:rotate-0 [[data-state=closed]_&]:rotate-[-90deg] [[data-state=closed]_&]:opacity-100" />
+              <HugeiconsIcon icon={ChevronDownStandardIcon} className="size-3.5 opacity-0 transition-[transform,opacity] duration-200 group-hover/sb-section:opacity-100 group-hover/sb-collap:opacity-100 group-focus-visible/sb-collap:opacity-100 data-[state=open]:rotate-0 [[data-state=closed]_&]:rotate-[-90deg] [[data-state=closed]_&]:opacity-100" />
             </CollapsibleTrigger>
             <button
               type="button"
@@ -5997,7 +6020,7 @@ export function AppSidebar() {
                   >
                     {t("shell.navigation.search")}
                     {searchShortcutLabel && (
-                      <kbd className="rounded bg-[rgb(0_0_0_/_calc(0.1*var(--contrast-wash-gain,1)))] px-1 py-px text-ui-10 font-medium leading-none dark:bg-[rgb(255_255_255_/_calc(0.15*var(--contrast-wash-gain,1)))]">
+                      <kbd className="rounded-full bg-[rgb(0_0_0_/_calc(0.1*var(--contrast-wash-gain,1)))] px-1 py-px text-ui-10 font-medium leading-none dark:bg-[rgb(255_255_255_/_calc(0.15*var(--contrast-wash-gain,1)))]">
                         {searchShortcutLabel}
                       </kbd>
                     )}
@@ -6172,6 +6195,7 @@ export function AppSidebar() {
                     }
                     disabled={rowState.disabled}
                     tooltip={rowState.tooltip}
+                    tooltipAction={rowState.pending ? undefined : row.tooltipAction}
                     alwaysTooltip={rowState.pending || Boolean(row.dimmed)}
                     spinner={rowState.spinner}
                     testId={`nav-row-${id}`}
@@ -6369,7 +6393,12 @@ export function AppSidebar() {
                             active={row.active}
                             disabled={rowState.disabled}
                             dimmed={row.dimmed}
-                            tooltip={rowState.tooltip}
+                            // A menu item holds no button, but selecting it runs the same action.
+                            tooltip={
+                              row.tooltipAction && !rowState.pending
+                                ? `${rowState.tooltip} Click to install it.`
+                                : rowState.tooltip
+                            }
                             spinner={rowState.spinner}
                             onSelect={row.onClick}
                             onIntent={row.onIntent}
@@ -6438,7 +6467,7 @@ export function AppSidebar() {
               >
                 <CollapsibleTrigger className="cursor-pointer flex min-w-0 flex-1 items-center gap-1 group/sb-collap">
                   {t("shell.navigation.recents")}
-                  <ChevronDown className="size-3.5 opacity-0 transition-[transform,opacity] duration-200 group-hover/sb-section:opacity-100 group-hover/sb-collap:opacity-100 group-focus-visible/sb-collap:opacity-100 data-[state=open]:rotate-0 [[data-state=closed]_&]:rotate-[-90deg] [[data-state=closed]_&]:opacity-100" />
+                  <HugeiconsIcon icon={ChevronDownStandardIcon} className="size-3.5 opacity-0 transition-[transform,opacity] duration-200 group-hover/sb-section:opacity-100 group-hover/sb-collap:opacity-100 group-focus-visible/sb-collap:opacity-100 data-[state=open]:rotate-0 [[data-state=closed]_&]:rotate-[-90deg] [[data-state=closed]_&]:opacity-100" />
                 </CollapsibleTrigger>
                 {/* Starts a chat outside any project, whatever page is open. */}
                 <button
@@ -6516,7 +6545,7 @@ export function AppSidebar() {
             <SidebarGroupLabel className={cn("sidebar-sticky-label sidebar-sticky-label-following", headerInset, scrolled && "is-scrolled")} asChild>
               <CollapsibleTrigger className="cursor-pointer flex w-full items-center gap-1 group/sb-collap">
                 {t("shell.navigation.recents")}
-                <ChevronDown className="size-3.5 opacity-0 transition-[transform,opacity] duration-200 group-hover/sb-section:opacity-100 group-hover/sb-collap:opacity-100 group-focus-visible/sb-collap:opacity-100 data-[state=open]:rotate-0 [[data-state=closed]_&]:rotate-[-90deg] [[data-state=closed]_&]:opacity-100" />
+                <HugeiconsIcon icon={ChevronDownStandardIcon} className="size-3.5 opacity-0 transition-[transform,opacity] duration-200 group-hover/sb-section:opacity-100 group-hover/sb-collap:opacity-100 group-focus-visible/sb-collap:opacity-100 data-[state=open]:rotate-0 [[data-state=closed]_&]:rotate-[-90deg] [[data-state=closed]_&]:opacity-100" />
               </CollapsibleTrigger>
             </SidebarGroupLabel>
             <CollapsibleContent>
@@ -6668,7 +6697,7 @@ export function AppSidebar() {
                     .openDialog("about", { scrollTarget: "about-updates" });
                   closeMobileIfOpen();
                 }}
-                className="flex h-[calc(44px*var(--ui-space-scale,1))] w-full items-center gap-[calc(9px*var(--ui-space-scale,1))] rounded-[14px] border border-border/60 bg-transparent px-2 py-[calc(3px*var(--ui-space-scale,1))] text-left transition-colors hover:bg-nav-surface-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:h-[calc(34px*var(--ui-space-scale,1))] group-data-[collapsible=icon]:w-[calc(34px*var(--ui-space-scale,1))] group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:rounded-full group-data-[collapsible=icon]:p-0"
+                className="btn-fill flex h-[calc(44px*var(--ui-space-scale,1))] w-full items-center gap-[calc(9px*var(--ui-space-scale,1))] rounded-[14px] px-2 py-[calc(3px*var(--ui-space-scale,1))] text-left transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:h-[calc(34px*var(--ui-space-scale,1))] group-data-[collapsible=icon]:w-[calc(34px*var(--ui-space-scale,1))] group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:rounded-full group-data-[collapsible=icon]:p-0"
               >
                 <span
                   aria-hidden="true"
@@ -6719,7 +6748,7 @@ export function AppSidebar() {
               side="top"
               align="center"
               sideOffset={8}
-              className="app-user-menu sidebar-menu menu-soft-surface-up ring-0 w-[round(calc(16rem*var(--ui-space-scale,1)),1px)] rounded-[20px] border border-[rgb(0_0_0_/_calc(0.05*var(--contrast-edge-gain,1)))] px-2.5 py-2.5 font-heading dark:border-transparent"
+              className="app-user-menu sidebar-menu menu-soft-surface-up ring-0 w-[round(calc(16rem*var(--ui-space-scale,1)),1px)] rounded-xl border border-[rgb(0_0_0_/_calc(0.05*var(--contrast-edge-gain,1)))] px-2.5 py-2.5 font-heading dark:border-transparent"
               trigger={(triggerRef) => (
                 <SidebarMenuButton
                   ref={triggerRef}
@@ -6985,7 +7014,7 @@ export function AppSidebar() {
           </DialogDescription>
         </DialogHeader>
         {deleteTargetHasFiles(confirmingDelete) ? (
-          <div className="flex items-start justify-between gap-4 rounded-md border border-border/60 bg-muted/35 px-3 py-2.5 dark:border-transparent">
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 bg-muted/35 px-3 py-2.5 dark:border-transparent">
             <label htmlFor="delete-files-on-delete" className="min-w-0 space-y-1">
               <span className="block text-sm font-medium text-foreground">
                 {t("shell.selection.deleteFilesLabel")}
