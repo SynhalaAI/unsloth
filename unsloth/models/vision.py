@@ -2730,6 +2730,9 @@ def _architecture_skip_modules(model_types):
     # Nemotron-H uses 'mixer' (not 'mamba') for Mamba layers, whose fused kernels pass out_proj.weight straight to F.linear and fail with quantized Params4bit, so skip out_proj.
     if any(mt == "nemotron_h" for mt in model_types):
         skip.append("out_proj")
+    # Mamba's transformers 5 slow path does dt_proj.weight @ time_step, which fails on Params4bit; dt_proj is tiny.
+    if any(mt == "mamba" for mt in model_types):
+        skip.append("dt_proj")
     # LongCat-Flash MLA: NF4 on q_b_proj / kv_b_proj badly hurts loss; both are small.
     if any(mt in ("longcat_flash", "longcat_flash_lsa") for mt in model_types):
         skip.extend(("q_b_proj", "kv_b_proj"))
@@ -4839,6 +4842,9 @@ class FastBaseModel:
         offload_layers = legacy_offload_layers(kwargs, offload_layers)
         prefetch_depth = prefetch_depth_arg(kwargs)
         reject_alora(model, kwargs.get("alora_invocation_tokens"))
+        # PEFT < 0.21 drops a scalar layer 0 with layers_pattern.
+        if isinstance(layers_to_transform, int) and not isinstance(layers_to_transform, bool):
+            layers_to_transform = [layers_to_transform]
         if os.environ.get("UNSLOTH_ENABLE_FULL_FINETUNING", "0") == "1":
             print("Unsloth: Full finetuning is enabled, so .get_peft_model has no effect")
             # Full finetuning still compiles, so a stray pre-train forward can poison the cache; install the detector here too (idempotent).
