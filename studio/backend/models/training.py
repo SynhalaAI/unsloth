@@ -422,19 +422,6 @@ class TrainingStartRequest(BaseModel):
             raise ValueError("replay_datasets are only supported for SFT runs")
         return self
 
-    @model_validator(mode = "after")
-    def _reject_unavailable_preference_methods(self) -> "TrainingStartRequest":
-        # DPO/ORPO/CPO stay in the schema so the UI selector and saved configs keep validating,
-        # but Studio has no preference trainer yet: refuse the start before a worker loads a
-        # model for a run that cannot train.
-        method = str(self.training_method or "").strip().upper()
-        if method in ("DPO", "ORPO", "CPO"):
-            raise ValueError(
-                f"{method} training is not available in Studio yet. Choose SFT, or run "
-                "preference training from the Unsloth notebooks."
-            )
-        return self
-
     @field_validator("hf_dataset")
     @classmethod
     def _check_hf_dataset(cls, v: Optional[str]) -> Optional[str]:

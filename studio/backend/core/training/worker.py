@@ -5552,6 +5552,10 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
             optim = config.get("optim", "adamw_8bit"),
             lr_scheduler_type = config.get("lr_scheduler_type", "linear"),
             is_cpt = is_cpt,
+            training_method = config.get("training_method", "SFT"),
+            dpo_beta = config.get("dpo_beta", 0.1),
+            cpo_alpha = config.get("cpo_alpha", 1.0),
+            max_prompt_length = config.get("max_prompt_length", 512),
             is_ocr_training = config.get("is_ocr_training", False),
             resume_from_checkpoint = resume_from_checkpoint,
         )

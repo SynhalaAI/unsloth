@@ -1,15 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
-"""Preference-dataset detection stays; preference *training* is not wired into Studio yet.
+"""Preference dataset detection, and the request fields the trainer now consumes.
 
 The dataset side (column detection, format reporting, standardization) is shared with the
-picker and previews, so it keeps working. The training side is refused up front instead of
-reaching a trainer that no longer exists.
+picker and previews. The training side accepts DPO/ORPO/CPO and forwards their settings; the
+trainer itself is covered by test_preference_trainer.py.
 """
 
 import pytest
-from pydantic import ValidationError
 
 try:
     from datasets import Dataset
@@ -177,13 +176,18 @@ def _start_request(**overrides):
 
 
 @pytest.mark.parametrize("method", ["DPO", "ORPO", "CPO"])
-def test_preference_training_methods_are_refused_until_the_backend_returns(method):
-    with pytest.raises(ValidationError) as excinfo:
-        _start_request(training_method = method)
+def test_preference_training_methods_are_accepted(method):
+    request = _start_request(
+        training_method = method,
+        dpo_beta = 0.2,
+        cpo_alpha = 0.5,
+        max_prompt_length = 256,
+    )
 
-    message = str(excinfo.value)
-    assert "not available in Studio yet" in message
-    assert "Choose SFT" in message
+    assert request.training_method == method
+    assert request.dpo_beta == 0.2
+    assert request.cpo_alpha == 0.5
+    assert request.max_prompt_length == 256
 
 
 def test_sft_requests_still_accept_the_preference_settings():

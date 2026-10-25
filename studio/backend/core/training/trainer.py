@@ -4084,18 +4084,27 @@ class UnslothTrainer:
             # ========== FORMAT FIRST ==========
             logger.info(f"Formatting dataset with format_type='{format_type}'...\n")
 
-            from utils.datasets.preference import is_preference_dataset
+            from utils.datasets.preference import (
+                is_preference_dataset,
+                standardize_preference_dataset,
+            )
 
-            if format_type in ("preference_dpo", "preference_cpo", "dpo", "cpo") or (
-                format_type == "auto" and is_preference_dataset(dataset)
-            ):
-                # Detection stays wired to the UI, but Studio has no preference trainer yet:
-                # refuse here instead of letting SFTTrainer fail on chosen/rejected columns.
-                raise ValueError(
-                    "This dataset is formatted for preference training (chosen/rejected), "
-                    "which is not available in Studio yet. Pick an SFT dataset, or use the "
-                    "Unsloth notebooks for DPO/ORPO/CPO."
-                )
+            is_preference_format = format_type in (
+                "preference_dpo",
+                "preference_cpo",
+                "dpo",
+                "cpo",
+            ) or (format_type == "auto" and is_preference_dataset(dataset))
+
+            if is_preference_format:
+                logger.info("Preference dataset detected. Standardizing for DPO/ORPO/CPO training...\n")
+                formatted_ds = standardize_preference_dataset(dataset)
+                dataset_info = {
+                    "dataset": formatted_ds,
+                    "detected_format": "preference_dpo",
+                    "final_format": "preference_dpo",
+                    "success": True,
+                }
             else:
                 dataset_info = format_and_template_dataset(
                     dataset,
@@ -4136,7 +4145,13 @@ class UnslothTrainer:
             )
             logger.info(f"Dataset formatted successfully ({final_n} samples, {detected})\n")
 
-            if has_separate_eval_source and eval_dataset is not None:
+            if has_separate_eval_source and eval_dataset is not None and is_preference_format:
+                eval_n = len(eval_dataset) if hasattr(eval_dataset, "__len__") else "?"
+                logger.info(f"Standardizing preference eval dataset ({eval_n} rows)...\n")
+                eval_dataset = standardize_preference_dataset(eval_dataset)
+                dataset_info["eval_final_format"] = "preference_dpo"
+                logger.info("Eval dataset standardized for preference training\n")
+            elif has_separate_eval_source and eval_dataset is not None:
                 eval_n = len(eval_dataset) if hasattr(eval_dataset, "__len__") else "?"
                 logger.info(f"Formatting eval dataset ({eval_n} rows)...\n")
                 eval_info = format_and_template_dataset(
@@ -4842,6 +4857,21 @@ class UnslothTrainer:
             )
             raw_text_mode = dataset_final_format == "raw_text"
             pretokenized_mode = dataset_final_format == PRETOKENIZED_FORMAT
+            # DPO/ORPO/CPO build their own collator and config, so they must not fall into the
+            # SFT/VLM branches that expect a "text" column.
+            is_preference_run = str(training_args.get("training_method") or "").strip().upper() in (
+                "DPO",
+                "ORPO",
+                "CPO",
+            )
+            if dataset_final_format in ("preference_dpo", "preference_cpo") and not is_preference_run:
+                # The SFT path has no "text" column to train on, and silently dropping
+                # chosen/rejected would train on nothing: say what to change instead.
+                raise ValueError(
+                    "This dataset is formatted for preference training (chosen/rejected) but the "
+                    "training method is SFT. Set the preference method to DPO, ORPO or CPO, or "
+                    "choose an SFT dataset."
+                )
             eval_final_format = (
                 str(dataset.get("eval_final_format", dataset_final_format) or "").lower()
                 if isinstance(dataset, dict)
@@ -4900,7 +4930,7 @@ class UnslothTrainer:
                     self._update_progress(error = error_msg, is_training = False)
                     return
 
-            elif self.is_audio_vlm and not raw_text_mode:
+            elif self.is_audio_vlm and not raw_text_mode and not is_preference_run:
                 # Audio VLM collator (e.g. Gemma 3N), mirrors the Gemma3N_(4B)-Audio notebook.
                 logger.info("Configuring audio VLM data collator...\n")
                 from unsloth import FastModel
@@ -4984,7 +5014,7 @@ class UnslothTrainer:
                 data_collator = audio_vlm_collate_fn
                 logger.info("Audio VLM data collator configured\n")
 
-            elif self.is_vlm and not raw_text_mode:
+            elif self.is_vlm and not raw_text_mode and not is_preference_run:
                 logger.info("Using UnslothVisionDataCollator for vision model\n")
                 from unsloth.trainer import UnslothVisionDataCollator
 
@@ -5113,7 +5143,11 @@ class UnslothTrainer:
             optim_value = training_args.get("optim", "adamw_8bit")
             lr_scheduler_type_value = training_args.get("lr_scheduler_type", "linear")
 
-            if (self.is_vlm or self.is_audio_vlm) and not raw_text_mode:
+            if (
+                (self.is_vlm or self.is_audio_vlm)
+                and not raw_text_mode
+                and not is_preference_run
+            ):
                 # Vision and audio VLM both need skip_prepare_dataset + remove_unused_columns; raw-text VLM goes to
                 # the text path below.
                 label = "audio VLM" if self.is_audio_vlm else "vision"
@@ -5234,7 +5268,7 @@ class UnslothTrainer:
 
             logger.info("Training configuration prepared\n")
 
-            if self.is_audio_vlm and not raw_text_mode:
+            if self.is_audio_vlm and not raw_text_mode and not is_preference_run:
                 # Image VLM: dict wrapper from format_and_template_dataset (raw-text uses the text path). Audio VLM
                 # (e.g. Gemma 3N + audio): raw Dataset from _format_audio_vlm_dataset, and the notebook uses
                 # processing_class=processor.tokenizer; raw-text runs use the text path.
@@ -5254,7 +5288,7 @@ class UnslothTrainer:
                 if eval_dataset is not None:
                     trainer_kwargs["eval_dataset"] = eval_dataset
                 self.trainer = SFTTrainer(**trainer_kwargs)
-            elif self.is_vlm and not raw_text_mode:
+            elif self.is_vlm and not raw_text_mode and not is_preference_run:
                 train_dataset = dataset["dataset"] if isinstance(dataset, dict) else dataset
                 trainer_kwargs = {
                     "model": self.model,
@@ -5283,7 +5317,7 @@ class UnslothTrainer:
                     logger.info("Unwrapping Processor → raw tokenizer for text-only SFTTrainer")
                     sft_tokenizer = self.tokenizer.tokenizer
 
-                if getattr(self, "diffusion_lm_profile", None):
+                if getattr(self, "diffusion_lm_profile", None) and not is_preference_run:
                     # Same SFT data path; the loss is the family's denoising objective. CPT = every token
                     # supervised, which is what the objective does when no label is -100.
                     DiffusionTrainer = require_diffusion_api("DiffusionTrainer")
@@ -5358,6 +5392,21 @@ class UnslothTrainer:
                     if eval_dataset is not None:
                         trainer_kwargs["eval_dataset"] = eval_dataset
                     self.trainer = _UnslothCPTTrainer(**trainer_kwargs)
+                elif is_preference_run:
+                    from core.training.preference_trainer import setup_preference_trainer
+
+                    self.trainer = setup_preference_trainer(
+                        training_args.get("training_method"),
+                        model = self.model,
+                        processing_class = sft_tokenizer,
+                        train_dataset = dataset["dataset"],
+                        eval_dataset = eval_dataset,
+                        config_args = config_args,
+                        beta = float(training_args.get("dpo_beta", 0.1) or 0.1),
+                        cpo_alpha = float(training_args.get("cpo_alpha", 1.0) or 1.0),
+                        max_prompt_length = training_args.get("max_prompt_length", 512),
+                        max_length = training_args.get("max_seq_length", 2048),
+                    )
                 else:
                     trainer_kwargs = {
                         "model": self.model,
@@ -5379,7 +5428,7 @@ class UnslothTrainer:
             is_cpt = training_args.get("is_cpt", False)
             train_on_responses_enabled = (
                 False
-                if (is_cpt or raw_text_mode or user_labels)
+                if (is_cpt or raw_text_mode or user_labels or is_preference_run)
                 else training_args.get("train_on_completions", False)
             )
 
@@ -5475,7 +5524,11 @@ class UnslothTrainer:
                     except Exception as e:
                         logger.warning(f"Post-masking dataset size check failed: {e}")
             else:
-                if train_on_responses_enabled and is_deepseek_ocr:
+                if is_preference_run:
+                    logger.info(
+                        "Preference mode: the trainer builds its own prompt/completion labels\n"
+                    )
+                elif train_on_responses_enabled and is_deepseek_ocr:
                     logger.info("Train on responses handled by DeepSeek OCR collator\n")
                 elif train_on_responses_enabled and audio_response_masker is not None:
                     logger.info("Train on responses handled by audio VLM collator\n")

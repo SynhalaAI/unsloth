@@ -1414,6 +1414,11 @@ def _validate_training_platform(request: TrainingStartRequest) -> None:
             status_code = 400,
             detail = "LoftQ is not supported for MLX training yet.",
         )
+    if str(request.training_method or "").strip().upper() in ("DPO", "ORPO", "CPO"):
+        raise HTTPException(
+            status_code = 400,
+            detail = "DPO, ORPO and CPO training are not supported on Apple Silicon (MLX) yet.",
+        )
 
 
 # A plain folder name: no separators, globs, drive letters or dot segments.
@@ -2407,6 +2412,10 @@ async def start_training(
             "local_datasets": request.local_datasets,
             "local_eval_datasets": request.local_eval_datasets,
             "format_type": request.format_type,
+            "training_method": request.training_method,
+            "dpo_beta": request.dpo_beta,
+            "cpo_alpha": request.cpo_alpha,
+            "max_prompt_length": request.max_prompt_length,
             "subset": request.subset,
             "train_split": request.train_split,
             "dataset_streaming": request.dataset_streaming,
