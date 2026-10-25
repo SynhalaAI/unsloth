@@ -33,6 +33,8 @@ import { TrainingMemoryParams } from "./training-memory-params";
 
 type HyperparameterTab = "optimization" | "schedule" | "memory" | "preference";
 
+const MAX_PROMPT_LENGTH_OPTIONS = [128, 256, 512, 1024, 2048, 4096, 8192];
+
 // Whisper language names accepted by WhisperProcessor.from_pretrained(language=...).
 // Keep in sync with transformers.models.whisper.tokenization_whisper.LANGUAGES.
 const WHISPER_LANGUAGES = [
@@ -459,19 +461,30 @@ export function TrainingHyperparametersSection({
                     />
                   )}
                   <ParamsRow label="Max prompt length">
-                    <Input
-                      type="number"
-                      min={1}
-                      max={200000}
-                      step={1}
-                      value={store.maxPromptLength}
-                      onChange={(event) =>
-                        store.setMaxPromptLength(
-                          Number(event.target.value) || 1,
-                        )
+                    <Select
+                      value={String(store.maxPromptLength)}
+                      onValueChange={(value) =>
+                        store.setMaxPromptLength(Number(value))
                       }
-                      className="w-24 text-right font-mono text-xs font-medium bg-muted/50 border border-border rounded-lg px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
-                    />
+                    >
+                      <SelectTrigger className="w-28">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {!MAX_PROMPT_LENGTH_OPTIONS.includes(
+                          store.maxPromptLength,
+                        ) && (
+                          <SelectItem value={String(store.maxPromptLength)}>
+                            {store.maxPromptLength} (Custom)
+                          </SelectItem>
+                        )}
+                        {MAX_PROMPT_LENGTH_OPTIONS.map((length) => (
+                          <SelectItem key={length} value={String(length)}>
+                            {length}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </ParamsRow>
                 </>
               )}

@@ -156,3 +156,31 @@ def test_missing_images_key_passes_none_to_processor():
         proc,
     )
     assert proc.last_images is None
+
+
+def test_text_only_row_accepts_raw_tokenizer():
+    ns = _load_helpers()
+    tokenizer = _Tok()
+    output = ns["dpo_trainer_vision_process_row"](
+        {"prompt": "p", "chosen": "c", "rejected": "r"},
+        tokenizer,
+    )
+    assert output["prompt_input_ids"] == [10, 99]
+    assert output["chosen_input_ids"] == [10, 99]
+    assert output["rejected_input_ids"] == [10, 99]
+
+
+def test_image_row_requires_processor():
+    ns = _load_helpers()
+    import pytest
+
+    with pytest.raises(TypeError, match = "require a processor"):
+        ns["dpo_trainer_vision_process_row"](
+            {
+                "prompt": "p",
+                "chosen": "c",
+                "rejected": "r",
+                "images": ["image"],
+            },
+            _Tok(),
+        )

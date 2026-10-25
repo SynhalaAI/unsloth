@@ -244,14 +244,23 @@ def dpo_trainer_vision_process_row(
 ):
     text = features.get("prompt", "")
     images = features.get("images")
-    processor, tokenizer = processing_class, processing_class.tokenizer
-    processed_features = processor(
-        images = images,
-        text = text,
-        add_special_tokens = False,
-    )
+    is_processor = hasattr(processing_class, "tokenizer")
+    tokenizer = processing_class.tokenizer if is_processor else processing_class
+    if is_processor:
+        processed_features = processing_class(
+            images = images,
+            text = text,
+            add_special_tokens = False,
+        )
+        prompt_input_ids = processed_features["input_ids"][0]
+    else:
+        if images is not None:
+            raise TypeError(
+                "DPO vision rows with images require a processor with a tokenizer."
+            )
+        processed_features = tokenizer(text, add_special_tokens = False)
+        prompt_input_ids = processed_features["input_ids"]
 
-    prompt_input_ids = processed_features["input_ids"][0]
     chosen_input_ids = tokenizer(features["chosen"], add_special_tokens = False)["input_ids"]
     rejected_input_ids = tokenizer(features["rejected"], add_special_tokens = False)["input_ids"]
 
@@ -275,22 +284,22 @@ def dpo_trainer_vision_process_row(
         "chosen_input_ids": chosen_input_ids,
         "rejected_input_ids": rejected_input_ids,
     }
-    if "pixel_values" in processed_features:
+    if is_processor and "pixel_values" in processed_features:
         output["pixel_values"] = processed_features["pixel_values"][0]
-    if "pixel_attention_mask" in processed_features:
+    if is_processor and "pixel_attention_mask" in processed_features:
         output["pixel_attention_mask"] = processed_features["pixel_attention_mask"][0]
-    if "image_sizes" in processed_features:
+    if is_processor and "image_sizes" in processed_features:
         output["image_sizes"] = processed_features["image_sizes"][0]
-    if "token_type_ids" in processed_features:
+    if is_processor and "token_type_ids" in processed_features:
         token_type_ids = processed_features["token_type_ids"][0]
         if max_prompt_length is not None:
             token_type_ids = token_type_ids[-max_prompt_length:]
         output["token_type_ids"] = token_type_ids
-    if "pixel_position_ids" in processed_features:
+    if is_processor and "pixel_position_ids" in processed_features:
         output["pixel_position_ids"] = processed_features["pixel_position_ids"][0]
-    if "image_position_ids" in processed_features:
+    if is_processor and "image_position_ids" in processed_features:
         output["image_position_ids"] = processed_features["image_position_ids"][0]
-    if "mm_token_type_ids" in processed_features:
+    if is_processor and "mm_token_type_ids" in processed_features:
         mm_token_type_ids = processed_features["mm_token_type_ids"][0]
         if max_prompt_length is not None:
             mm_token_type_ids = mm_token_type_ids[-max_prompt_length:]
