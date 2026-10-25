@@ -19,6 +19,7 @@ import { usePlatformStore } from "@/config/env";
 import {
   isRawTextDatasetFormat,
   useTrainingConfigStore,
+  usesPreferenceObjective,
 } from "@/features/training";
 import { useT } from "@/i18n";
 import type { GradientCheckpointing } from "@/types/training";
@@ -147,6 +148,7 @@ export function TrainingMemoryParams(): ReactElement {
     useShallow((state) => ({
       selectedModel: state.selectedModel,
       trainingMethod: state.trainingMethod,
+      preferenceTrainingMethod: state.preferenceTrainingMethod,
       datasetFormat: state.datasetFormat,
       datasetStreaming: state.datasetStreaming,
       packing: state.packing,
@@ -173,16 +175,24 @@ export function TrainingMemoryParams(): ReactElement {
       selectedModelLower.includes("deepseek") &&
       selectedModelLower.includes("ocr")
     );
+  // A preference run ignores both toggles (the trainers drop packing and mask both sides
+  // themselves), so showing them would offer dead controls.
+  const isPreferenceRun = usesPreferenceObjective(
+    store.trainingMethod,
+    store.preferenceTrainingMethod,
+  );
   const showPacking = !(
     showVisionLora ||
     store.isEmbeddingModel ||
-    store.isDecision
+    store.isDecision ||
+    isPreferenceRun
   );
   const showTrainOnCompletions = !(
     store.isEmbeddingModel ||
     store.isDecision ||
     store.trainingMethod === "cpt" ||
-    isRawTextDatasetFormat(store.datasetFormat)
+    isRawTextDatasetFormat(store.datasetFormat) ||
+    isPreferenceRun
   );
 
   return (

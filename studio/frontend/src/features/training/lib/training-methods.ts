@@ -107,6 +107,22 @@ export function formatTrainingMethodLabel(
   return `${base} · ${label}`;
 }
 
+/**
+ * True when the run trains a DPO/ORPO/CPO objective, so sequence packing and response-only
+ * masking do not apply: the preference trainers drop `packing` and always mask both sides
+ * themselves. CPT keeps its dropdown selection but ignores it, so it counts as SFT here.
+ */
+export function usesPreferenceObjective(
+  trainingMethod: TrainingMethod | string,
+  preferenceMethod?: PreferenceTrainingMethod | null,
+): boolean {
+  return (
+    trainingMethod !== "cpt" &&
+    preferenceMethod != null &&
+    preferenceMethod !== "sft"
+  );
+}
+
 export function isTrainingMethodSupportedOnDevice(
   trainingMethod: TrainingMethod,
   deviceType?: string,

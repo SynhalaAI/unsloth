@@ -5,6 +5,7 @@ import {
   isRawTextDatasetFormat,
   toBackendPreferenceMethod,
   toBackendTrainingType,
+  usesPreferenceObjective,
 } from "../lib/training-methods";
 import type { SystemInfoResponse } from "@/hooks/use-system";
 import { drafterEligible, drafterRequestFrom } from "../lib/drafter-config";
@@ -194,6 +195,12 @@ export function buildTrainingStartPayload(
   const isEmbedding =
     config.isEmbeddingModel || config.modelType === "embeddings";
   const isRawText = isRawTextDatasetFormat(config.datasetFormat);
+  // DPO/ORPO/CPO always drop packing and mask both sides themselves, so the two toggles
+  // must not ride along as if they changed the run.
+  const isPreference = usesPreferenceObjective(
+    trainingMethod,
+    config.preferenceTrainingMethod,
+  );
   const hfDataset =
     config.datasetSource === "huggingface" ? config.dataset : null;
   const localDatasets =
@@ -299,7 +306,7 @@ export function buildTrainingStartPayload(
     // that. Guarded by tests/training-start-payload-grad-norm.test.ts.
     max_grad_value: null,
     random_seed: config.randomSeed,
-    packing: isEmbedding || isDecision ? false : config.packing,
+    packing: isEmbedding || isDecision || isPreference ? false : config.packing,
     // Laya's recipe needs torch AdamW; Clef keeps its recipe's (8-bit) optimizer.
     optim:
       isDecision && config.decisionLayout !== "clef"
@@ -318,7 +325,7 @@ export function buildTrainingStartPayload(
     use_dora: loraVariants && config.loraVariant === "dora",
     // CPT always trains on full sequences (no chat format masking)
     train_on_completions:
-      isEmbedding || isDecision || isCpt || isRawText
+      isEmbedding || isDecision || isCpt || isRawText || isPreference
         ? false
         : config.trainOnCompletions,
     finetune_vision_layers: config.finetuneVisionLayers,

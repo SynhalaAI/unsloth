@@ -10,13 +10,15 @@ import type {
   AdvancedSettingsBaseline,
   TrainingConfigState,
 } from "@/features/training";
+// eslint-disable-next-line no-restricted-imports -- keep this helper free of the barrel's store imports
+import { usesPreferenceObjective } from "@/features/training/lib/training-methods";
 import { isAdapterMethod } from "@/types/training";
 
 type AdvancedSettingsState = Pick<
   TrainingConfigState,
   "trainingMethod" | keyof AdvancedSettingsBaseline
 > &
-  Partial<Pick<TrainingConfigState, "modelType">>;
+  Partial<Pick<TrainingConfigState, "modelType" | "preferenceTrainingMethod">>;
 
 const SCALAR_DEFAULTS = {
   optimizerType: DEFAULT_HYPERPARAMS.optimizerType,
@@ -62,8 +64,24 @@ function sameValues(
   return sortedLeft.every((value, index) => value === sortedRight[index]);
 }
 
+// The preference trainers drop packing and always mask both sides, so neither toggle can
+// make a DPO/ORPO/CPO run differ from its default.
+const PREFERENCE_IGNORED_SETTINGS: ReadonlySet<string> = new Set([
+  "packing",
+  "trainOnCompletions",
+]);
+
 function isIgnored(state: AdvancedSettingsState, key: string): boolean {
-  return state.modelType === "decision" && DECISION_IGNORED_SETTINGS.has(key);
+  if (state.modelType === "decision" && DECISION_IGNORED_SETTINGS.has(key)) {
+    return true;
+  }
+  return (
+    PREFERENCE_IGNORED_SETTINGS.has(key) &&
+    usesPreferenceObjective(
+      state.trainingMethod,
+      state.preferenceTrainingMethod,
+    )
+  );
 }
 
 function baselineValue<K extends keyof AdvancedSettingsBaseline>(

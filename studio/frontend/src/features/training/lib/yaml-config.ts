@@ -5,6 +5,7 @@ import * as yaml from "js-yaml";
 import type { BackendModelConfig } from "../api/models-api";
 import type { TrainingConfigState } from "../types/config";
 import { drafterRequestFrom } from "./drafter-config";
+import { usesPreferenceObjective } from "./training-methods";
 
 const EXPECTED_TOP_KEYS = new Set([
   "training",
@@ -126,8 +127,17 @@ export function serializeConfigToYaml(
     early_stopping_patience: state.earlyStoppingPatience,
     weight_decay: state.weightDecay,
     random_seed: state.randomSeed,
-    packing: state.packing,
-    train_on_completions: state.trainOnCompletions,
+    // A preference run ignores both toggles, so leave them out of the saved file instead of
+    // exporting values the trainer will drop.
+    ...(usesPreferenceObjective(
+      state.trainingMethod,
+      state.preferenceTrainingMethod,
+    )
+      ? {}
+      : {
+          packing: state.packing,
+          train_on_completions: state.trainOnCompletions,
+        }),
     gradient_checkpointing: state.gradientCheckpointing,
     offload_layers: state.offloadLayers,
     offload_vram_gb: state.offloadVramGb,

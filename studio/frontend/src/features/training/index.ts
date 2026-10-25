@@ -28,6 +28,7 @@ export {
   isTrainingModelTypeSupportedOnDevice,
   parseBackendPreferenceMethod,
   parseBackendTrainingMethod,
+  usesPreferenceObjective,
 } from "./lib/training-methods";
 export { useTrainingHistorySidebarItems } from "./hooks/use-training-history-sidebar";
 export { useTrainingRuntimeLifecycle } from "./hooks/use-training-runtime-lifecycle";
