@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from utils.datasets.cells import text_cell_check, unwrap_message_column
 from utils.datasets.format_detection import detect_dataset_format, has_message_prompt_completion
+from utils.datasets.preference import detect_preference_columns
 from utils.datasets.vlm_processing import detect_vlm_instruction_column
 from utils.datasets.pretokenized import PRETOKENIZED_FORMAT, is_pretokenized_dataset
 
@@ -751,6 +752,16 @@ def check_dataset_format(dataset, is_vlm: bool = False) -> dict:
         "detected_audio_column": multimodal_info.get("detected_audio_column"),
         "detected_speaker_column": multimodal_info.get("detected_speaker_column"),
     }
+    # A vision-capable model can still train on a text-only preference dataset.
+    # Keep this aligned with the preview, which enables VLM detection only after
+    # the dataset itself is known to contain images.
+    if (
+        is_vlm
+        and not is_audio
+        and not multimodal_info["is_image"]
+        and detect_preference_columns(columns) is not None
+    ):
+        is_vlm = False
 
     # A ready-made conversation column is an explicit, complete training signal:
     # probe it before the audio heuristic so a multimodal chat dataset keeps

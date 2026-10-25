@@ -18,6 +18,7 @@ from utils.datasets.preference import (
     standardize_preference_dataset,
 )
 from utils.datasets.format_detection import detect_dataset_format
+from hub.utils.dataset_format import check_dataset_format
 from models.training import TrainingStartRequest
 from core.training.trainer import resolve_training_format_type
 
@@ -126,6 +127,23 @@ def test_detect_dataset_format_preference():
     assert fmt["format"] == "preference_dpo"
     assert fmt["preference_columns"]["chosen"] == "chosen"
     assert fmt["preference_columns"]["rejected"] == "rejected"
+
+
+def test_vision_model_check_preserves_text_preference_format():
+    dataset = _make_dataset(
+        {
+            "prompt": ["Hello"],
+            "chosen": ["Hi there!"],
+            "rejected": ["Go away"],
+            "persona": ["helpful"],
+        }
+    )
+
+    result = check_dataset_format(dataset, is_vlm=True)
+
+    assert result["detected_format"] == "preference_dpo"
+    assert result["requires_manual_mapping"] is False
+    assert result["is_image"] is False
 
 
 def test_standardize_preference_dataset_with_system_prompt():
