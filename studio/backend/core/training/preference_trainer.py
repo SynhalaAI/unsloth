@@ -268,6 +268,38 @@ def _clamp_max_length(model: Any, max_length: Optional[int]) -> int:
     return requested
 
 
+_PREFERENCE_TOKEN_KEYS = ("prompt_input_ids", "chosen_input_ids", "rejected_input_ids")
+
+
+def _preference_input_tokens(inputs: Any) -> int:
+    """Tokens a DPO/ORPO/CPO forward sees: the prompt once per side, plus each completion."""
+    total = 0
+    for key in _PREFERENCE_TOKEN_KEYS:
+        numel = getattr(inputs.get(key), "numel", None)
+        if numel is not None:
+            total += int(numel()) * (2 if key == "prompt_input_ids" else 1)
+    return total
+
+
+def _install_preference_token_counter(trainer: Any) -> bool:
+    """Count preference tokens where HF's counter expects a single `main_input_name` tensor.
+
+    The collator emits `prompt_input_ids` / `chosen_input_ids` / `rejected_input_ids`, so the
+    stock counter warned on every micro-step and never counted. transformers 4.x counts inline
+    in `training_step` and exposes no hook, so there the caller leaves the counter disabled.
+    """
+    if getattr(trainer, "_track_num_input_tokens", None) is None:
+        return False
+
+    def _track_num_input_tokens(inputs: Any) -> None:
+        # HF sums the per-rank count, so report the global total here too.
+        processes = getattr(getattr(trainer, "accelerator", None), "num_processes", 1) or 1
+        trainer.state.num_input_tokens_seen += _preference_input_tokens(inputs) * processes
+
+    trainer._track_num_input_tokens = _track_num_input_tokens
+    return True
+
+
 def setup_preference_trainer(
     method: Any,
     model: Any,
@@ -329,8 +361,10 @@ def setup_preference_trainer(
         # TRL sets this itself and warns on every run. DPO keeps Trainer's signature columns.
         config_kwargs["remove_unused_columns"] = False
     # HF's token counter reads one `main_input_name` tensor, but a preference batch carries the
-    # prompt and both completions separately, so it warned on every step and never counted.
-    config_kwargs["include_num_input_tokens_seen"] = False
+    # prompt and both completions separately. 5.x exposes a hook to count those instead; older
+    # releases count inline, so there the counter stays off rather than warn on every step.
+    tracks_tokens = hasattr(trainer_cls, "_track_num_input_tokens")
+    config_kwargs["include_num_input_tokens_seen"] = tracks_tokens
     dpo_peft = normalized != "DPO" or _is_peft_model(model)
     if normalized == "DPO" and not dpo_peft:
         # A full finetune has no adapter to disable, and TRL would silently deep-copy the whole
@@ -364,4 +398,7 @@ def setup_preference_trainer(
         # TRL scores the reference by disabling the adapter, or from precomputed logprobs.
         trainer_kwargs["ref_model"] = None
     trainer_kwargs[_trainer_tokenizer_kwarg(trainer_cls)] = processing_class
-    return trainer_cls(**trainer_kwargs)
+    trainer = trainer_cls(**trainer_kwargs)
+    if tracks_tokens:
+        _install_preference_token_counter(trainer)
+    return trainer

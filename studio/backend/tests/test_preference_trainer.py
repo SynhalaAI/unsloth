@@ -82,6 +82,16 @@ class FakeModel:
             self.max_seq_length = max_seq_length
 
 
+class FakeTensor:
+    """Stands in for a batch tensor: the counter only reads `numel()`."""
+
+    def __init__(self, numel):
+        self._numel = numel
+
+    def numel(self):
+        return self._numel
+
+
 PREFERENCE_ROWS = [{"prompt": "2+2?", "chosen": "4", "rejected": "5"}]
 
 
@@ -403,20 +413,96 @@ def test_orpo_and_cpo_disable_remove_unused_columns(monkeypatch, method):
     assert trainer.args.remove_unused_columns is False
 
 
+def test_token_counter_scales_with_data_parallel_ranks():
+    class _Trainer:
+        def __init__(self):
+            self.state = types.SimpleNamespace(num_input_tokens_seen = 0)
+            self.accelerator = types.SimpleNamespace(num_processes = 2)
+
+        def _track_num_input_tokens(self, inputs):
+            raise AssertionError("HF's counter must be replaced")
+
+    trainer = _Trainer()
+    assert pt._install_preference_token_counter(trainer) is True
+    trainer._track_num_input_tokens({"prompt_input_ids": FakeTensor(2)})
+
+    # HF gathers the per-rank numel, so the global total is twice the local batch.
+    assert trainer.state.num_input_tokens_seen == 8
+
+
 @pytest.mark.parametrize("method", ["DPO", "ORPO", "CPO"])
-def test_token_tracking_is_off_for_preference_methods(monkeypatch, method):
+def test_token_tracking_stays_off_without_the_hf_hook(monkeypatch, method):
+    # transformers 4.x counts tokens inline in `training_step`; there is nothing to override, so
+    # leaving the shared config's `True` would warn on every step and never count.
     trainer, _, _ = _setup(
         monkeypatch,
         method,
         config_args = {
             "output_dir": "out",
-            # The shared SFT config turns this on. A preference batch has no `input_ids`, so HF
-            # would warn on every step and leave the counter at 0.
             "include_num_input_tokens_seen": True,
         },
     )
 
     assert trainer.args.include_num_input_tokens_seen is False
+
+
+def test_preference_input_tokens_count_the_prompt_on_both_sides():
+    # DPO/ORPO/CPO score chosen and rejected against the same prompt, so it passes twice.
+    tokens = pt._preference_input_tokens(
+        {
+            "prompt_input_ids": FakeTensor(10),
+            "chosen_input_ids": FakeTensor(4),
+            "rejected_input_ids": FakeTensor(6),
+        }
+    )
+
+    assert tokens == 30
+
+
+def test_preference_input_tokens_tolerate_missing_columns():
+    assert pt._preference_input_tokens({}) == 0
+    assert pt._preference_input_tokens({"pixel_values": FakeTensor(99)}) == 0
+
+
+def test_token_tracking_installs_the_preference_counter(monkeypatch):
+    events = []
+    _install_fake_unsloth(monkeypatch, events)
+    classes = _install_fake_trl(monkeypatch, events)
+
+    class _HookTrainer:
+        def __init__(
+            self,
+            model = None,
+            args = None,
+            train_dataset = None,
+            eval_dataset = None,
+            processing_class = None,
+            ref_model = None,
+        ):
+            self.args = args
+            self.state = types.SimpleNamespace(num_input_tokens_seen = 0)
+
+        def _track_num_input_tokens(self, inputs):
+            raise AssertionError("HF's counter must be replaced")
+
+    classes["DPOTrainer"] = _HookTrainer
+    trainer = pt.setup_preference_trainer(
+        "dpo",
+        model = FakeModel(max_seq_length = 2048),
+        processing_class = FakeTokenizer(),
+        train_dataset = FakeDataset(PREFERENCE_ROWS),
+    )
+
+    # 5.x can be counted from the preference columns, so the shared config's request stands.
+    assert trainer.args.include_num_input_tokens_seen is True
+    trainer._track_num_input_tokens(
+        {
+            "prompt_input_ids": FakeTensor(5),
+            "chosen_input_ids": FakeTensor(2),
+            "rejected_input_ids": FakeTensor(3),
+        }
+    )
+    assert trainer.state.num_input_tokens_seen == 15
 
 
 def test_dpo_leaves_remove_unused_columns_to_trl(monkeypatch):
