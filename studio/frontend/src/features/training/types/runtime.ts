@@ -59,6 +59,10 @@ export interface TrainingStatusResponse {
     nll_loss_steps?: number[];
     log_odds_ratio?: number[];
     log_odds_ratio_steps?: number[];
+    rewards_chosen?: number[];
+    rewards_chosen_steps?: number[];
+    rewards_rejected?: number[];
+    rewards_rejected_steps?: number[];
   } | null;
 }
 
@@ -148,6 +152,8 @@ export interface TrainingRuntimeState {
   evalRewardMarginHistory: TrainingSeriesPoint[];
   nllLossHistory: TrainingSeriesPoint[];
   logOddsRatioHistory: TrainingSeriesPoint[];
+  rewardsChosenHistory: TrainingSeriesPoint[];
+  rewardsRejectedHistory: TrainingSeriesPoint[];
   resetGeneration: number;
   stopRequested: boolean;
   configureRequest: number;
@@ -228,4 +234,6 @@ export interface TrainingViewData {
   evalRewardMarginHistory: TrainingSeriesPoint[];
   nllLossHistory: TrainingSeriesPoint[];
   logOddsRatioHistory: TrainingSeriesPoint[];
+  rewardsChosenHistory: TrainingSeriesPoint[];
+  rewardsRejectedHistory: TrainingSeriesPoint[];
 }

@@ -55,6 +55,10 @@ export interface TrainingRunMetrics {
   nll_loss_step_history: number[];
   log_odds_ratio_history: number[];
   log_odds_ratio_step_history: number[];
+  rewards_chosen_history: number[];
+  rewards_chosen_step_history: number[];
+  rewards_rejected_history: number[];
+  rewards_rejected_step_history: number[];
   final_epoch: number | null;
   final_num_tokens: number | null;
 }

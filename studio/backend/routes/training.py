@@ -3046,6 +3046,14 @@ def _build_training_status(
             "log_odds_ratio_steps": list(
                 getattr(backend, "log_odds_ratio_step_history", [])
             ),
+            "rewards_chosen": list(getattr(backend, "rewards_chosen_history", [])),
+            "rewards_chosen_steps": list(
+                getattr(backend, "rewards_chosen_step_history", [])
+            ),
+            "rewards_rejected": list(getattr(backend, "rewards_rejected_history", [])),
+            "rewards_rejected_steps": list(
+                getattr(backend, "rewards_rejected_step_history", [])
+            ),
         }
 
     return TrainingStatus(

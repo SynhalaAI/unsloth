@@ -681,3 +681,54 @@ test("resolved download repo follows status and clears between loads and jobs", 
   runtime.resetRuntime();
   assert.equal(useTrainingRuntimeStore.getState().modelDownloadRepoId, null);
 });
+
+test("reward levels reach the chart series from progress and status", () => {
+  useTrainingRuntimeStore.getState().resetRuntime();
+  useTrainingRuntimeStore.getState().setStartPending("job-reward", "Starting");
+
+  useTrainingRuntimeStore.getState().applyProgress(
+    {
+      ...progressPayload("job-reward", 2),
+      rewards_chosen: 1.1,
+      rewards_rejected: 0.2,
+    },
+    2,
+  );
+
+  let current = useTrainingRuntimeStore.getState();
+  // TRL logs the reward of each side per step; the chart reads them off the store.
+  assert.deepEqual(current.rewardsChosenHistory, [{ step: 2, value: 1.1 }]);
+  assert.deepEqual(current.rewardsRejectedHistory, [{ step: 2, value: 0.2 }]);
+
+  // A reconnecting client rebuilds the same series from the status snapshot.
+  current.applyStatus({
+    job_id: "job-reward",
+    phase: "training",
+    is_training_running: true,
+    eval_enabled: false,
+    message: "Training",
+    error: null,
+    metric_history: {
+      steps: [1, 2],
+      rewards_chosen: [0.8, 1.1],
+      rewards_chosen_steps: [1, 2],
+      rewards_rejected: [-0.2, 0.2],
+      rewards_rejected_steps: [1, 2],
+    },
+  });
+
+  current = useTrainingRuntimeStore.getState();
+  assert.deepEqual(current.rewardsChosenHistory, [
+    { step: 1, value: 0.8 },
+    { step: 2, value: 1.1 },
+  ]);
+  assert.deepEqual(current.rewardsRejectedHistory, [
+    { step: 1, value: -0.2 },
+    { step: 2, value: 0.2 },
+  ]);
+
+  current.resetRuntime();
+  current = useTrainingRuntimeStore.getState();
+  assert.deepEqual(current.rewardsChosenHistory, []);
+  assert.deepEqual(current.rewardsRejectedHistory, []);
+});

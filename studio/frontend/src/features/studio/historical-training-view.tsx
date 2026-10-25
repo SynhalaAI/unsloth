@@ -141,6 +141,14 @@ function mapToViewData(
       metrics.log_odds_ratio_step_history ?? [],
       metrics.log_odds_ratio_history ?? [],
     ),
+    rewardsChosenHistory: metricSeries(
+      metrics.rewards_chosen_step_history ?? [],
+      metrics.rewards_chosen_history ?? [],
+    ),
+    rewardsRejectedHistory: metricSeries(
+      metrics.rewards_rejected_step_history ?? [],
+      metrics.rewards_rejected_history ?? [],
+    ),
   };
 }
 
@@ -271,6 +279,14 @@ export function HistoricalTrainingView({
         lrHistory={viewData.lrHistory}
         gradNormHistory={viewData.gradNormHistory}
         evalLossHistory={viewData.evalLossHistory}
+        rewardAccuracyHistory={viewData.rewardAccuracyHistory}
+        rewardMarginHistory={viewData.rewardMarginHistory}
+        evalRewardAccuracyHistory={viewData.evalRewardAccuracyHistory}
+        evalRewardMarginHistory={viewData.evalRewardMarginHistory}
+        nllLossHistory={viewData.nllLossHistory}
+        logOddsRatioHistory={viewData.logOddsRatioHistory}
+        rewardsChosenHistory={viewData.rewardsChosenHistory}
+        rewardsRejectedHistory={viewData.rewardsRejectedHistory}
       />
     </div>
   );

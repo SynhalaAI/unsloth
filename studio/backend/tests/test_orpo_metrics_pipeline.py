@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+import sqlite3
 import sys
 
 import pytest
@@ -18,6 +20,7 @@ import core.training.training as tr
 import storage.studio_db as sdb
 from core.training.training import TrainingBackend, TrainingProgress
 from core.training.worker import _create_trainer_progress_callback
+import routes.training as rt
 
 
 @pytest.fixture
@@ -133,6 +136,8 @@ def test_worker_progress_event_carries_preference_and_orpo_metrics():
     progress.rewards_margins = 0.9
     progress.nll_loss = 0.7
     progress.log_odds_ratio = 0.25
+    progress.rewards_chosen = 0.6
+    progress.rewards_rejected = -0.4
     callback(progress)
 
     payload = next(event for event in events if event.get("type") == "progress")
@@ -140,6 +145,8 @@ def test_worker_progress_event_carries_preference_and_orpo_metrics():
     assert payload["rewards_margins"] == 0.9
     assert payload["nll_loss"] == 0.7
     assert payload["log_odds_ratio"] == 0.25
+    assert payload["rewards_chosen"] == 0.6
+    assert payload["rewards_rejected"] == -0.4
 
 
 def test_worker_progress_event_is_emitted_when_only_preference_metrics_change():
@@ -181,6 +188,8 @@ def test_orpo_metrics_survive_the_history_roundtrip(monkeypatch, tmp_path):
                 "rewards_margin": 1.0,
                 "nll_loss": 0.9,
                 "log_odds_ratio": 0.3,
+                "rewards_chosen": 0.8,
+                "rewards_rejected": -0.2,
             },
             {
                 "step": 2,
@@ -191,6 +200,8 @@ def test_orpo_metrics_survive_the_history_roundtrip(monkeypatch, tmp_path):
                 "eval_rewards_margin": 0.4,
                 "nll_loss": 0.7,
                 "log_odds_ratio": 0.5,
+                "rewards_chosen": 1.1,
+                "rewards_rejected": 0.2,
             },
         ],
     )
@@ -208,3 +219,157 @@ def test_orpo_metrics_survive_the_history_roundtrip(monkeypatch, tmp_path):
     assert metrics["nll_loss_step_history"] == [1, 2]
     assert metrics["log_odds_ratio_history"] == [0.3, 0.5]
     assert metrics["log_odds_ratio_step_history"] == [1, 2]
+    assert metrics["rewards_chosen_history"] == [0.8, 1.1]
+    assert metrics["rewards_chosen_step_history"] == [1, 2]
+    assert metrics["rewards_rejected_history"] == [-0.2, 0.2]
+    assert metrics["rewards_rejected_step_history"] == [1, 2]
+
+
+def test_progress_events_keep_reward_level_histories(backend):
+    b = backend
+    b._handle_event(_orpo_event(1))
+    b._handle_event(_orpo_event(2, rewards_chosen = 1.1, rewards_rejected = 0.2))
+
+    assert b.rewards_chosen_history == [0.8, 1.1]
+    assert b.rewards_chosen_step_history == [1, 2]
+    assert b.rewards_rejected_history == [-0.2, 0.2]
+    assert b.rewards_rejected_step_history == [1, 2]
+    assert b._progress.rewards_chosen == 1.1
+    assert b._progress.rewards_rejected == 0.2
+
+    buffered = b._metric_buffer[-1]
+    assert buffered["rewards_chosen"] == 1.1
+    assert buffered["rewards_rejected"] == 0.2
+
+
+def test_eval_line_keeps_reward_levels_off_the_train_histories(backend):
+    b = backend
+    b._handle_event(_orpo_event(1))
+    # The worker repeats the last train values on an eval log line; the reward levels
+    # must not be recorded twice for the same step.
+    b._handle_event(
+        {
+            "type": "progress",
+            "step": 1,
+            "loss": 1.1,
+            "rewards_chosen": 0.8,
+            "rewards_rejected": -0.2,
+            "eval_loss": 1.0,
+        }
+    )
+
+    assert b.rewards_chosen_history == [0.8]
+    assert b.rewards_chosen_step_history == [1]
+    assert b.rewards_rejected_history == [-0.2]
+    assert b.rewards_rejected_step_history == [1]
+
+
+def test_non_finite_reward_levels_are_skipped(backend):
+    b = backend
+    b._handle_event(
+        _orpo_event(1, rewards_chosen = "not-a-number", rewards_rejected = float("inf"))
+    )
+
+    assert b.rewards_chosen_history == []
+    assert b.rewards_rejected_history == []
+    assert b._progress.rewards_chosen is None
+    assert b._progress.rewards_rejected is None
+    assert b._metric_buffer[-1]["rewards_chosen"] is None
+    assert b._metric_buffer[-1]["rewards_rejected"] is None
+
+
+def test_reward_levels_survive_a_legacy_metrics_table(monkeypatch, tmp_path):
+    from storage import studio_db
+
+    monkeypatch.setenv("UNSLOTH_STUDIO_HOME", str(tmp_path))
+    monkeypatch.setattr(studio_db, "_schema_ready", set())
+
+    # A database written before the reward-level chart existed.
+    legacy = sqlite3.connect(studio_db.studio_db_path())
+    try:
+        legacy.execute(
+            """
+            CREATE TABLE training_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL,
+                step INTEGER NOT NULL,
+                loss REAL,
+                learning_rate REAL,
+                grad_norm REAL,
+                eval_loss REAL,
+                cer REAL,
+                wer REAL,
+                epoch REAL,
+                num_tokens INTEGER,
+                elapsed_seconds REAL,
+                rewards_accuracy REAL,
+                rewards_margin REAL,
+                eval_rewards_accuracy REAL,
+                eval_rewards_margin REAL,
+                nll_loss REAL,
+                log_odds_ratio REAL,
+                UNIQUE(run_id, step)
+            )
+            """
+        )
+        legacy.commit()
+    finally:
+        legacy.close()
+
+    conn = studio_db.get_connection()
+    try:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(training_metrics)")}
+    finally:
+        conn.close()
+    assert {"rewards_chosen", "rewards_rejected"} <= columns
+
+    studio_db.create_run(
+        id = "run-legacy",
+        model_name = "unsloth/test-model",
+        dataset_name = "test-preference",
+        config_json = "{}",
+        started_at = "2026-01-01T00:00:00Z",
+        total_steps = 1,
+    )
+    studio_db.insert_metrics_batch(
+        "run-legacy",
+        [{"step": 1, "rewards_chosen": 0.8, "rewards_rejected": -0.2}],
+    )
+
+    metrics = studio_db.get_run_metrics("run-legacy")
+    assert metrics["rewards_chosen_history"] == [0.8]
+    assert metrics["rewards_chosen_step_history"] == [1]
+    assert metrics["rewards_rejected_history"] == [-0.2]
+    assert metrics["rewards_rejected_step_history"] == [1]
+
+
+def test_status_surface_reports_reward_levels(monkeypatch):
+    async def _inline_to_thread(function, /, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(rt.asyncio, "to_thread", _inline_to_thread)
+
+    b = TrainingBackend()
+    b.current_job_id = "job-reward"
+    b._proc = type("_P", (), {"is_alive": lambda self: True, "pid": 999})()
+    b._progress = TrainingProgress(
+        is_training = True, status_message = "Training in progress..."
+    )
+    b._finalize_run_in_db = lambda **kw: None
+    b._ensure_db_run_created = lambda: None
+    b._start_stop_watchdog = lambda **kw: None
+    monkeypatch.setattr(rt, "get_training_backend", lambda: b)
+
+    b.step_history[:] = [1, 2]
+    b.loss_history[:] = [1.1, 1.0]
+    b.lr_history[:] = [1e-4, 1e-4]
+    b.rewards_chosen_history[:] = [0.8, 1.1]
+    b.rewards_chosen_step_history[:] = [1, 2]
+    b.rewards_rejected_history[:] = [-0.2, 0.2]
+    b.rewards_rejected_step_history[:] = [1, 2]
+
+    status = asyncio.run(rt.get_training_status(current_subject = "tester"))
+    assert status.metric_history["rewards_chosen"] == [0.8, 1.1]
+    assert status.metric_history["rewards_chosen_steps"] == [1, 2]
+    assert status.metric_history["rewards_rejected"] == [-0.2, 0.2]
+    assert status.metric_history["rewards_rejected_steps"] == [1, 2]

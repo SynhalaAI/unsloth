@@ -94,6 +94,8 @@ const initialState: TrainingRuntimeState = {
   evalRewardMarginHistory: [],
   nllLossHistory: [],
   logOddsRatioHistory: [],
+  rewardsChosenHistory: [],
+  rewardsRejectedHistory: [],
   resetGeneration: 0,
   stopRequested: false,
   configureRequest: 0,
@@ -220,6 +222,8 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
   evalRewardMarginHistory: TrainingSeriesPoint[] | null;
   nllLossHistory: TrainingSeriesPoint[] | null;
   logOddsRatioHistory: TrainingSeriesPoint[] | null;
+  rewardsChosenHistory: TrainingSeriesPoint[] | null;
+  rewardsRejectedHistory: TrainingSeriesPoint[] | null;
 } {
   const history = payload.metric_history;
   if (!history || !history.steps?.length) {
@@ -234,6 +238,8 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
       evalRewardMarginHistory: null,
       nllLossHistory: null,
       logOddsRatioHistory: null,
+      rewardsChosenHistory: null,
+      rewardsRejectedHistory: null,
     };
   }
 
@@ -275,6 +281,14 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
     history.log_odds_ratio && history.log_odds_ratio_steps
       ? toSeries(history.log_odds_ratio_steps, history.log_odds_ratio)
       : null;
+  const rewardsChosenHistory =
+    history.rewards_chosen && history.rewards_chosen_steps
+      ? toSeries(history.rewards_chosen_steps, history.rewards_chosen)
+      : null;
+  const rewardsRejectedHistory =
+    history.rewards_rejected && history.rewards_rejected_steps
+      ? toSeries(history.rewards_rejected_steps, history.rewards_rejected)
+      : null;
   return {
     lossHistory,
     lrHistory,
@@ -286,6 +300,8 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
     evalRewardMarginHistory,
     nllLossHistory,
     logOddsRatioHistory,
+    rewardsChosenHistory,
+    rewardsRejectedHistory,
   };
 }
 
@@ -353,6 +369,8 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
         evalRewardMarginHistory: [],
         nllLossHistory: [],
         logOddsRatioHistory: [],
+        rewardsChosenHistory: [],
+        rewardsRejectedHistory: [],
         resetGeneration: state.resetGeneration + 1,
       })),
 
@@ -401,6 +419,8 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
           evalRewardMarginHistory: [],
           nllLossHistory: [],
           logOddsRatioHistory: [],
+          rewardsChosenHistory: [],
+          rewardsRejectedHistory: [],
           resetGeneration: state.resetGeneration + 1,
         };
       }),
@@ -487,6 +507,8 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
               evalRewardMarginHistory: [],
               nllLossHistory: [],
               logOddsRatioHistory: [],
+              rewardsChosenHistory: [],
+              rewardsRejectedHistory: [],
               resetGeneration: state.resetGeneration + 1,
               stopRequested: false,
             }
@@ -597,6 +619,18 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
                 metricHistory.logOddsRatioHistory,
               )
             : runtimeState.logOddsRatioHistory,
+          rewardsChosenHistory: metricHistory.rewardsChosenHistory
+            ? mergeSeries(
+                runtimeState.rewardsChosenHistory,
+                metricHistory.rewardsChosenHistory,
+              )
+            : runtimeState.rewardsChosenHistory,
+          rewardsRejectedHistory: metricHistory.rewardsRejectedHistory
+            ? mergeSeries(
+                runtimeState.rewardsRejectedHistory,
+                metricHistory.rewardsRejectedHistory,
+              )
+            : runtimeState.rewardsRejectedHistory,
         };
       }),
 
@@ -673,6 +707,8 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
         const evalRewardMargin = toFiniteNumber(payload.eval_rewards_margins);
         const nllLoss = toFiniteNumber(payload.nll_loss);
         const logOddsRatio = toFiniteNumber(payload.log_odds_ratio);
+        const rewardsChosen = toFiniteNumber(payload.rewards_chosen);
+        const rewardsRejected = toFiniteNumber(payload.rewards_rejected);
         const totalSteps = toFiniteNumber(payload.total_steps);
         const progressPercent = toFiniteNumber(payload.progress_percent);
         const currentEpoch = toFiniteNumber(payload.epoch);
@@ -756,6 +792,14 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
             step > 0 && logOddsRatio !== null
               ? upsertPoint(state.logOddsRatioHistory, step, logOddsRatio)
               : state.logOddsRatioHistory,
+          rewardsChosenHistory:
+            step > 0 && rewardsChosen !== null
+              ? upsertPoint(state.rewardsChosenHistory, step, rewardsChosen)
+              : state.rewardsChosenHistory,
+          rewardsRejectedHistory:
+            step > 0 && rewardsRejected !== null
+              ? upsertPoint(state.rewardsRejectedHistory, step, rewardsRejected)
+              : state.rewardsRejectedHistory,
         };
       }),
   }),

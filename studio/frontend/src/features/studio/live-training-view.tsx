@@ -190,6 +190,8 @@ export function LiveTrainingView(): ReactElement {
     evalRewardMarginHistory: runtime.evalRewardMarginHistory,
     nllLossHistory: runtime.nllLossHistory,
     logOddsRatioHistory: runtime.logOddsRatioHistory,
+    rewardsChosenHistory: runtime.rewardsChosenHistory,
+    rewardsRejectedHistory: runtime.rewardsRejectedHistory,
   };
 
   const isPreparingPhase =
@@ -236,6 +238,8 @@ export function LiveTrainingView(): ReactElement {
           evalRewardMarginHistory={viewData.evalRewardMarginHistory}
           nllLossHistory={viewData.nllLossHistory}
           logOddsRatioHistory={viewData.logOddsRatioHistory}
+          rewardsChosenHistory={viewData.rewardsChosenHistory}
+          rewardsRejectedHistory={viewData.rewardsRejectedHistory}
         />
       </div>
       {showOverlay ? (

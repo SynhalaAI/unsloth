@@ -1319,6 +1319,11 @@ class TrainingBackend:
         self.nll_loss_step_history: list = []
         self.log_odds_ratio_history: list = []
         self.log_odds_ratio_step_history: list = []
+        # TRL's mean implicit reward for the chosen and rejected completions, keyed by step.
+        self.rewards_chosen_history: list = []
+        self.rewards_chosen_step_history: list = []
+        self.rewards_rejected_history: list = []
+        self.rewards_rejected_step_history: list = []
         # OCR transcription metrics (CER/WER), keyed by the eval step (None for non-OCR runs).
         self.cer_history: list = []
         self.wer_history: list = []
@@ -1379,6 +1384,10 @@ class TrainingBackend:
             "nll_loss_step_history",
             "log_odds_ratio_history",
             "log_odds_ratio_step_history",
+            "rewards_chosen_history",
+            "rewards_chosen_step_history",
+            "rewards_rejected_history",
+            "rewards_rejected_step_history",
         ):
             getattr(self, name).clear()
         self.current_job_id = self.current_start_request_id = None
@@ -2114,6 +2123,10 @@ class TrainingBackend:
             self.nll_loss_step_history.clear()
             self.log_odds_ratio_history.clear()
             self.log_odds_ratio_step_history.clear()
+            self.rewards_chosen_history.clear()
+            self.rewards_chosen_step_history.clear()
+            self.rewards_rejected_history.clear()
+            self.rewards_rejected_step_history.clear()
             self.eval_enabled = False
             self._output_dir = config.get("output_dir") if resume_source_run_id else None
             self._progress.output_dir = self._output_dir
@@ -2316,6 +2329,10 @@ class TrainingBackend:
                 self.nll_loss_step_history.clear()
                 self.log_odds_ratio_history.clear()
                 self.log_odds_ratio_step_history.clear()
+                self.rewards_chosen_history.clear()
+                self.rewards_chosen_step_history.clear()
+                self.rewards_rejected_history.clear()
+                self.rewards_rejected_step_history.clear()
                 self._needs_xet_respawn = False
                 self._status_start_request_id = None
             return "reset"
@@ -3456,9 +3473,11 @@ class TrainingBackend:
                 eval_reward_margin = _finite_metric(event.get("eval_rewards_margins"))
                 nll_loss = _finite_metric(event.get("nll_loss"))
                 log_odds_ratio = _finite_metric(event.get("log_odds_ratio"))
+                rewards_chosen = _finite_metric(event.get("rewards_chosen"))
+                rewards_rejected = _finite_metric(event.get("rewards_rejected"))
 
-                self._progress.rewards_chosen = _finite_metric(event.get("rewards_chosen"))
-                self._progress.rewards_rejected = _finite_metric(event.get("rewards_rejected"))
+                self._progress.rewards_chosen = rewards_chosen
+                self._progress.rewards_rejected = rewards_rejected
                 self._progress.rewards_accuracies = reward_accuracy
                 self._progress.rewards_margins = reward_margin
                 self._progress.eval_rewards_accuracies = eval_reward_accuracy
@@ -3492,6 +3511,16 @@ class TrainingBackend:
                                 self.log_odds_ratio_history,
                                 self.log_odds_ratio_step_history,
                                 log_odds_ratio,
+                            ),
+                            (
+                                self.rewards_chosen_history,
+                                self.rewards_chosen_step_history,
+                                rewards_chosen,
+                            ),
+                            (
+                                self.rewards_rejected_history,
+                                self.rewards_rejected_step_history,
+                                rewards_rejected,
                             ),
                         )
                     )
@@ -3530,6 +3559,8 @@ class TrainingBackend:
                         "eval_rewards_margin": eval_reward_margin,
                         "nll_loss": nll_loss,
                         "log_odds_ratio": log_odds_ratio,
+                        "rewards_chosen": rewards_chosen,
+                        "rewards_rejected": rewards_rejected,
                     }
                 )
 

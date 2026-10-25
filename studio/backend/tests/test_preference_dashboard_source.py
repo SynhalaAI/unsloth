@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright 2026-present the Unsloth AI Inc. team. All rights reserved.
 
-"""Preference-objective UI guards: full-finetuning labels, the CPO chart card and the
-Training Config popover's β / CPO α / max prompt rows.
+"""Preference-objective UI guards: full-finetuning labels, the preference chart cards and
+the Training Config popover's β / CPO α / max prompt rows.
 
 These pin the frontend source because the dashboard is plain TSX; the behavioural
 counterpart lives in ``frontend/tests/orpo-dashboard.test.ts``.
@@ -74,3 +74,35 @@ def test_every_locale_translates_the_new_popover_keys():
                 path.name,
                 key,
             )
+
+
+def test_reward_level_chart_is_wired_end_to_end():
+    card = _read(_STUDIO / "sections" / "charts" / "reward-chart-card.tsx")
+    assert "export function RewardChartCard" in card
+    assert 'data-tour="studio-training-reward"' in card
+    assert 'label: "Reward (chosen)"' in card
+    assert 'label: "Reward (rejected)"' in card
+
+    content = _read(_STUDIO / "sections" / "charts-content.tsx")
+    assert "const reducedRewardData = useMemo(" in content
+    assert "<RewardChartCard data={reducedRewardData} />" in content
+
+    section = _read(_STUDIO / "sections" / "charts-section.tsx")
+    for prop in ("rewardsChosenHistory", "rewardsRejectedHistory"):
+        assert prop in section, "charts-section.tsx must accept %s" % prop
+    assert "rewardsChosenHistory: rewardsChosenHistory.map(" in section
+    assert "rewardsRejectedHistory: rewardsRejectedHistory.map(" in section
+
+    store = _read(
+        _FRONTEND / "features" / "training" / "stores" / "training-runtime-store.ts"
+    )
+    for field in ("rewards_chosen", "rewards_rejected"):
+        assert "history.%s && history.%s_steps" % (field, field) in store
+    assert "upsertPoint(state.rewardsChosenHistory" in store
+    assert "upsertPoint(state.rewardsRejectedHistory" in store
+
+    # SSE and saved-run history must both reach the chart.
+    for name in ("live-training-view.tsx", "historical-training-view.tsx"):
+        view = _read(_STUDIO / name)
+        assert "rewardsChosenHistory={viewData.rewardsChosenHistory}" in view
+        assert "rewardsRejectedHistory={viewData.rewardsRejectedHistory}" in view

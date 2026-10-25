@@ -30,6 +30,8 @@ interface ChartsSectionProps {
   evalRewardMarginHistory?: TrainingSeriesPoint[];
   nllLossHistory?: TrainingSeriesPoint[];
   logOddsRatioHistory?: TrainingSeriesPoint[];
+  rewardsChosenHistory?: TrainingSeriesPoint[];
+  rewardsRejectedHistory?: TrainingSeriesPoint[];
 }
 
 export function ChartsSection({
@@ -46,6 +48,8 @@ export function ChartsSection({
   evalRewardMarginHistory = [],
   nllLossHistory = [],
   logOddsRatioHistory = [],
+  rewardsChosenHistory = [],
+  rewardsRejectedHistory = [],
 }: ChartsSectionProps): ReactElement | null {
   const series = useMemo(
     () => ({
@@ -91,8 +95,16 @@ export function ChartsSection({
         step: point.step,
         logOddsRatio: point.value,
       })),
+      rewardsChosenHistory: rewardsChosenHistory.map((point) => ({
+        step: point.step,
+        chosen: point.value,
+      })),
+      rewardsRejectedHistory: rewardsRejectedHistory.map((point) => ({
+        step: point.step,
+        rejected: point.value,
+      })),
     }),
-    [currentStep, evalLossHistory, evalRewardAccuracyHistory, evalRewardMarginHistory, gradNormHistory, logOddsRatioHistory, lossHistory, lrHistory, nllLossHistory, rewardAccuracyHistory, rewardMarginHistory, totalSteps],
+    [currentStep, evalLossHistory, evalRewardAccuracyHistory, evalRewardMarginHistory, gradNormHistory, logOddsRatioHistory, lossHistory, lrHistory, nllLossHistory, rewardAccuracyHistory, rewardMarginHistory, rewardsChosenHistory, rewardsRejectedHistory, totalSteps],
   );
 
   if (
@@ -105,7 +117,9 @@ export function ChartsSection({
     series.evalRewardAccuracyHistory.length === 0 &&
     series.evalRewardMarginHistory.length === 0 &&
     series.nllLossHistory.length === 0 &&
-    series.logOddsRatioHistory.length === 0
+    series.logOddsRatioHistory.length === 0 &&
+    series.rewardsChosenHistory.length === 0 &&
+    series.rewardsRejectedHistory.length === 0
   ) {
     return null;
   }

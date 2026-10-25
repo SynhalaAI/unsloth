@@ -9,6 +9,7 @@ import { GradNormChartCard } from "./charts/grad-norm-chart-card";
 import { LearningRateChartCard } from "./charts/learning-rate-chart-card";
 import { OrpoComponentsChartCard } from "./charts/orpo-components-chart-card";
 import { PreferenceMetricsChartCard } from "./charts/preference-metrics-chart-card";
+import { RewardChartCard } from "./charts/reward-chart-card";
 import { TrainingLossChartCard } from "./charts/training-loss-chart-card";
 import type { TrainingChartSeries } from "./charts/types";
 import {
@@ -165,6 +166,28 @@ export function ChartsContent({
     () => reducedOrpoData.some((point) => Number.isFinite(point.logOddsRatio)),
     [reducedOrpoData],
   );
+  const reducedRewardData = useMemo(() => {
+    const points = new Map<
+      number,
+      { step: number; chosen: number; rejected: number }
+    >();
+    for (const point of metrics.rewardsChosenHistory) {
+      points.set(point.step, {
+        step: point.step,
+        chosen: point.chosen,
+        rejected: Number.NaN,
+      });
+    }
+    for (const point of metrics.rewardsRejectedHistory) {
+      const existing = points.get(point.step) ?? {
+        step: point.step,
+        chosen: Number.NaN,
+        rejected: Number.NaN,
+      };
+      points.set(point.step, { ...existing, rejected: point.rejected });
+    }
+    return compressSeries(Array.from(points.values()), MAX_RENDER_POINTS);
+  }, [metrics.rewardsChosenHistory, metrics.rewardsRejectedHistory]);
   const allSteps = useMemo(() => {
     const set = new Set<number>();
     for (const point of metrics.lossHistory) {
@@ -366,6 +389,9 @@ export function ChartsContent({
           trainData={reducedPreferenceData}
           evalData={reducedEvalPreferenceData}
         />
+      )}
+      {reducedRewardData.length > 0 && (
+        <RewardChartCard data={reducedRewardData} />
       )}
       {hasOrpoComponents && (
         <OrpoComponentsChartCard data={reducedOrpoData} />
