@@ -31,7 +31,7 @@ import { useShallow } from "zustand/react/shallow";
 import { ParamsRow, ParamsSliderRow } from "./params-section-controls";
 import { TrainingMemoryParams } from "./training-memory-params";
 
-type HyperparameterTab = "optimization" | "schedule" | "memory";
+type HyperparameterTab = "optimization" | "schedule" | "memory" | "preference";
 
 // Whisper language names accepted by WhisperProcessor.from_pretrained(language=...).
 // Keep in sync with transformers.models.whisper.tokenization_whisper.LANGUAGES.
@@ -210,6 +210,10 @@ export function TrainingHyperparametersSection({
   // Only mounted in advanced mode, so start expanded when the user switches to it.
   const [open, setOpen] = useState(true);
   const [tab, setTab] = useState<HyperparameterTab>("optimization");
+  const showPreferenceTab =
+    store.isPreferenceDataset || store.preferenceTrainingMethod !== "sft";
+  const activeTab =
+    tab === "preference" && !showPreferenceTab ? "optimization" : tab;
   const isMac = platformDeviceType === "mac";
   const optimizerOptions = isMac ? MLX_OPTIMIZER_OPTIONS : OPTIMIZER_OPTIONS;
   const isCudaAliasOptimizer = OPTIMIZER_OPTIONS.some(
@@ -221,6 +225,9 @@ export function TrainingHyperparametersSection({
     { value: "optimization", label: t("studio.params.optimization") },
     { value: "schedule", label: t("studio.params.schedule") },
     { value: "memory", label: t("studio.params.memory") },
+    ...(showPreferenceTab
+      ? [{ value: "preference" as const, label: "Preference" }]
+      : []),
   ] as const;
 
   return (
@@ -234,16 +241,20 @@ export function TrainingHyperparametersSection({
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-5 data-[state=open]:overflow-visible">
         <Tabs
-          value={tab}
+          value={activeTab}
           onValueChange={(value) => setTab(value as HyperparameterTab)}
           className="w-full"
         >
           <div className="flex justify-center">
             <SegmentedTabsList
-              value={tab}
+              value={activeTab}
               options={tabs}
               ariaLabel={t("studio.params.trainingHyperparameters")}
-              className="w-full max-w-[calc(520px*var(--ui-space-scale,1))] [&>button]:px-6 max-sm:[&>button]:px-2.5"
+              className={`w-full max-w-[calc(520px*var(--ui-space-scale,1))] [&>button]:px-6 ${
+                showPreferenceTab
+                  ? "max-sm:[&>button]:px-1.5"
+                  : "max-sm:[&>button]:px-2.5"
+              }`}
             />
           </div>
 
@@ -321,72 +332,6 @@ export function TrainingHyperparametersSection({
                 </SelectContent>
               </Select>
             </ParamsRow>
-            <ParamsRow label="Preference mode">
-              <Select
-                value={store.preferenceTrainingMethod}
-                onValueChange={(value) =>
-                  store.setPreferenceTrainingMethod(
-                    value as "sft" | "dpo" | "orpo" | "cpo",
-                  )
-                }
-              >
-                <SelectTrigger className="w-36">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="sft">SFT</SelectItem>
-                  <SelectItem value="dpo">DPO</SelectItem>
-                  <SelectItem value="orpo">ORPO</SelectItem>
-                  <SelectItem value="cpo">CPO</SelectItem>
-                </SelectContent>
-              </Select>
-            </ParamsRow>
-            {store.preferenceTrainingMethod !== "sft" &&
-              !store.isCpt &&
-              !store.isPreferenceDataset && (
-                <p className="text-ui-11p5 leading-relaxed text-destructive">
-                  {t("studio.training.validation.preferenceDatasetMismatch")}
-                </p>
-              )}
-            {store.preferenceTrainingMethod !== "sft" && (
-              <>
-                <ParamsSliderRow
-                  label={
-                    store.preferenceTrainingMethod === "orpo"
-                      ? "ORPO β"
-                      : "DPO β"
-                  }
-                  value={store.dpoBeta}
-                  onChange={store.setDpoBeta}
-                  min={0.001}
-                  max={2}
-                  step={0.001}
-                />
-                {store.preferenceTrainingMethod === "cpo" && (
-                  <ParamsSliderRow
-                    label="CPO α"
-                    value={store.cpoAlpha}
-                    onChange={store.setCpoAlpha}
-                    min={0}
-                    max={10}
-                    step={0.1}
-                  />
-                )}
-                <ParamsRow label="Max prompt length">
-                  <Input
-                    type="number"
-                    min={1}
-                    max={200000}
-                    step={1}
-                    value={store.maxPromptLength}
-                    onChange={(event) =>
-                      store.setMaxPromptLength(Number(event.target.value) || 1)
-                    }
-                    className="w-24 text-right font-mono text-xs font-medium bg-muted/50 border border-border rounded-lg px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
-                  />
-                </ParamsRow>
-              </>
-            )}
             <ParamsSliderRow
               label={t("studio.params.batchSize")}
               tooltip={
@@ -456,6 +401,82 @@ export function TrainingHyperparametersSection({
               />
             </ParamsRow>
           </TabsContent>
+
+          {showPreferenceTab && (
+            <TabsContent
+              value="preference"
+              className="mt-3 flex flex-col gap-3"
+            >
+              <ParamsRow label="Preference mode">
+                <Select
+                  value={store.preferenceTrainingMethod}
+                  onValueChange={(value) =>
+                    store.setPreferenceTrainingMethod(
+                      value as "sft" | "dpo" | "orpo" | "cpo",
+                    )
+                  }
+                >
+                  <SelectTrigger className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sft">SFT</SelectItem>
+                    <SelectItem value="dpo">DPO</SelectItem>
+                    <SelectItem value="orpo">ORPO</SelectItem>
+                    <SelectItem value="cpo">CPO</SelectItem>
+                  </SelectContent>
+                </Select>
+              </ParamsRow>
+              {store.preferenceTrainingMethod !== "sft" &&
+                !store.isCpt &&
+                !store.isPreferenceDataset && (
+                  <p className="text-ui-11p5 leading-relaxed text-destructive">
+                    {t("studio.training.validation.preferenceDatasetMismatch")}
+                  </p>
+                )}
+              {store.preferenceTrainingMethod !== "sft" && (
+                <>
+                  <ParamsSliderRow
+                    label={
+                      store.preferenceTrainingMethod === "orpo"
+                        ? "ORPO β"
+                        : "DPO β"
+                    }
+                    value={store.dpoBeta}
+                    onChange={store.setDpoBeta}
+                    min={0.001}
+                    max={2}
+                    step={0.001}
+                  />
+                  {store.preferenceTrainingMethod === "cpo" && (
+                    <ParamsSliderRow
+                      label="CPO α"
+                      value={store.cpoAlpha}
+                      onChange={store.setCpoAlpha}
+                      min={0}
+                      max={10}
+                      step={0.1}
+                    />
+                  )}
+                  <ParamsRow label="Max prompt length">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={200000}
+                      step={1}
+                      value={store.maxPromptLength}
+                      onChange={(event) =>
+                        store.setMaxPromptLength(
+                          Number(event.target.value) || 1,
+                        )
+                      }
+                      className="w-24 text-right font-mono text-xs font-medium bg-muted/50 border border-border rounded-lg px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </ParamsRow>
+                </>
+              )}
+            </TabsContent>
+          )}
 
           <TabsContent value="schedule" className="mt-3 flex flex-col gap-3">
             <ParamsSliderRow

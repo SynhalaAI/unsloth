@@ -36,6 +36,7 @@ import { resolveDeletedLocalDatasetSelection } from "../lib/dataset-selection";
 import { requiresExplicitCachedDatasetSplit } from "../lib/dataset-split-policy";
 import { isMissingLocalDatasetCacheError } from "../lib/local-cache-errors";
 import { mapBackendModelConfigToTrainingPatch } from "../lib/model-defaults";
+import { preferenceDatasetDefaultsPatch } from "../lib/preference-dataset-defaults";
 import { isWhisperTrainingModel } from "../lib/model-modality-inference";
 import {
   MODEL_DEFAULT_STATE_KEYS,
@@ -825,7 +826,11 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
               res.detected_format === "preference_cpo" ||
               res.detected_format === "dpo" ||
               res.detected_format === "cpo";
+            const preferenceDefaults = isPreferenceDataset
+              ? preferenceDatasetDefaultsPatch(current)
+              : {};
             const updates: Partial<TrainingConfigState> = {
+              ...preferenceDefaults,
               isDatasetImage: isImage,
               isDatasetAudio: isAudio,
               isPreferenceDataset,
