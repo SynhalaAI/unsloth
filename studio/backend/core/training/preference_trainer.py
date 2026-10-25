@@ -3,7 +3,7 @@
 
 """
 Preference Trainer integration (DPO, ORPO and CPO) for Unsloth Studio.
-Wraps Unsloth's PatchDPOTrainer and PatchFastRL with TRL's DPOTrainer / ORPOTrainer / CPOTrainer.
+Applies Unsloth's PatchFastRL before initializing the corresponding TRL trainer.
 """
 
 from __future__ import annotations
@@ -71,13 +71,13 @@ def setup_dpo_trainer(
     max_length: Optional[int] = 2048,
 ) -> Any:
     """
-    Sets up and initializes a DPOTrainer with Unsloth's memory-optimized PatchDPOTrainer.
+    Sets up and initializes Unsloth's patched TRL DPOTrainer.
     """
     try:
-        from unsloth import PatchDPOTrainer
-        PatchDPOTrainer()
+        from unsloth import PatchFastRL
+        PatchFastRL("DPO")
     except Exception as exc:
-        logger.warning(f"Unsloth PatchDPOTrainer call encountered: {exc}. Proceeding with standard TRL.")
+        logger.warning(f"Unsloth PatchFastRL for DPO encountered: {exc}. Proceeding with standard TRL.")
 
     from trl import DPOTrainer, DPOConfig
 
@@ -99,10 +99,10 @@ def setup_dpo_trainer(
     trainer_kwargs = {
         "model": model,
         "ref_model": None,  # Unsloth handles ref model internally to save VRAM
-        "tokenizer": tokenizer,
         "train_dataset": train_dataset,
         "args": dpo_config,
     }
+    _set_tokenizer_argument(trainer_kwargs, DPOTrainer, tokenizer)
     if eval_dataset is not None:
         trainer_kwargs["eval_dataset"] = eval_dataset
 

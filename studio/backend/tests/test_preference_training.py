@@ -247,6 +247,76 @@ def _fake_orpo_modules(monkeypatch, trainer_cls, config_cls):
     return calls
 
 
+def test_setup_dpo_trainer_uses_unsloth_patch_and_supported_tokenizer_argument(monkeypatch):
+    from core.training import preference_trainer
+
+    recorded = {}
+
+    class FakeDPOConfig:
+        def __init__(self, **kwargs):
+            recorded["config"] = kwargs
+
+    class FakeDPOTrainer:
+        def __init__(
+            self,
+            model,
+            ref_model,
+            train_dataset,
+            args,
+            processing_class=None,
+            eval_dataset=None,
+        ):
+            recorded["trainer"] = {
+                "model": model,
+                "ref_model": ref_model,
+                "train_dataset": train_dataset,
+                "args": args,
+                "processing_class": processing_class,
+                "eval_dataset": eval_dataset,
+            }
+
+    trl = types.ModuleType("trl")
+    trl.DPOTrainer = FakeDPOTrainer
+    trl.DPOConfig = FakeDPOConfig
+    calls = {}
+    unsloth = types.ModuleType("unsloth")
+    unsloth.PatchFastRL = lambda algorithm: calls.setdefault("algorithm", algorithm)
+    monkeypatch.setitem(sys.modules, "trl", trl)
+    monkeypatch.setitem(sys.modules, "unsloth", unsloth)
+    trainer = preference_trainer.setup_dpo_trainer(
+        model="model",
+        tokenizer="processor",
+        train_dataset=["row"],
+        eval_dataset=["eval"],
+        config_args={
+            "output_dir": "out",
+            "max_seq_length": 2048,
+            "dataset_num_proc": 1,
+            "packing": True,
+            "dataset_text_field": "text",
+            "gradient_checkpointing": True,
+        },
+        dpo_beta=0.2,
+        max_prompt_length=384,
+        max_length=1024,
+    )
+
+    assert isinstance(trainer, FakeDPOTrainer)
+    assert calls["algorithm"] == "DPO"
+    assert recorded["config"]["beta"] == 0.2
+    assert recorded["config"]["max_length"] == 1024
+    assert recorded["config"]["max_prompt_length"] == 384
+    assert recorded["config"]["gradient_checkpointing"] is True
+    assert recorded["config"]["output_dir"] == "out"
+    assert "max_seq_length" not in recorded["config"]
+    assert "dataset_num_proc" not in recorded["config"]
+    assert "packing" not in recorded["config"]
+    assert "dataset_text_field" not in recorded["config"]
+    assert recorded["trainer"]["processing_class"] == "processor"
+    assert recorded["trainer"]["ref_model"] is None
+    assert recorded["trainer"]["eval_dataset"] == ["eval"]
+
+
 def test_setup_orpo_trainer_passes_processing_class_and_strips_sft_kwargs(monkeypatch):
     from core.training import preference_trainer
 
