@@ -5,14 +5,21 @@
 
 transformers 5.20 made ``axial`` the default (and only) RoPE type of the Gemma 4
 vision tower, and serializes it into ``config.json``. The 5.x sidecars Studio
-ships (5.5.0 and 5.10.2) only accept ``default`` and resolve every other type
-through ``ROPE_INIT_FUNCTIONS``; ``axial`` is not registered there, so loading
-such a checkpoint dies with ``KeyError: 'axial'`` while the vision tower is
-built.
+ships only implement that 2D rope as ``default``, so an ``axial`` config hits two
+gaps:
+
+* ``validate_rope`` finds no ``_validate_axial_rope_parameters`` and logs
+  "Missing validation function in 'RotaryEmbeddingConfigMixin' for
+  'rope_type'='axial'" on every load -- a warning, not a failure;
+* the vision tower resolves every non-default type through
+  ``ROPE_INIT_FUNCTIONS``, where ``axial`` is missing, so the load would die
+  with ``KeyError: 'axial'``.
 
 On those versions ``Gemma4VisionRotaryEmbedding.compute_default_rope_parameters``
 *is* the axial 2D RoPE (same frequencies and per-axis rotation), so registering
-it under ``"axial"`` restores compatibility without editing the checkpoint.
+it under ``"axial"`` restores compatibility without editing the checkpoint, and
+pointing the ``axial`` validator at the default one keeps the key checks while
+dropping the misleading warning.
 """
 
 from __future__ import annotations
@@ -40,6 +47,25 @@ def register_axial_rope(rope_init_functions: dict[str, Any], vision_rope_cls: ty
     return True
 
 
+def register_axial_validation(config_cls: type) -> bool:
+    """Alias the ``axial`` validator onto a legacy Gemma 4 vision config.
+
+    transformers >= 5.20 validates ``axial`` exactly like the default 2D rope, but
+    the older sidecars have no ``_validate_axial_rope_parameters``, so every load
+    logs the "Missing validation function" warning even though it succeeds.
+
+    Returns True only when the alias was added; a class that already validates
+    axial (transformers >= 5.20) is left untouched.
+    """
+    if hasattr(config_cls, "_validate_axial_rope_parameters"):
+        return False
+    validate_default = getattr(config_cls, "_validate_default_rope_parameters", None)
+    if validate_default is None:
+        return False
+    config_cls._validate_axial_rope_parameters = validate_default
+    return True
+
+
 def install_gemma4_axial_compat() -> bool:
     """Patch the active transformers install; safe to call repeatedly.
 
@@ -58,6 +84,7 @@ def install_gemma4_axial_compat() -> bool:
             modeling_gemma4.ROPE_INIT_FUNCTIONS,
             modeling_gemma4.Gemma4VisionRotaryEmbedding,
         )
+        validated = register_axial_validation(modeling_gemma4.Gemma4VisionConfig)
     except Exception as exc:  # pragma: no cover - defensive, never block a load
         logger.debug("Could not install Gemma 4 axial RoPE compatibility: %s", exc)
         return False
@@ -66,4 +93,9 @@ def install_gemma4_axial_compat() -> bool:
             "Registered Gemma 4 'axial' vision RoPE for transformers %s",
             transformers.__version__,
         )
-    return added
+    if validated:
+        logger.debug(
+            "Registered the Gemma 4 'axial' RoPE validator for transformers %s",
+            transformers.__version__,
+        )
+    return added or validated

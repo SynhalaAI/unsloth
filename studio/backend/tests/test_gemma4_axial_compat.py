@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from utils.gemma4_axial_compat import register_axial_rope
+from utils.gemma4_axial_compat import register_axial_rope, register_axial_validation
 
 
 class _LegacyVisionRope:
@@ -22,6 +22,16 @@ class _NativeAxialVisionRope:
     @staticmethod
     def compute_axial_rope_parameters(config, device = None, **kwargs):
         return "axial_inv_freq", 1.0
+
+
+class _LegacyVisionConfig:
+    """transformers 5.5/5.10: only the default 2D validator exists."""
+
+    def __init__(self):
+        self.validated = []
+
+    def _validate_default_rope_parameters(self, rope_parameters, ignore_keys = None):
+        self.validated.append(dict(rope_parameters))
 
 
 def test_registers_axial_for_legacy_transformers():
@@ -50,3 +60,30 @@ def test_class_without_default_rope_is_left_alone():
     rope_init_functions = {}
     assert register_axial_rope(rope_init_functions, _Unknown) is False
     assert rope_init_functions == {}
+
+
+def test_registers_the_axial_validator_for_legacy_transformers():
+    assert register_axial_validation(_LegacyVisionConfig) is True
+    config = _LegacyVisionConfig()
+    config._validate_axial_rope_parameters({"rope_type": "axial", "rope_theta": 100.0})
+    # Axial validates like the default rope, so the required-key checks still run.
+    assert config.validated == [{"rope_type": "axial", "rope_theta": 100.0}]
+
+
+def test_does_not_override_native_axial_validation():
+    class _NativeVisionConfig:
+        def _validate_axial_rope_parameters(self, rope_parameters, ignore_keys = None):
+            raise AssertionError("must not be replaced")
+
+        def _validate_default_rope_parameters(self, rope_parameters, ignore_keys = None):
+            raise AssertionError("must not be aliased")
+
+    assert register_axial_validation(_NativeVisionConfig) is False
+
+
+def test_config_without_default_validation_is_left_alone():
+    class _Unknown:
+        pass
+
+    assert register_axial_validation(_Unknown) is False
+    assert not hasattr(_Unknown, "_validate_axial_rope_parameters")
