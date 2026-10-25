@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
+import { getPreferenceMethodLabel } from "@/features/training";
+import type { PreferenceTrainingMethod } from "@/types/training";
 import { type ReactElement, useEffect, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useChartPreferencesStore } from "./charts/chart-preferences-store";
@@ -60,9 +62,11 @@ function collectLossValues(
 export function ChartsContent({
   metrics,
   evalEnabled,
+  preferenceMethod,
 }: {
   metrics: TrainingChartSeries;
   evalEnabled: boolean;
+  preferenceMethod?: PreferenceTrainingMethod | null;
 }): ReactElement {
   const {
     windowSize,
@@ -388,6 +392,7 @@ export function ChartsContent({
         <PreferenceMetricsChartCard
           trainData={reducedPreferenceData}
           evalData={reducedEvalPreferenceData}
+          method={getPreferenceMethodLabel(preferenceMethod)}
         />
       )}
       {reducedRewardData.length > 0 && (

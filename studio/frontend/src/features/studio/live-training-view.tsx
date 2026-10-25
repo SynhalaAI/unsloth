@@ -242,6 +242,7 @@ export function LiveTrainingView(): ReactElement {
           logOddsRatioHistory={viewData.logOddsRatioHistory}
           rewardsChosenHistory={viewData.rewardsChosenHistory}
           rewardsRejectedHistory={viewData.rewardsRejectedHistory}
+          preferenceMethod={viewData.preferenceMethod}
         />
       </div>
       {showOverlay ? (

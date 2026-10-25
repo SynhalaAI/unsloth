@@ -121,6 +121,22 @@ def test_preference_rows_are_hidden_for_cpt():
     assert "{showPreferenceRows && (" in section
 
 
+def test_preference_metrics_card_names_the_run_objective():
+    card = _read(
+        _STUDIO / "sections" / "charts" / "preference-metrics-chart-card.tsx"
+    )
+    content = _read(_STUDIO / "sections" / "charts-content.tsx")
+    # A run trains exactly one objective, so the card names it instead of listing all three.
+    assert "DPO / ORPO / CPO preference metrics" not in card
+    assert "`${method} preference metrics`" in card
+    assert "getPreferenceMethodLabel(preferenceMethod)" in content
+    for name in ("live-training-view.tsx", "historical-training-view.tsx"):
+        view = _read(_STUDIO / name)
+        assert "preferenceMethod={viewData.preferenceMethod}" in view, (
+            "%s must pass the run's objective to the charts" % name
+        )
+
+
 def test_reward_level_chart_is_wired_end_to_end():
     card = _read(_STUDIO / "sections" / "charts" / "reward-chart-card.tsx")
     assert "export function RewardChartCard" in card

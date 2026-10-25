@@ -10,7 +10,7 @@ import { CHART_CONTAINER_CLASS, DEFAULT_CHART_MARGIN, DEFAULT_Y_AXIS_WIDTH, form
 
 type Point = { step: number; accuracy: number; margin: number };
 
-export function PreferenceMetricsChartCard({ trainData, evalData }: { trainData: Point[]; evalData: Point[] }): ReactElement {
+export function PreferenceMetricsChartCard({ trainData, evalData, method }: { trainData: Point[]; evalData: Point[]; method?: string | null }): ReactElement {
   const data = Array.from(new Set([...trainData.map((point) => point.step), ...evalData.map((point) => point.step)])).sort((a, b) => a - b).map((step) => ({
     step,
     trainAccuracy: trainData.find((point) => point.step === step)?.accuracy ?? Number.NaN,
@@ -27,7 +27,7 @@ export function PreferenceMetricsChartCard({ trainData, evalData }: { trainData:
   } satisfies ChartConfig;
   return (
     <Card data-tour="studio-training-preference-metrics" size="sm">
-      <CardHeader><CardTitle className="text-sm">DPO / ORPO / CPO preference metrics</CardTitle></CardHeader>
+      <CardHeader><CardTitle className="text-sm">{method ? `${method} preference metrics` : "Preference metrics"}</CardTitle></CardHeader>
       <CardContent>
         <ChartContainer config={config} className={CHART_CONTAINER_CLASS}>
           <LineChart data={data} syncId="train-metrics-sync" margin={DEFAULT_CHART_MARGIN}>

@@ -2,6 +2,7 @@
 // Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
 import type { TrainingSeriesPoint } from "@/features/training";
+import type { PreferenceTrainingMethod } from "@/types/training";
 import { type ReactElement, Suspense, lazy, useMemo } from "react";
 
 const ChartsContent = lazy(() =>
@@ -32,6 +33,7 @@ interface ChartsSectionProps {
   logOddsRatioHistory?: TrainingSeriesPoint[];
   rewardsChosenHistory?: TrainingSeriesPoint[];
   rewardsRejectedHistory?: TrainingSeriesPoint[];
+  preferenceMethod?: PreferenceTrainingMethod | null;
 }
 
 export function ChartsSection({
@@ -50,6 +52,7 @@ export function ChartsSection({
   logOddsRatioHistory = [],
   rewardsChosenHistory = [],
   rewardsRejectedHistory = [],
+  preferenceMethod,
 }: ChartsSectionProps): ReactElement | null {
   const series = useMemo(
     () => ({
@@ -137,7 +140,11 @@ export function ChartsSection({
         </div>
       }
     >
-      <ChartsContent metrics={series} evalEnabled={evalEnabled} />
+      <ChartsContent
+        metrics={series}
+        evalEnabled={evalEnabled}
+        preferenceMethod={preferenceMethod}
+      />
     </Suspense>
   );
 }
