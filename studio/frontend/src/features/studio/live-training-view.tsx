@@ -72,6 +72,8 @@ export function LiveTrainingView(): ReactElement {
       evalRewardMarginHistory: state.evalRewardMarginHistory,
       nllLossHistory: state.nllLossHistory,
       logOddsRatioHistory: state.logOddsRatioHistory,
+      rewardsChosenHistory: state.rewardsChosenHistory,
+      rewardsRejectedHistory: state.rewardsRejectedHistory,
       firstStepReceived: state.firstStepReceived,
       isStarting: state.isStarting,
     })),

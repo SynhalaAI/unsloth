@@ -151,3 +151,11 @@ def test_reward_level_chart_is_wired_end_to_end():
         view = _read(_STUDIO / name)
         assert "rewardsChosenHistory={viewData.rewardsChosenHistory}" in view
         assert "rewardsRejectedHistory={viewData.rewardsRejectedHistory}" in view
+
+    # Passing the props is not enough: the live view builds viewData from its own useShallow
+    # selector, so a missing key left both series undefined and the card empty.
+    live = _read(_STUDIO / "live-training-view.tsx")
+    for field in ("rewardsChosenHistory", "rewardsRejectedHistory"):
+        assert "state.%s," % field in live, (
+            "live-training-view.tsx must select state.%s" % field
+        )
