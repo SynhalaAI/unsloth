@@ -219,23 +219,61 @@ export function getViewerColumnSelections(
     }));
 }
 
+const INSTRUCTION_COLUMN_NAMES = new Set([
+  "question",
+  "query",
+  "prompt",
+  "instruction",
+  "user_prompt",
+]);
+
+function isBlankValue(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return true;
+  }
+  return typeof value === "string" && value.trim().length === 0;
+}
+
+/** The VLM detector reads the first row, so the preview's first row decides it. */
+function hasBlankFirstPreviewValue(
+  data: CheckFormatResponse,
+  column: string,
+): boolean {
+  const sample = data.preview_samples?.[0];
+  if (!sample || !Object.hasOwn(sample, column)) {
+    return false;
+  }
+  return isBlankValue(sample[column]);
+}
+
 export function getUnselectedInstructionColumns(
   data: CheckFormatResponse,
   selections: ViewerColumnSelection[],
   isAudio = false,
+  isVlm = false,
 ): UnselectedInstructionColumn[] {
   const selected = new Set(selections.map(({ column }) => column));
-  const instructionNames = new Set([
-    "question",
-    "query",
-    "prompt",
-    "instruction",
-    "user_prompt",
-  ]);
-  return data.columns
-    .filter((column) => instructionNames.has(column) && !selected.has(column))
+  const unselected = data.columns.filter(
+    (column) => INSTRUCTION_COLUMN_NAMES.has(column) && !selected.has(column),
+  );
+  if (isAudio) {
+    // Plain audio maps only audio and text, so a detected instruction column stays
+    // unmapped unless the model is audio-VLM.
+    return unselected.map((column) => ({
+      column,
+      reason: "unsupported_audio_mapping",
+    }));
+  }
+  // Only the VLM detector skips an instruction column whose first value is empty.
+  // Other formats (a preference dataset's prompt, say) never map these columns at
+  // all, so claiming they were skipped for being empty would be wrong.
+  if (!isVlm) {
+    return [];
+  }
+  return unselected
+    .filter((column) => hasBlankFirstPreviewValue(data, column))
     .map((column) => ({
       column,
-      reason: isAudio ? "unsupported_audio_mapping" : "empty_first_value",
+      reason: "empty_first_value",
     }));
 }

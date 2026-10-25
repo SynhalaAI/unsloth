@@ -478,9 +478,10 @@ export function DatasetPreviewDialog({
             data,
             viewerSelections,
             effectiveIsAudio,
+            effectiveIsVlm,
           )
         : [],
-    [data, viewerSelections, effectiveIsAudio],
+    [data, viewerSelections, effectiveIsAudio, effectiveIsVlm],
   );
 
   const sourceLabel = useMemo(() => {
