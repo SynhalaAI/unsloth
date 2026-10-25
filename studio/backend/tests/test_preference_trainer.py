@@ -188,6 +188,7 @@ def _install_fake_trl(monkeypatch, events, *, tokenizer_kwarg = False):
         max_prompt_length: int = 512
         precompute_ref_log_probs: bool = False
         remove_unused_columns: bool = True
+        include_num_input_tokens_seen: bool = True
 
     @dataclass
     class ORPOConfig:
@@ -198,6 +199,7 @@ def _install_fake_trl(monkeypatch, events, *, tokenizer_kwarg = False):
         max_length: int = 1024
         max_prompt_length: int = 512
         remove_unused_columns: bool = True
+        include_num_input_tokens_seen: bool = True
 
     @dataclass
     class CPOConfig:
@@ -209,6 +211,7 @@ def _install_fake_trl(monkeypatch, events, *, tokenizer_kwarg = False):
         max_prompt_length: int = 512
         cpo_alpha: float = 1.0
         remove_unused_columns: bool = True
+        include_num_input_tokens_seen: bool = True
 
     classes = {
         "DPOConfig": DPOConfig,
@@ -400,6 +403,22 @@ def test_orpo_and_cpo_disable_remove_unused_columns(monkeypatch, method):
     assert trainer.args.remove_unused_columns is False
 
 
+@pytest.mark.parametrize("method", ["DPO", "ORPO", "CPO"])
+def test_token_tracking_is_off_for_preference_methods(monkeypatch, method):
+    trainer, _, _ = _setup(
+        monkeypatch,
+        method,
+        config_args = {
+            "output_dir": "out",
+            # The shared SFT config turns this on. A preference batch has no `input_ids`, so HF
+            # would warn on every step and leave the counter at 0.
+            "include_num_input_tokens_seen": True,
+        },
+    )
+
+    assert trainer.args.include_num_input_tokens_seen is False
+
+
 def test_dpo_leaves_remove_unused_columns_to_trl(monkeypatch):
     trainer, _, _ = _setup(monkeypatch, "dpo")
 
@@ -528,6 +547,7 @@ def test_orpo_falls_back_to_trl_experimental(monkeypatch):
         max_length: int = 1024
         max_prompt_length: int = 512
         remove_unused_columns: bool = True
+        include_num_input_tokens_seen: bool = True
 
     class ORPOTrainer:
         def __init__(self, model = None, args = None, train_dataset = None, processing_class = None):

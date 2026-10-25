@@ -328,6 +328,9 @@ def setup_preference_trainer(
         # Their default DPODataCollatorWithPadding reads the prompt/chosen/rejected columns, so
         # TRL sets this itself and warns on every run. DPO keeps Trainer's signature columns.
         config_kwargs["remove_unused_columns"] = False
+    # HF's token counter reads one `main_input_name` tensor, but a preference batch carries the
+    # prompt and both completions separately, so it warned on every step and never counted.
+    config_kwargs["include_num_input_tokens_seen"] = False
     dpo_peft = normalized != "DPO" or _is_peft_model(model)
     if normalized == "DPO" and not dpo_peft:
         # A full finetune has no adapter to disable, and TRL would silently deep-copy the whole
