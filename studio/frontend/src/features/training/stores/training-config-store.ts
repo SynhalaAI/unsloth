@@ -1406,8 +1406,17 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             datasetManualMapping: emptyManualMapping(),
             isDatasetImage: null,
             isDatasetAudio: false,
+            isPreferenceDataset: false,
             isCheckingDataset: false,
           });
+          const datasetName =
+            state.datasetSource === "huggingface"
+              ? state.dataset
+              : state.uploadedFile;
+          if (!datasetName || requiresExplicitCachedDatasetSplit(get())) {
+            return;
+          }
+          runDatasetCheck(datasetName, "train");
         },
         setDatasetSplit: (datasetSplit) => {
           const state = get();

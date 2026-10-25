@@ -181,6 +181,18 @@ test("remote Hub selection preserves its immediate default split check", async (
   assert.equal(fetchCalls, beforeSelection + 2);
 });
 
+test("changing a Hub dataset subset reruns format detection", async () => {
+  resetState({ datasetSource: "huggingface" });
+  const beforeSelection = fetchCalls;
+
+  useTrainingConfigStore.getState().selectHfDataset("org/remote");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  useTrainingConfigStore.getState().setDatasetSubset("variant");
+  await new Promise<void>((resolve) => setImmediate(resolve));
+
+  assert.equal(fetchCalls, beforeSelection + 2);
+});
+
 test("streaming cached Hub selection preserves its immediate split check", async () => {
   resetState({ datasetSource: "huggingface", datasetStreaming: true });
   const beforeSelection = fetchCalls;
