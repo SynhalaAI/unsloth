@@ -3915,6 +3915,8 @@ export const zhCN = {
         hfDatasetRequired: "请先选择 Hugging Face 数据集。",
         hfDatasetSplitRequired: "请先选择或输入训练拆分。",
         localDatasetRequired: "请先选择本地数据集。",
+        preferenceDatasetMismatch:
+          "DPO、ORPO 和 CPO 需要包含 chosen 和 rejected 列的数据集。请选择偏好数据集，或将偏好模式切换为 SFT。",
         unsupportedDatasetSource: "不支持此数据集来源。",
       },
       uploadConfigTooltip: "加载已保存的 YAML 配置",

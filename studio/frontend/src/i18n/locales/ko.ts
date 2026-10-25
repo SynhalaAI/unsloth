@@ -3996,6 +3996,8 @@ export const ko = {
         hfDatasetRequired: "Hugging Face 데이터셋을 먼저 선택하세요.",
         hfDatasetSplitRequired: "먼저 학습 분할을 선택하거나 입력하세요.",
         localDatasetRequired: "로컬 데이터셋을 먼저 선택하세요.",
+        preferenceDatasetMismatch:
+          "DPO, ORPO, CPO에는 chosen 및 rejected 열이 있는 데이터셋이 필요합니다. 선호 데이터셋을 선택하거나 Preference mode를 SFT로 전환하세요.",
         unsupportedDatasetSource: "지원되지 않는 데이터셋 소스입니다.",
       },
       uploadConfigTooltip: "저장된 YAML 구성 불러오기",

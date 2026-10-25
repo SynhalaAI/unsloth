@@ -39,6 +39,8 @@ const NULLABLE_NUMERIC_FIELDS = [
   "rewards_margins",
   "eval_rewards_accuracies",
   "eval_rewards_margins",
+  "nll_loss",
+  "log_odds_ratio",
 ] as const;
 
 function isFiniteNumber(value: unknown): value is number {
@@ -111,6 +113,8 @@ function parseTrainingProgressPayload(
     eval_rewards_margins: normalizeNullableFiniteNumber(
       payload.eval_rewards_margins,
     ),
+    nll_loss: normalizeNullableFiniteNumber(payload.nll_loss),
+    log_odds_ratio: normalizeNullableFiniteNumber(payload.log_odds_ratio),
   };
 }
 

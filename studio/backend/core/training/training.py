@@ -230,6 +230,17 @@ def _coerce_optional_nonneg_float(name: str, value):
     return coerced
 
 
+def _finite_metric(value: Any) -> Optional[float]:
+    """Coerce a logged metric to a finite float, or None when absent/unusable."""
+    if value is None:
+        return None
+    try:
+        coerced = float(value)
+    except (TypeError, ValueError):
+        return None
+    return coerced if math.isfinite(coerced) else None
+
+
 def is_apple_silicon_training_platform() -> bool:
     return platform.system() == "Darwin" and platform.machine() == "arm64"
 
@@ -760,6 +771,10 @@ class TrainingProgress:
     rewards_margins: Optional[float] = None
     eval_rewards_accuracies: Optional[float] = None
     eval_rewards_margins: Optional[float] = None
+    # ORPO-only components: the SFT cross-entropy on chosen responses and the
+    # log-odds ratio the odds-ratio term optimizes (None for SFT/DPO/CPO).
+    nll_loss: Optional[float] = None
+    log_odds_ratio: Optional[float] = None
     peak_memory_gb: Optional[float] = None
     # BlockSwap.stats() from the last logged step, for the live offload panel.
     offload: Optional[dict] = None
@@ -1287,6 +1302,19 @@ class TrainingBackend:
         self.grad_norm_step_history: list = []
         self.eval_loss_history: list = []
         self.eval_step_history: list = []
+        # Preference metrics (DPO/ORPO/CPO) and ORPO's own loss components, keyed by step.
+        self.reward_accuracy_history: list = []
+        self.reward_accuracy_step_history: list = []
+        self.reward_margin_history: list = []
+        self.reward_margin_step_history: list = []
+        self.eval_reward_accuracy_history: list = []
+        self.eval_reward_accuracy_step_history: list = []
+        self.eval_reward_margin_history: list = []
+        self.eval_reward_margin_step_history: list = []
+        self.nll_loss_history: list = []
+        self.nll_loss_step_history: list = []
+        self.log_odds_ratio_history: list = []
+        self.log_odds_ratio_step_history: list = []
         # OCR transcription metrics (CER/WER), keyed by the eval step (None for non-OCR runs).
         self.cer_history: list = []
         self.wer_history: list = []
@@ -1335,6 +1363,18 @@ class TrainingBackend:
             "grad_norm_step_history",
             "eval_loss_history",
             "eval_step_history",
+            "reward_accuracy_history",
+            "reward_accuracy_step_history",
+            "reward_margin_history",
+            "reward_margin_step_history",
+            "eval_reward_accuracy_history",
+            "eval_reward_accuracy_step_history",
+            "eval_reward_margin_history",
+            "eval_reward_margin_step_history",
+            "nll_loss_history",
+            "nll_loss_step_history",
+            "log_odds_ratio_history",
+            "log_odds_ratio_step_history",
         ):
             getattr(self, name).clear()
         self.current_job_id = self.current_start_request_id = None
@@ -2058,6 +2098,18 @@ class TrainingBackend:
             self.grad_norm_step_history.clear()
             self.eval_loss_history.clear()
             self.eval_step_history.clear()
+            self.reward_accuracy_history.clear()
+            self.reward_accuracy_step_history.clear()
+            self.reward_margin_history.clear()
+            self.reward_margin_step_history.clear()
+            self.eval_reward_accuracy_history.clear()
+            self.eval_reward_accuracy_step_history.clear()
+            self.eval_reward_margin_history.clear()
+            self.eval_reward_margin_step_history.clear()
+            self.nll_loss_history.clear()
+            self.nll_loss_step_history.clear()
+            self.log_odds_ratio_history.clear()
+            self.log_odds_ratio_step_history.clear()
             self.eval_enabled = False
             self._output_dir = config.get("output_dir") if resume_source_run_id else None
             self._progress.output_dir = self._output_dir
@@ -2248,6 +2300,18 @@ class TrainingBackend:
                 self.step_history.clear()
                 self.grad_norm_history.clear()
                 self.grad_norm_step_history.clear()
+                self.reward_accuracy_history.clear()
+                self.reward_accuracy_step_history.clear()
+                self.reward_margin_history.clear()
+                self.reward_margin_step_history.clear()
+                self.eval_reward_accuracy_history.clear()
+                self.eval_reward_accuracy_step_history.clear()
+                self.eval_reward_margin_history.clear()
+                self.eval_reward_margin_step_history.clear()
+                self.nll_loss_history.clear()
+                self.nll_loss_step_history.clear()
+                self.log_odds_ratio_history.clear()
+                self.log_odds_ratio_step_history.clear()
                 self._needs_xet_respawn = False
                 self._status_start_request_id = None
             return "reset"
@@ -3380,6 +3444,70 @@ class TrainingBackend:
                         wer = None
                     self._progress.wer = wer
 
+                # Preference methods log their reward terms on the train/eval log line; ORPO
+                # adds its SFT cross-entropy (nll_loss) and log-odds ratio. None for other runs.
+                reward_accuracy = _finite_metric(event.get("rewards_accuracies"))
+                reward_margin = _finite_metric(event.get("rewards_margins"))
+                eval_reward_accuracy = _finite_metric(event.get("eval_rewards_accuracies"))
+                eval_reward_margin = _finite_metric(event.get("eval_rewards_margins"))
+                nll_loss = _finite_metric(event.get("nll_loss"))
+                log_odds_ratio = _finite_metric(event.get("log_odds_ratio"))
+
+                self._progress.rewards_chosen = _finite_metric(event.get("rewards_chosen"))
+                self._progress.rewards_rejected = _finite_metric(event.get("rewards_rejected"))
+                self._progress.rewards_accuracies = reward_accuracy
+                self._progress.rewards_margins = reward_margin
+                self._progress.eval_rewards_accuracies = eval_reward_accuracy
+                self._progress.eval_rewards_margins = eval_reward_margin
+                self._progress.nll_loss = nll_loss
+                self._progress.log_odds_ratio = log_odds_ratio
+
+                if step > 0:
+                    # An eval log repeats the last train values; only the eval_* fields are new,
+                    # so keep train histories off eval lines to avoid duplicating a step.
+                    train_metrics = (
+                        ()
+                        if eval_loss is not None
+                        else (
+                            (
+                                self.reward_accuracy_history,
+                                self.reward_accuracy_step_history,
+                                reward_accuracy,
+                            ),
+                            (
+                                self.reward_margin_history,
+                                self.reward_margin_step_history,
+                                reward_margin,
+                            ),
+                            (
+                                self.nll_loss_history,
+                                self.nll_loss_step_history,
+                                nll_loss,
+                            ),
+                            (
+                                self.log_odds_ratio_history,
+                                self.log_odds_ratio_step_history,
+                                log_odds_ratio,
+                            ),
+                        )
+                    )
+                    eval_metrics = (
+                        (
+                            self.eval_reward_accuracy_history,
+                            self.eval_reward_accuracy_step_history,
+                            eval_reward_accuracy,
+                        ),
+                        (
+                            self.eval_reward_margin_history,
+                            self.eval_reward_margin_step_history,
+                            eval_reward_margin,
+                        ),
+                    )
+                    for history, history_steps, value in train_metrics + eval_metrics:
+                        if value is not None:
+                            history.append(value)
+                            history_steps.append(step)
+
                 self._metric_buffer.append(
                     {
                         "step": step,
@@ -3392,6 +3520,12 @@ class TrainingBackend:
                         "epoch": event.get("epoch"),
                         "num_tokens": event.get("num_tokens"),
                         "elapsed_seconds": event.get("elapsed_seconds"),
+                        "rewards_accuracy": reward_accuracy,
+                        "rewards_margin": reward_margin,
+                        "eval_rewards_accuracy": eval_reward_accuracy,
+                        "eval_rewards_margin": eval_reward_margin,
+                        "nll_loss": nll_loss,
+                        "log_odds_ratio": log_odds_ratio,
                     }
                 )
 

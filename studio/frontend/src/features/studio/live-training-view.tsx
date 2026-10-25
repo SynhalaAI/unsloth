@@ -70,6 +70,8 @@ export function LiveTrainingView(): ReactElement {
       rewardMarginHistory: state.rewardMarginHistory,
       evalRewardAccuracyHistory: state.evalRewardAccuracyHistory,
       evalRewardMarginHistory: state.evalRewardMarginHistory,
+      nllLossHistory: state.nllLossHistory,
+      logOddsRatioHistory: state.logOddsRatioHistory,
       firstStepReceived: state.firstStepReceived,
       isStarting: state.isStarting,
     })),
@@ -80,6 +82,7 @@ export function LiveTrainingView(): ReactElement {
       selectedModel: state.selectedModel,
       projectName: state.projectName,
       trainingMethod: state.trainingMethod,
+      preferenceTrainingMethod: state.preferenceTrainingMethod,
       modelType: state.modelType,
       evalSteps: state.evalSteps,
     })),
@@ -173,6 +176,8 @@ export function LiveTrainingView(): ReactElement {
     // run started, which would relabel the run and hide its saved LoRA rows in the popover.
     trainingMethod:
       runConfigOverride?.trainingMethod ?? config.trainingMethod ?? "",
+    preferenceMethod:
+      runConfigOverride?.preferenceMethod ?? config.preferenceTrainingMethod,
     isDecision:
       runConfigOverride?.isDecision ?? config.modelType === "decision",
     lossHistory: runtime.lossHistory,
@@ -183,6 +188,8 @@ export function LiveTrainingView(): ReactElement {
     rewardMarginHistory: runtime.rewardMarginHistory,
     evalRewardAccuracyHistory: runtime.evalRewardAccuracyHistory,
     evalRewardMarginHistory: runtime.evalRewardMarginHistory,
+    nllLossHistory: runtime.nllLossHistory,
+    logOddsRatioHistory: runtime.logOddsRatioHistory,
   };
 
   const isPreparingPhase =
@@ -227,6 +234,8 @@ export function LiveTrainingView(): ReactElement {
           rewardMarginHistory={viewData.rewardMarginHistory}
           evalRewardAccuracyHistory={viewData.evalRewardAccuracyHistory}
           evalRewardMarginHistory={viewData.evalRewardMarginHistory}
+          nllLossHistory={viewData.nllLossHistory}
+          logOddsRatioHistory={viewData.logOddsRatioHistory}
         />
       </div>
       {showOverlay ? (

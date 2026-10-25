@@ -9,6 +9,7 @@ import {
   getTrainingRun,
   isEvaluationConfigured,
   onTrainingRunUpdated,
+  parseBackendPreferenceMethod,
   parseBackendTrainingMethod,
   useTrainingActions,
 } from "@/features/training";
@@ -54,6 +55,11 @@ function mapToViewData(
   const evalLossHistory = metrics.eval_step_history
     .map((step, i) => ({ step, value: metrics.eval_loss_history[i] }))
     .filter((p): p is { step: number; value: number } => p.value != null);
+
+  const metricSeries = (steps: number[], values: number[]) =>
+    steps
+      .map((step, i) => ({ step, value: values[i] }))
+      .filter((p): p is { step: number; value: number } => p.value != null);
 
   const phase =
     run.status === "completed"
@@ -103,15 +109,38 @@ function mapToViewData(
       detail.config?.training_type,
       detail.config?.load_in_4bit,
     ),
+    preferenceMethod: parseBackendPreferenceMethod(
+      detail.config?.training_method,
+    ),
     isDecision: detail.config?.is_decision === true,
     lossHistory,
     lrHistory,
     gradNormHistory,
     evalLossHistory,
-    rewardAccuracyHistory: [],
-    rewardMarginHistory: [],
-    evalRewardAccuracyHistory: [],
-    evalRewardMarginHistory: [],
+    rewardAccuracyHistory: metricSeries(
+      metrics.reward_accuracy_step_history ?? [],
+      metrics.reward_accuracy_history ?? [],
+    ),
+    rewardMarginHistory: metricSeries(
+      metrics.reward_margin_step_history ?? [],
+      metrics.reward_margin_history ?? [],
+    ),
+    evalRewardAccuracyHistory: metricSeries(
+      metrics.eval_reward_accuracy_step_history ?? [],
+      metrics.eval_reward_accuracy_history ?? [],
+    ),
+    evalRewardMarginHistory: metricSeries(
+      metrics.eval_reward_margin_step_history ?? [],
+      metrics.eval_reward_margin_history ?? [],
+    ),
+    nllLossHistory: metricSeries(
+      metrics.nll_loss_step_history ?? [],
+      metrics.nll_loss_history ?? [],
+    ),
+    logOddsRatioHistory: metricSeries(
+      metrics.log_odds_ratio_step_history ?? [],
+      metrics.log_odds_ratio_history ?? [],
+    ),
   };
 }
 

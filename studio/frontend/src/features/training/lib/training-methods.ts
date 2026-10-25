@@ -4,6 +4,7 @@
 import type {
   DatasetFormat,
   ModelType,
+  PreferenceTrainingMethod,
   TrainingMethod,
 } from "@/types/training";
 import type { LoraVariant } from "../types/config";
@@ -13,6 +14,16 @@ const BACKEND_TRAINING_TYPE: Record<TrainingMethod, string> = {
   lora: "LoRA/QLoRA",
   full: "Full Finetuning",
   cpt: "Continued Pretraining",
+};
+
+const BACKEND_PREFERENCE_METHOD: Record<
+  PreferenceTrainingMethod,
+  "SFT" | "DPO" | "ORPO" | "CPO"
+> = {
+  sft: "SFT",
+  dpo: "DPO",
+  orpo: "ORPO",
+  cpo: "CPO",
 };
 
 const TRAINING_METHOD_LABELS: Record<TrainingMethod, string> = {
@@ -26,6 +37,12 @@ export function toBackendTrainingType(trainingMethod: TrainingMethod): string {
   return BACKEND_TRAINING_TYPE[trainingMethod];
 }
 
+export function toBackendPreferenceMethod(
+  method: PreferenceTrainingMethod,
+): "SFT" | "DPO" | "ORPO" | "CPO" {
+  return BACKEND_PREFERENCE_METHOD[method];
+}
+
 export function getTrainingMethodLabel(
   trainingMethod: TrainingMethod | string,
 ): string {
@@ -35,6 +52,59 @@ export function getTrainingMethodLabel(
     return TRAINING_METHOD_LABELS[trainingMethod as TrainingMethod];
   }
   return TRAINING_METHOD_LABELS.full;
+}
+
+const PREFERENCE_METHOD_LABELS: Record<PreferenceTrainingMethod, string> = {
+  sft: "SFT",
+  dpo: "DPO",
+  orpo: "ORPO",
+  cpo: "CPO",
+};
+
+/** Map a run's saved `training_method` back onto the preference objective. */
+export function parseBackendPreferenceMethod(
+  value: unknown,
+): PreferenceTrainingMethod | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  switch (value.trim().toUpperCase()) {
+    case "SFT":
+      return "sft";
+    case "DPO":
+      return "dpo";
+    case "ORPO":
+      return "orpo";
+    case "CPO":
+      return "cpo";
+    default:
+      return null;
+  }
+}
+
+export function getPreferenceMethodLabel(
+  method: PreferenceTrainingMethod | null | undefined,
+): string | null {
+  return method ? PREFERENCE_METHOD_LABELS[method] : null;
+}
+
+/** "QLoRA" for an SFT run, "QLoRA · ORPO" once a preference objective is chosen. */
+export function formatTrainingMethodLabel(
+  trainingMethod: TrainingMethod | string,
+  preferenceMethod?: PreferenceTrainingMethod | null,
+): string {
+  const base = getTrainingMethodLabel(trainingMethod);
+  const label = getPreferenceMethodLabel(preferenceMethod);
+  // Only LoRA/QLoRA runs train a preference objective here; CPT and full finetuning
+  // ignore a stale dropdown selection, so they keep the plain label.
+  if (
+    (trainingMethod !== "qlora" && trainingMethod !== "lora") ||
+    !label ||
+    preferenceMethod === "sft"
+  ) {
+    return base;
+  }
+  return `${base} · ${label}`;
 }
 
 export function isTrainingMethodSupportedOnDevice(

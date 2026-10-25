@@ -4007,6 +4007,8 @@ export const hi = {
         hfDatasetRequired: "पहले Hugging Face डेटासेट चुनें।",
         hfDatasetSplitRequired: "पहले ट्रेनिंग स्प्लिट चुनें या दर्ज करें।",
         localDatasetRequired: "पहले स्थानीय डेटासेट चुनें।",
+        preferenceDatasetMismatch:
+          "DPO, ORPO और CPO के लिए chosen और rejected कॉलम वाला डेटासेट ज़रूरी है। प्रेफ़रेंस डेटासेट चुनें, या Preference mode को SFT पर बदलें।",
         unsupportedDatasetSource: "असमर्थित डेटासेट स्रोत।",
       },
       startFailed: "ट्रेनिंग शुरू करने में विफल",

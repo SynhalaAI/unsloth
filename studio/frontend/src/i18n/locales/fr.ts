@@ -4072,6 +4072,8 @@ export const fr = {
         hfDatasetSplitRequired:
           "Sélectionnez ou saisissez d’abord une partition d’entraînement.",
         localDatasetRequired: "Sélectionnez d'abord un jeu de données local.",
+        preferenceDatasetMismatch:
+          "DPO, ORPO et CPO nécessitent un jeu de données avec les colonnes chosen et rejected. Choisissez un jeu de données de préférences ou passez le mode de préférence à SFT.",
         unsupportedDatasetSource:
           "Source de jeu de données non prise en charge.",
       },

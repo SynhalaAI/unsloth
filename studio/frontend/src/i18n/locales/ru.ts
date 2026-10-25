@@ -4038,6 +4038,8 @@ export const ru = {
         hfDatasetSplitRequired:
           "Сначала выберите или введите обучающую выборку.",
         localDatasetRequired: "Сначала выберите локальный датасет.",
+        preferenceDatasetMismatch:
+          "Для DPO, ORPO и CPO нужен датасет со столбцами chosen и rejected. Выберите датасет предпочтений или переключите режим предпочтений на SFT.",
         unsupportedDatasetSource: "Источник датасета не поддерживается.",
       },
       uploadConfigTooltip: "Загрузить сохранённую конфигурацию YAML",

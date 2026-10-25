@@ -7,6 +7,7 @@ import { useChartPreferencesStore } from "./charts/chart-preferences-store";
 import { EvalLossChartCard } from "./charts/eval-loss-chart-card";
 import { GradNormChartCard } from "./charts/grad-norm-chart-card";
 import { LearningRateChartCard } from "./charts/learning-rate-chart-card";
+import { OrpoComponentsChartCard } from "./charts/orpo-components-chart-card";
 import { PreferenceMetricsChartCard } from "./charts/preference-metrics-chart-card";
 import { TrainingLossChartCard } from "./charts/training-loss-chart-card";
 import type { TrainingChartSeries } from "./charts/types";
@@ -136,6 +137,28 @@ export function ChartsContent({
     }
     return compressSeries(Array.from(points.values()), MAX_RENDER_POINTS);
   }, [metrics.evalRewardAccuracyHistory, metrics.evalRewardMarginHistory]);
+  const reducedOrpoData = useMemo(() => {
+    const points = new Map<
+      number,
+      { step: number; nllLoss: number; logOddsRatio: number }
+    >();
+    for (const point of metrics.nllLossHistory) {
+      points.set(point.step, {
+        step: point.step,
+        nllLoss: point.nllLoss,
+        logOddsRatio: Number.NaN,
+      });
+    }
+    for (const point of metrics.logOddsRatioHistory) {
+      const existing = points.get(point.step) ?? {
+        step: point.step,
+        nllLoss: Number.NaN,
+        logOddsRatio: Number.NaN,
+      };
+      points.set(point.step, { ...existing, logOddsRatio: point.logOddsRatio });
+    }
+    return compressSeries(Array.from(points.values()), MAX_RENDER_POINTS);
+  }, [metrics.logOddsRatioHistory, metrics.nllLossHistory]);
   const allSteps = useMemo(() => {
     const set = new Set<number>();
     for (const point of metrics.lossHistory) {
@@ -337,6 +360,9 @@ export function ChartsContent({
           trainData={reducedPreferenceData}
           evalData={reducedEvalPreferenceData}
         />
+      )}
+      {reducedOrpoData.length > 0 && (
+        <OrpoComponentsChartCard data={reducedOrpoData} />
       )}
     </div>
   );

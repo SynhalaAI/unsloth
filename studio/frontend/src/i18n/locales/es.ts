@@ -4057,6 +4057,8 @@ export const es = {
         hfDatasetSplitRequired:
           "Selecciona o introduce primero una división de entrenamiento.",
         localDatasetRequired: "Selecciona primero un conjunto de datos local.",
+        preferenceDatasetMismatch:
+          "DPO, ORPO y CPO necesitan un conjunto de datos con las columnas chosen y rejected. Elige un conjunto de datos de preferencias o cambia el modo de preferencia a SFT.",
         unsupportedDatasetSource: "Origen de conjunto de datos no compatible.",
       },
       startFailed: "No se pudo iniciar el entrenamiento",

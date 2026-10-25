@@ -4062,6 +4062,8 @@ export const de = {
         hfDatasetSplitRequired:
           "Wählen Sie zuerst eine Trainingsaufteilung aus oder geben Sie sie ein.",
         localDatasetRequired: "Wählen Sie zuerst einen lokalen Datensatz aus.",
+        preferenceDatasetMismatch:
+          "DPO, ORPO und CPO benötigen einen Datensatz mit den Spalten chosen und rejected. Wähle einen Präferenzdatensatz oder stelle den Präferenzmodus auf SFT.",
         unsupportedDatasetSource: "Nicht unterstützte Datensatzquelle.",
       },
       startFailed: "Training konnte nicht gestartet werden",

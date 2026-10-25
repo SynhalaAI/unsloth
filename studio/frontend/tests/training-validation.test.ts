@@ -35,6 +35,9 @@ const validConfig = {
   isDatasetAudio: false,
   loraVariant: "rslora" as const,
   trainingMethod: "qlora" as const,
+  preferenceTrainingMethod: "sft" as const,
+  isPreferenceDataset: false,
+  isCheckingDataset: false,
 } as TrainingConfigState;
 
 test("training validation rejects non-positive learning rates", () => {
@@ -176,6 +179,65 @@ test("training validation keeps local dataset paths out of Hub ID validation", (
       datasetSource: "upload",
       dataset: null,
       uploadedFile: "/datasets/team data/train.jsonl",
+    }),
+    { ok: true, errorKey: null },
+  );
+});
+
+test("training validation blocks DPO, ORPO and CPO without a chosen/rejected dataset", () => {
+  for (const preferenceTrainingMethod of ["dpo", "orpo", "cpo"] as const) {
+    assert.deepEqual(
+      validateTrainingConfig({
+        ...validConfig,
+        preferenceTrainingMethod,
+        isPreferenceDataset: false,
+      }),
+      {
+        ok: false,
+        errorKey: "studio.training.validation.preferenceDatasetMismatch",
+      },
+    );
+    assert.deepEqual(
+      validateTrainingConfig({
+        ...validConfig,
+        preferenceTrainingMethod,
+        isPreferenceDataset: true,
+      }),
+      { ok: true, errorKey: null },
+    );
+  }
+});
+
+test("training validation leaves SFT on a plain dataset alone", () => {
+  assert.deepEqual(
+    validateTrainingConfig({
+      ...validConfig,
+      preferenceTrainingMethod: "sft",
+      isPreferenceDataset: false,
+    }),
+    { ok: true, errorKey: null },
+  );
+});
+
+test("training validation lets CPT ignore a stale preference mode", () => {
+  assert.deepEqual(
+    validateTrainingConfig({
+      ...validConfig,
+      trainingMethod: "cpt",
+      preferenceTrainingMethod: "orpo",
+      isPreferenceDataset: false,
+    }),
+    { ok: true, errorKey: null },
+  );
+});
+
+test("training validation does not flash a mismatch while the dataset check runs", () => {
+  assert.deepEqual(
+    validateTrainingConfig({
+      ...validConfig,
+      preferenceTrainingMethod: "orpo",
+      isPreferenceDataset: false,
+      isCheckingDataset: true,
     }),
     { ok: true, errorKey: null },
   );

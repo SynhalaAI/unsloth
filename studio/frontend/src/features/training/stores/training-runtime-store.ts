@@ -92,6 +92,8 @@ const initialState: TrainingRuntimeState = {
   rewardMarginHistory: [],
   evalRewardAccuracyHistory: [],
   evalRewardMarginHistory: [],
+  nllLossHistory: [],
+  logOddsRatioHistory: [],
   resetGeneration: 0,
   stopRequested: false,
   configureRequest: 0,
@@ -216,6 +218,8 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
   rewardMarginHistory: TrainingSeriesPoint[] | null;
   evalRewardAccuracyHistory: TrainingSeriesPoint[] | null;
   evalRewardMarginHistory: TrainingSeriesPoint[] | null;
+  nllLossHistory: TrainingSeriesPoint[] | null;
+  logOddsRatioHistory: TrainingSeriesPoint[] | null;
 } {
   const history = payload.metric_history;
   if (!history || !history.steps?.length) {
@@ -228,6 +232,8 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
       rewardMarginHistory: null,
       evalRewardAccuracyHistory: null,
       evalRewardMarginHistory: null,
+      nllLossHistory: null,
+      logOddsRatioHistory: null,
     };
   }
 
@@ -242,15 +248,44 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
     history.eval_loss && history.eval_steps
       ? toSeries(history.eval_steps, history.eval_loss)
       : null;
+  const rewardAccuracyHistory =
+    history.reward_accuracy && history.reward_accuracy_steps
+      ? toSeries(history.reward_accuracy_steps, history.reward_accuracy)
+      : null;
+  const rewardMarginHistory =
+    history.reward_margin && history.reward_margin_steps
+      ? toSeries(history.reward_margin_steps, history.reward_margin)
+      : null;
+  const evalRewardAccuracyHistory =
+    history.eval_reward_accuracy && history.eval_reward_accuracy_steps
+      ? toSeries(
+          history.eval_reward_accuracy_steps,
+          history.eval_reward_accuracy,
+        )
+      : null;
+  const evalRewardMarginHistory =
+    history.eval_reward_margin && history.eval_reward_margin_steps
+      ? toSeries(history.eval_reward_margin_steps, history.eval_reward_margin)
+      : null;
+  const nllLossHistory =
+    history.nll_loss && history.nll_loss_steps
+      ? toSeries(history.nll_loss_steps, history.nll_loss)
+      : null;
+  const logOddsRatioHistory =
+    history.log_odds_ratio && history.log_odds_ratio_steps
+      ? toSeries(history.log_odds_ratio_steps, history.log_odds_ratio)
+      : null;
   return {
     lossHistory,
     lrHistory,
     gradNormHistory,
     evalLossHistory,
-    rewardAccuracyHistory: null,
-    rewardMarginHistory: null,
-    evalRewardAccuracyHistory: null,
-    evalRewardMarginHistory: null,
+    rewardAccuracyHistory,
+    rewardMarginHistory,
+    evalRewardAccuracyHistory,
+    evalRewardMarginHistory,
+    nllLossHistory,
+    logOddsRatioHistory,
   };
 }
 
@@ -316,6 +351,8 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
         rewardMarginHistory: [],
         evalRewardAccuracyHistory: [],
         evalRewardMarginHistory: [],
+        nllLossHistory: [],
+        logOddsRatioHistory: [],
         resetGeneration: state.resetGeneration + 1,
       })),
 
@@ -362,6 +399,8 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
           rewardMarginHistory: [],
           evalRewardAccuracyHistory: [],
           evalRewardMarginHistory: [],
+          nllLossHistory: [],
+          logOddsRatioHistory: [],
           resetGeneration: state.resetGeneration + 1,
         };
       }),
@@ -446,6 +485,8 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
               rewardMarginHistory: [],
               evalRewardAccuracyHistory: [],
               evalRewardMarginHistory: [],
+              nllLossHistory: [],
+              logOddsRatioHistory: [],
               resetGeneration: state.resetGeneration + 1,
               stopRequested: false,
             }
@@ -520,10 +561,42 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
                 metricHistory.evalLossHistory,
               )
             : runtimeState.evalLossHistory,
-          rewardAccuracyHistory: runtimeState.rewardAccuracyHistory,
-          rewardMarginHistory: runtimeState.rewardMarginHistory,
-          evalRewardAccuracyHistory: runtimeState.evalRewardAccuracyHistory,
-          evalRewardMarginHistory: runtimeState.evalRewardMarginHistory,
+          rewardAccuracyHistory: metricHistory.rewardAccuracyHistory
+            ? mergeSeries(
+                runtimeState.rewardAccuracyHistory,
+                metricHistory.rewardAccuracyHistory,
+              )
+            : runtimeState.rewardAccuracyHistory,
+          rewardMarginHistory: metricHistory.rewardMarginHistory
+            ? mergeSeries(
+                runtimeState.rewardMarginHistory,
+                metricHistory.rewardMarginHistory,
+              )
+            : runtimeState.rewardMarginHistory,
+          evalRewardAccuracyHistory: metricHistory.evalRewardAccuracyHistory
+            ? mergeSeries(
+                runtimeState.evalRewardAccuracyHistory,
+                metricHistory.evalRewardAccuracyHistory,
+              )
+            : runtimeState.evalRewardAccuracyHistory,
+          evalRewardMarginHistory: metricHistory.evalRewardMarginHistory
+            ? mergeSeries(
+                runtimeState.evalRewardMarginHistory,
+                metricHistory.evalRewardMarginHistory,
+              )
+            : runtimeState.evalRewardMarginHistory,
+          nllLossHistory: metricHistory.nllLossHistory
+            ? mergeSeries(
+                runtimeState.nllLossHistory,
+                metricHistory.nllLossHistory,
+              )
+            : runtimeState.nllLossHistory,
+          logOddsRatioHistory: metricHistory.logOddsRatioHistory
+            ? mergeSeries(
+                runtimeState.logOddsRatioHistory,
+                metricHistory.logOddsRatioHistory,
+              )
+            : runtimeState.logOddsRatioHistory,
         };
       }),
 
@@ -598,6 +671,8 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
         const rewardMargin = toFiniteNumber(payload.rewards_margins);
         const evalRewardAccuracy = toFiniteNumber(payload.eval_rewards_accuracies);
         const evalRewardMargin = toFiniteNumber(payload.eval_rewards_margins);
+        const nllLoss = toFiniteNumber(payload.nll_loss);
+        const logOddsRatio = toFiniteNumber(payload.log_odds_ratio);
         const totalSteps = toFiniteNumber(payload.total_steps);
         const progressPercent = toFiniteNumber(payload.progress_percent);
         const currentEpoch = toFiniteNumber(payload.epoch);
@@ -673,6 +748,14 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
             step > 0 && evalRewardMargin !== null
               ? upsertPoint(state.evalRewardMarginHistory, step, evalRewardMargin)
               : state.evalRewardMarginHistory,
+          nllLossHistory:
+            step > 0 && nllLoss !== null
+              ? upsertPoint(state.nllLossHistory, step, nllLoss)
+              : state.nllLossHistory,
+          logOddsRatioHistory:
+            step > 0 && logOddsRatio !== null
+              ? upsertPoint(state.logOddsRatioHistory, step, logOddsRatio)
+              : state.logOddsRatioHistory,
         };
       }),
   }),

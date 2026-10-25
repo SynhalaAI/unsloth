@@ -3,7 +3,7 @@
 
 export type ModelType = "vision" | "audio" | "embeddings" | "text" | "decision";
 export type TrainingMethod = "qlora" | "lora" | "full" | "cpt";
-export type PreferenceTrainingMethod = "sft" | "dpo" | "cpo";
+export type PreferenceTrainingMethod = "sft" | "dpo" | "orpo" | "cpo";
 
 export function isTrainingMethod(value: unknown): value is TrainingMethod {
   return (

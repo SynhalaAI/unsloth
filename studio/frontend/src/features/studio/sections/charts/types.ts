@@ -16,4 +16,6 @@ export interface TrainingChartSeries {
   rewardMarginHistory: { step: number; margin: number }[];
   evalRewardAccuracyHistory: { step: number; accuracy: number }[];
   evalRewardMarginHistory: { step: number; margin: number }[];
+  nllLossHistory: { step: number; nllLoss: number }[];
+  logOddsRatioHistory: { step: number; logOddsRatio: number }[];
 }

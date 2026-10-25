@@ -394,6 +394,12 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             epoch REAL,
             num_tokens INTEGER,
             elapsed_seconds REAL,
+            rewards_accuracy REAL,
+            rewards_margin REAL,
+            eval_rewards_accuracy REAL,
+            eval_rewards_margin REAL,
+            nll_loss REAL,
+            log_odds_ratio REAL,
             UNIQUE(run_id, step)
         )
         """
@@ -404,6 +410,17 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE training_metrics ADD COLUMN cer REAL")
     if "wer" not in metrics_cols:
         conn.execute("ALTER TABLE training_metrics ADD COLUMN wer REAL")
+    # Preference / ORPO metrics: older databases gain the columns in place.
+    for _column in (
+        "rewards_accuracy",
+        "rewards_margin",
+        "eval_rewards_accuracy",
+        "eval_rewards_margin",
+        "nll_loss",
+        "log_odds_ratio",
+    ):
+        if _column not in metrics_cols:
+            conn.execute(f"ALTER TABLE training_metrics ADD COLUMN {_column} REAL")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_metrics_run_id ON training_metrics(run_id)")
     conn.execute(
         """
@@ -1681,8 +1698,10 @@ def insert_metrics_batch(run_id: str, metrics: list[dict]) -> None:
         conn.executemany(
             """
             INSERT INTO training_metrics
-                (run_id, step, loss, learning_rate, grad_norm, eval_loss, cer, wer, epoch, num_tokens, elapsed_seconds)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (run_id, step, loss, learning_rate, grad_norm, eval_loss, cer, wer, epoch, num_tokens,
+                 elapsed_seconds, rewards_accuracy, rewards_margin, eval_rewards_accuracy,
+                 eval_rewards_margin, nll_loss, log_odds_ratio)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(run_id, step) DO UPDATE SET
                 loss = COALESCE(excluded.loss, loss),
                 learning_rate = COALESCE(excluded.learning_rate, learning_rate),
@@ -1692,7 +1711,17 @@ def insert_metrics_batch(run_id: str, metrics: list[dict]) -> None:
                 wer = COALESCE(excluded.wer, wer),
                 epoch = COALESCE(excluded.epoch, epoch),
                 num_tokens = COALESCE(excluded.num_tokens, num_tokens),
-                elapsed_seconds = COALESCE(excluded.elapsed_seconds, elapsed_seconds)
+                elapsed_seconds = COALESCE(excluded.elapsed_seconds, elapsed_seconds),
+                rewards_accuracy = COALESCE(excluded.rewards_accuracy, rewards_accuracy),
+                rewards_margin = COALESCE(excluded.rewards_margin, rewards_margin),
+                eval_rewards_accuracy = COALESCE(
+                    excluded.eval_rewards_accuracy, eval_rewards_accuracy
+                ),
+                eval_rewards_margin = COALESCE(
+                    excluded.eval_rewards_margin, eval_rewards_margin
+                ),
+                nll_loss = COALESCE(excluded.nll_loss, nll_loss),
+                log_odds_ratio = COALESCE(excluded.log_odds_ratio, log_odds_ratio)
             """,
             [
                 (
@@ -1707,6 +1736,12 @@ def insert_metrics_batch(run_id: str, metrics: list[dict]) -> None:
                     m.get("epoch"),
                     m.get("num_tokens"),
                     m.get("elapsed_seconds"),
+                    m.get("rewards_accuracy"),
+                    m.get("rewards_margin"),
+                    m.get("eval_rewards_accuracy"),
+                    m.get("eval_rewards_margin"),
+                    m.get("nll_loss"),
+                    m.get("log_odds_ratio"),
                 )
                 for m in metrics
             ],
@@ -2055,7 +2090,8 @@ def get_run_metrics(id: str) -> dict:
         rows = conn.execute(
             """
             SELECT step, loss, learning_rate, grad_norm, eval_loss, cer, wer, epoch,
-                   num_tokens, elapsed_seconds
+                   num_tokens, elapsed_seconds, rewards_accuracy, rewards_margin,
+                   eval_rewards_accuracy, eval_rewards_margin, nll_loss, log_odds_ratio
             FROM training_metrics
             WHERE run_id = ?
             ORDER BY step
@@ -2076,6 +2112,18 @@ def get_run_metrics(id: str) -> dict:
         cer_step_history: list[int] = []
         wer_history: list[float] = []
         wer_step_history: list[int] = []
+        reward_accuracy_history: list[float] = []
+        reward_accuracy_step_history: list[int] = []
+        reward_margin_history: list[float] = []
+        reward_margin_step_history: list[int] = []
+        eval_reward_accuracy_history: list[float] = []
+        eval_reward_accuracy_step_history: list[int] = []
+        eval_reward_margin_history: list[float] = []
+        eval_reward_margin_step_history: list[int] = []
+        nll_loss_history: list[float] = []
+        nll_loss_step_history: list[int] = []
+        log_odds_ratio_history: list[float] = []
+        log_odds_ratio_step_history: list[int] = []
         final_epoch: float | None = None
         final_num_tokens: int | None = None
 
@@ -2100,6 +2148,25 @@ def get_run_metrics(id: str) -> dict:
             if step > 0 and row["wer"] is not None:
                 wer_history.append(row["wer"])
                 wer_step_history.append(step)
+            for history, history_steps, value in (
+                (reward_accuracy_history, reward_accuracy_step_history, row["rewards_accuracy"]),
+                (reward_margin_history, reward_margin_step_history, row["rewards_margin"]),
+                (
+                    eval_reward_accuracy_history,
+                    eval_reward_accuracy_step_history,
+                    row["eval_rewards_accuracy"],
+                ),
+                (
+                    eval_reward_margin_history,
+                    eval_reward_margin_step_history,
+                    row["eval_rewards_margin"],
+                ),
+                (nll_loss_history, nll_loss_step_history, row["nll_loss"]),
+                (log_odds_ratio_history, log_odds_ratio_step_history, row["log_odds_ratio"]),
+            ):
+                if step > 0 and value is not None:
+                    history.append(value)
+                    history_steps.append(step)
             if row["epoch"] is not None:
                 final_epoch = row["epoch"]
             if row["num_tokens"] is not None:
@@ -2119,6 +2186,18 @@ def get_run_metrics(id: str) -> dict:
             "cer_step_history": cer_step_history,
             "wer_history": wer_history,
             "wer_step_history": wer_step_history,
+            "reward_accuracy_history": reward_accuracy_history,
+            "reward_accuracy_step_history": reward_accuracy_step_history,
+            "reward_margin_history": reward_margin_history,
+            "reward_margin_step_history": reward_margin_step_history,
+            "eval_reward_accuracy_history": eval_reward_accuracy_history,
+            "eval_reward_accuracy_step_history": eval_reward_accuracy_step_history,
+            "eval_reward_margin_history": eval_reward_margin_history,
+            "eval_reward_margin_step_history": eval_reward_margin_step_history,
+            "nll_loss_history": nll_loss_history,
+            "nll_loss_step_history": nll_loss_step_history,
+            "log_odds_ratio_history": log_odds_ratio_history,
+            "log_odds_ratio_step_history": log_odds_ratio_step_history,
             "final_epoch": final_epoch,
             "final_num_tokens": final_num_tokens,
         }

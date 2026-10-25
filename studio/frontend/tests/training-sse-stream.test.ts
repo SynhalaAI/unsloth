@@ -27,6 +27,8 @@ function progressPayload(jobId: string, step: number): TrainingProgressPayload {
     rewards_margins: null,
     eval_rewards_accuracies: null,
     eval_rewards_margins: null,
+    nll_loss: null,
+    log_odds_ratio: null,
   };
 }
 

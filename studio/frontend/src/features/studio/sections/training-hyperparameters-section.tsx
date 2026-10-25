@@ -175,6 +175,7 @@ export function TrainingHyperparametersSection({
       cpoAlpha: state.cpoAlpha,
       maxPromptLength: state.maxPromptLength,
       isDecision: state.modelType === "decision",
+      isCpt: state.trainingMethod === "cpt",
       isEmbedding: state.isEmbeddingModel || state.modelType === "embeddings",
       isWhisperModel: state.isWhisperModel,
       optimizerType: state.optimizerType,
@@ -320,60 +321,70 @@ export function TrainingHyperparametersSection({
                 </SelectContent>
               </Select>
             </ParamsRow>
-            {store.isPreferenceDataset && (
+            <ParamsRow label="Preference mode">
+              <Select
+                value={store.preferenceTrainingMethod}
+                onValueChange={(value) =>
+                  store.setPreferenceTrainingMethod(
+                    value as "sft" | "dpo" | "orpo" | "cpo",
+                  )
+                }
+              >
+                <SelectTrigger className="w-36">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sft">SFT</SelectItem>
+                  <SelectItem value="dpo">DPO</SelectItem>
+                  <SelectItem value="orpo">ORPO</SelectItem>
+                  <SelectItem value="cpo">CPO</SelectItem>
+                </SelectContent>
+              </Select>
+            </ParamsRow>
+            {store.preferenceTrainingMethod !== "sft" &&
+              !store.isCpt &&
+              !store.isPreferenceDataset && (
+                <p className="text-ui-11p5 leading-relaxed text-destructive">
+                  {t("studio.training.validation.preferenceDatasetMismatch")}
+                </p>
+              )}
+            {store.preferenceTrainingMethod !== "sft" && (
               <>
-                <ParamsRow label="Preference mode">
-                  <Select
-                    value={store.preferenceTrainingMethod}
-                    onValueChange={(value) =>
-                      store.setPreferenceTrainingMethod(value as "sft" | "dpo" | "cpo")
-                    }
-                  >
-                    <SelectTrigger className="w-36">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="sft">SFT</SelectItem>
-                      <SelectItem value="dpo">DPO</SelectItem>
-                      <SelectItem value="cpo">CPO</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </ParamsRow>
-                {store.preferenceTrainingMethod !== "sft" && (
-                  <>
-                    <ParamsSliderRow
-                      label="DPO β"
-                      value={store.dpoBeta}
-                      onChange={store.setDpoBeta}
-                      min={0.001}
-                      max={2}
-                      step={0.001}
-                    />
-                    {store.preferenceTrainingMethod === "cpo" && (
-                      <ParamsSliderRow
-                        label="CPO α"
-                        value={store.cpoAlpha}
-                        onChange={store.setCpoAlpha}
-                        min={0}
-                        max={10}
-                        step={0.1}
-                      />
-                    )}
-                    <ParamsRow label="Max prompt length">
-                      <Input
-                        type="number"
-                        min={1}
-                        max={200000}
-                        step={1}
-                        value={store.maxPromptLength}
-                        onChange={(event) =>
-                          store.setMaxPromptLength(Number(event.target.value) || 1)
-                        }
-                        className="w-24 text-right font-mono text-xs font-medium bg-muted/50 border border-border rounded-lg px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
-                      />
-                    </ParamsRow>
-                  </>
+                <ParamsSliderRow
+                  label={
+                    store.preferenceTrainingMethod === "orpo"
+                      ? "ORPO β"
+                      : "DPO β"
+                  }
+                  value={store.dpoBeta}
+                  onChange={store.setDpoBeta}
+                  min={0.001}
+                  max={2}
+                  step={0.001}
+                />
+                {store.preferenceTrainingMethod === "cpo" && (
+                  <ParamsSliderRow
+                    label="CPO α"
+                    value={store.cpoAlpha}
+                    onChange={store.setCpoAlpha}
+                    min={0}
+                    max={10}
+                    step={0.1}
+                  />
                 )}
+                <ParamsRow label="Max prompt length">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={200000}
+                    step={1}
+                    value={store.maxPromptLength}
+                    onChange={(event) =>
+                      store.setMaxPromptLength(Number(event.target.value) || 1)
+                    }
+                    className="w-24 text-right font-mono text-xs font-medium bg-muted/50 border border-border rounded-lg px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </ParamsRow>
               </>
             )}
             <ParamsSliderRow

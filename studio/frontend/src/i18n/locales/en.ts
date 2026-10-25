@@ -4043,6 +4043,8 @@ export const en = {
         hfDatasetSplitRequired: "Select or enter a train split first.",
         localDatasetRequired: "Select a local dataset first.",
         unsupportedDatasetSource: "Unsupported dataset source.",
+        preferenceDatasetMismatch:
+          "DPO, ORPO and CPO need a dataset with chosen and rejected columns. Choose a preference dataset, or switch Preference mode to SFT.",
       },
       startFailed: "Failed to start training",
       startUnconfirmed:

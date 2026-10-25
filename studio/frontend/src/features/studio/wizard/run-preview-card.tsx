@@ -9,6 +9,7 @@ import {
 import { hfApiToken, ownerOf, useHfTokenStore } from "@/features/hub";
 import {
   TRAINING_METHOD_META,
+  getPreferenceMethodLabel,
   isLocalTrainingModelSelection,
   useTrainingConfigStore,
   useTrainingReadiness,
@@ -18,6 +19,7 @@ import {
 import { useGpuInfo } from "@/hooks";
 import { type TranslationKey, useLocale, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
+import { isAdapterMethod } from "@/types/training";
 import { InformationCircleIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { type ReactElement, type ReactNode, useMemo } from "react";
@@ -345,6 +347,7 @@ export function RunPreviewCard({
     modelLocalPath,
     modelFormat,
     trainingMethod,
+    preferenceTrainingMethod,
     datasetSource,
     dataset,
     uploadedFile,
@@ -364,6 +367,7 @@ export function RunPreviewCard({
       modelLocalPath: s.modelLocalPath,
       modelFormat: s.modelFormat,
       trainingMethod: s.trainingMethod,
+      preferenceTrainingMethod: s.preferenceTrainingMethod,
       datasetSource: s.datasetSource,
       dataset: s.dataset,
       uploadedFile: s.uploadedFile,
@@ -417,6 +421,12 @@ export function RunPreviewCard({
   });
   const methodMeta =
     TRAINING_METHOD_META[trainingMethod] ?? TRAINING_METHOD_META.qlora;
+  const preferenceLabel =
+    isAdapterMethod(trainingMethod) &&
+    trainingMethod !== "cpt" &&
+    preferenceTrainingMethod !== "sft"
+      ? getPreferenceMethodLabel(preferenceTrainingMethod)
+      : null;
   const lengthUnit = maxSteps && maxSteps > 0 ? "step" : "epoch";
   const lengthCount = lengthUnit === "step" ? maxSteps : epochs;
   const lengthLabel = t(
@@ -479,6 +489,11 @@ export function RunPreviewCard({
               <span className="ml-1.5 text-muted-foreground/70">
                 · {t(methodMeta.noteKey)}
               </span>
+              {preferenceLabel ? (
+                <span className="ml-1.5 text-muted-foreground/70">
+                  · {preferenceLabel}
+                </span>
+              ) : null}
             </>
           }
         />

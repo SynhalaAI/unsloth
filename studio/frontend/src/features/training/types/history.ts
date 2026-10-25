@@ -42,6 +42,19 @@ export interface TrainingRunMetrics {
   grad_norm_step_history: number[];
   eval_loss_history: number[];
   eval_step_history: number[];
+  // Preference-method metrics (DPO/ORPO/CPO) and ORPO's own loss components.
+  reward_accuracy_history: number[];
+  reward_accuracy_step_history: number[];
+  reward_margin_history: number[];
+  reward_margin_step_history: number[];
+  eval_reward_accuracy_history: number[];
+  eval_reward_accuracy_step_history: number[];
+  eval_reward_margin_history: number[];
+  eval_reward_margin_step_history: number[];
+  nll_loss_history: number[];
+  nll_loss_step_history: number[];
+  log_odds_ratio_history: number[];
+  log_odds_ratio_step_history: number[];
   final_epoch: number | null;
   final_num_tokens: number | null;
 }

@@ -4215,6 +4215,8 @@ export const sv = {
         hfDatasetRequired: "Välj först en Hugging Face-datauppsättning.",
         hfDatasetSplitRequired: "Välj eller ange först en träningsdelning.",
         localDatasetRequired: "Välj först en lokal datauppsättning.",
+        preferenceDatasetMismatch:
+          "DPO, ORPO och CPO kräver en datamängd med kolumnerna chosen och rejected. Välj en preferensdatamängd eller byt preferensläge till SFT.",
         unsupportedDatasetSource: "Datakällan stöds inte.",
       },
       startFailed: "Det gick inte att starta träningen",

@@ -232,15 +232,15 @@ class TrainingStartRequest(BaseModel):
         ...,
         description = "Training type: 'LoRA/QLoRA', 'Full Finetuning', or 'Continued Pretraining'",
     )
-    training_method: Literal["SFT", "DPO", "CPO"] = Field(
+    training_method: Literal["SFT", "DPO", "ORPO", "CPO"] = Field(
         "SFT",
-        description = "Training method: 'SFT' (Supervised Fine-Tuning), 'DPO' (Direct Preference Optimization), or 'CPO' (Contrastive Preference Optimization)",
+        description = "Training method: 'SFT' (Supervised Fine-Tuning), 'DPO' (Direct Preference Optimization), 'ORPO' (Odds Ratio Preference Optimization), or 'CPO' (Contrastive Preference Optimization)",
     )
     dpo_beta: float = Field(
         0.1,
         ge = 0.001,
         le = 2.0,
-        description = "Beta regularization parameter for DPO and CPO",
+        description = "Beta regularization parameter for DPO, ORPO and CPO",
     )
     cpo_alpha: float = Field(
         1.0,
@@ -252,7 +252,7 @@ class TrainingStartRequest(BaseModel):
         512,
         ge = 1,
         le = _MAX_SEQ_LENGTH,
-        description = "Maximum prompt length for DPO/CPO training",
+        description = "Maximum prompt length for DPO/ORPO/CPO training",
     )
     hf_token: Optional[str] = Field(None, description = "HuggingFace token")
     load_in_4bit: bool = Field(True, description = "Load model in 4-bit quantization")
@@ -418,7 +418,7 @@ class TrainingStartRequest(BaseModel):
             raise ValueError(
                 "replay_datasets are not supported for raw-text / continued-pretraining runs"
             )
-        if str(self.training_method).upper() in ("DPO", "CPO"):
+        if str(self.training_method).upper() in ("DPO", "ORPO", "CPO"):
             raise ValueError("replay_datasets are only supported for SFT runs")
         return self
 
@@ -1004,7 +1004,8 @@ class TrainingStatus(BaseModel):
     metric_history: Optional[dict] = Field(
         None,
         description = "Full metric history arrays for chart recovery after SSE reconnection. "
-        "Keys: 'steps', 'loss', 'lr', 'grad_norm', 'grad_norm_steps' — each a list of numeric values.",
+        "Keys: 'steps', 'loss', 'lr', 'grad_norm', 'grad_norm_steps' plus the preference/ORPO "
+        "arrays — each a list of numeric values.",
     )
     checkpoint_backup: Optional[dict] = Field(
         None, description = "Current asynchronous checkpoint backup snapshot"
@@ -1058,6 +1059,12 @@ class TrainingProgress(BaseModel):
     )
     eval_rewards_margins: Optional[float] = Field(
         None, description = "Evaluation reward margin"
+    )
+    nll_loss: Optional[float] = Field(
+        None, description = "ORPO SFT cross-entropy on chosen responses"
+    )
+    log_odds_ratio: Optional[float] = Field(
+        None, description = "ORPO log-odds ratio term"
     )
     checkpoint_backup: Optional[dict] = Field(
         None, description = "Current asynchronous checkpoint backup snapshot"
@@ -1124,6 +1131,19 @@ class TrainingRunMetrics(BaseModel):
     cer_step_history: List[int] = Field(default_factory = list)
     wer_history: List[float] = Field(default_factory = list)
     wer_step_history: List[int] = Field(default_factory = list)
+    # Preference-method metrics (DPO/ORPO/CPO) and ORPO's own loss components.
+    reward_accuracy_history: List[float] = Field(default_factory = list)
+    reward_accuracy_step_history: List[int] = Field(default_factory = list)
+    reward_margin_history: List[float] = Field(default_factory = list)
+    reward_margin_step_history: List[int] = Field(default_factory = list)
+    eval_reward_accuracy_history: List[float] = Field(default_factory = list)
+    eval_reward_accuracy_step_history: List[int] = Field(default_factory = list)
+    eval_reward_margin_history: List[float] = Field(default_factory = list)
+    eval_reward_margin_step_history: List[int] = Field(default_factory = list)
+    nll_loss_history: List[float] = Field(default_factory = list)
+    nll_loss_step_history: List[int] = Field(default_factory = list)
+    log_odds_ratio_history: List[float] = Field(default_factory = list)
+    log_odds_ratio_step_history: List[int] = Field(default_factory = list)
     final_epoch: Optional[float] = None
     final_num_tokens: Optional[int] = None
 

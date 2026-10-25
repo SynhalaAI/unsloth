@@ -27,7 +27,7 @@ export function PreferenceMetricsChartCard({ trainData, evalData }: { trainData:
   } satisfies ChartConfig;
   return (
     <Card data-tour="studio-training-preference-metrics" size="sm">
-      <CardHeader><CardTitle className="text-sm">DPO / CPO preference metrics</CardTitle></CardHeader>
+      <CardHeader><CardTitle className="text-sm">DPO / ORPO / CPO preference metrics</CardTitle></CardHeader>
       <CardContent>
         <ChartContainer config={config} className={CHART_CONTAINER_CLASS}>
           <LineChart data={data} syncId="train-metrics-sync" margin={DEFAULT_CHART_MARGIN}>

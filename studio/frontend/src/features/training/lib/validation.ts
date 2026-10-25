@@ -18,6 +18,14 @@ import {
   isTrainingModelTypeSupportedOnDevice,
 } from "./training-methods";
 
+// DPO/ORPO/CPO read chosen/rejected pairs. Anything else is an SFT dataset, which the
+// backend would format as instruction data, so the run must be refused up front.
+const PREFERENCE_DATASET_METHODS: ReadonlySet<string> = new Set([
+  "dpo",
+  "orpo",
+  "cpo",
+]);
+
 export type StartValidationResult =
   | { ok: true; errorKey: null }
   | { ok: false; errorKey: TranslationKey };
@@ -246,5 +254,22 @@ export function validateTrainingConfig(
     };
   }
 
-  return validateDatasetSelection(config);
+  const datasetSelection = validateDatasetSelection(config);
+  if (!datasetSelection.ok) {
+    return datasetSelection;
+  }
+  // isCheckingDataset: the format probe has not reported yet, and isPreferenceDataset is
+  // still false from the previous selection, so blocking now would flash a false mismatch.
+  if (
+    config.trainingMethod !== "cpt" &&
+    PREFERENCE_DATASET_METHODS.has(config.preferenceTrainingMethod) &&
+    !config.isPreferenceDataset &&
+    !config.isCheckingDataset
+  ) {
+    return {
+      ok: false,
+      errorKey: "studio.training.validation.preferenceDatasetMismatch",
+    };
+  }
+  return datasetSelection;
 }

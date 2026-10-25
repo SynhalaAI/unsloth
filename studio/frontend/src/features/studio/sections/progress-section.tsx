@@ -28,7 +28,7 @@ import {
   useSettingsDialogStore,
 } from "@/features/settings";
 import {
-  getTrainingMethodLabel,
+  formatTrainingMethodLabel,
   type TrainingViewData,
   useDuplicateTrainingRun,
   useTrainingActions,
@@ -110,7 +110,10 @@ export function ProgressSection({
   const navigate = useNavigate();
   const platformDeviceType = usePlatformStore((s) => s.deviceType);
   const isOwner = useIsAccountOwner();
-  const trainingMethodLabel = getTrainingMethodLabel(data.trainingMethod);
+  const trainingMethodLabel = formatTrainingMethodLabel(
+    data.trainingMethod,
+    data.preferenceMethod,
+  );
 
   const config = useTrainingConfigStore(
     useShallow((state) => ({

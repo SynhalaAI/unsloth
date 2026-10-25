@@ -132,3 +132,20 @@ test("DPO and CPO preference settings are serialized on the training payload", (
   assert.equal(cpoPayload.cpo_alpha, 1.5);
   assert.equal(cpoPayload.max_prompt_length, 1024);
 });
+
+test("ORPO is serialized with the shared beta and prompt length", () => {
+  const orpoPayload = buildTrainingStartPayload(
+    {
+      ...CONFIG,
+      preferenceTrainingMethod: "orpo",
+      dpoBeta: 0.2,
+      maxPromptLength: 768,
+    },
+    null,
+  );
+
+  assert.equal(orpoPayload.training_method, "ORPO");
+  assert.equal(orpoPayload.dpo_beta, 0.2);
+  assert.equal(orpoPayload.cpo_alpha, 1.0);
+  assert.equal(orpoPayload.max_prompt_length, 768);
+});

@@ -4027,6 +4027,8 @@ export const ptBR = {
         hfDatasetSplitRequired:
           "Selecione ou insira primeiro uma divisão de treino.",
         localDatasetRequired: "Selecione primeiro um dataset local.",
+        preferenceDatasetMismatch:
+          "DPO, ORPO e CPO precisam de um dataset com as colunas chosen e rejected. Escolha um dataset de preferências ou mude o modo de preferência para SFT.",
         unsupportedDatasetSource: "Fonte de dataset não compatível.",
       },
       startFailed: "Falha ao iniciar o treinamento",

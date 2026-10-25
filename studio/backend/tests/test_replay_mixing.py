@@ -63,6 +63,7 @@ def test_replay_refused_for_raw_cpt_and_preference_runs():
         {"format_type": "raw"},
         {"training_type": "Continued Pretraining"},
         {"training_method": "DPO"},
+        {"training_method": "ORPO"},
         {"training_method": "CPO"},
         {"is_dataset_audio": True},
     ):

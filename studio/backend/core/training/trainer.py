@@ -172,7 +172,7 @@ def resolve_training_format_type(
     """Resolve the effective dataset format for trainer branching.
 
     An explicit non-"auto" format wins. When the user leaves the field at "auto",
-    prefer the dataset's resolved final format so DPO/CPO preference detection still
+    prefer the dataset's resolved final format so DPO/ORPO/CPO preference detection still
     drives the correct trainer branch.
     """
     explicit = str(training_args.get("format_type") or "").strip().lower()
@@ -1093,6 +1093,9 @@ class UnslothTrainer:
                     rewards_margins = logs.get("rewards/margins", logs.get("rewards_margins")),
                     eval_rewards_accuracies = logs.get("eval_rewards/accuracies", logs.get("eval_rewards_accuracies")),
                     eval_rewards_margins = logs.get("eval_rewards/margins", logs.get("eval_rewards_margins")),
+                    # ORPO's own components (TRL logs these alongside rewards/*).
+                    nll_loss = logs.get("nll_loss"),
+                    log_odds_ratio = logs.get("log_odds_ratio"),
                     is_run_summary = is_run_summary,
                     offload = trainer_ref._offload_snapshot(),
                     status_message = "",
@@ -4086,7 +4089,7 @@ class UnslothTrainer:
             if format_type in ("preference_dpo", "preference_cpo", "dpo", "cpo") or (
                 format_type == "auto" and is_preference_dataset(dataset)
             ):
-                logger.info("Preference dataset detected. Standardizing for DPO/CPO training...\n")
+                logger.info("Preference dataset detected. Standardizing for DPO/ORPO/CPO training...\n")
                 formatted_ds = standardize_preference_dataset(dataset)
                 dataset_info = {
                     "dataset": formatted_ds,
@@ -5210,6 +5213,19 @@ class UnslothTrainer:
             logger.info(f"The configuration is: {config_args}")
 
             logger.info("Training configuration prepared\n")
+
+            # A preference method on a dataset that never carried chosen/rejected would fall
+            # through to the SFT branches below and silently train something else. CPT and
+            # raw-text runs ignore the preference method, so a stale dropdown value is fine.
+            if not training_args.get("is_cpt") and not raw_text_mode:
+                from core.training.preference_trainer import preference_dataset_mismatch
+
+                mismatch = preference_dataset_mismatch(
+                    training_args.get("training_method"), dataset
+                )
+                if mismatch is not None:
+                    raise ValueError(mismatch)
+
             if self.is_audio_vlm and not raw_text_mode:
                 # Image VLM: dict wrapper from format_and_template_dataset (raw-text uses the text path). Audio VLM
                 # (e.g. Gemma 3N + audio): raw Dataset from _format_audio_vlm_dataset, and the notebook uses
@@ -5334,6 +5350,20 @@ class UnslothTrainer:
                     if eval_dataset is not None:
                         trainer_kwargs["eval_dataset"] = eval_dataset
                     self.trainer = _UnslothCPTTrainer(**trainer_kwargs)
+                elif training_args.get("training_method") == "ORPO":
+                    # Explicit ORPO wins over the preference_dpo format fallback below.
+                    from core.training.preference_trainer import setup_orpo_trainer
+
+                    self.trainer = setup_orpo_trainer(
+                        model = self.model,
+                        tokenizer = sft_tokenizer,
+                        train_dataset = dataset["dataset"],
+                        eval_dataset = eval_dataset,
+                        config_args = config_args,
+                        dpo_beta = float(training_args.get("dpo_beta", 0.1)),
+                        max_prompt_length = int(training_args.get("max_prompt_length", 512)),
+                        max_length = int(training_args.get("max_seq_length", 2048)),
+                    )
                 elif (
                     training_args.get("training_method") == "DPO"
                     or format_type in ("preference_dpo", "dpo")
@@ -5384,10 +5414,10 @@ class UnslothTrainer:
             logger.info("Trainer initialized\n")
 
             # ========== TRAIN ON RESPONSES ONLY ==========
-            # Raw-text datasets and preference datasets (DPO/CPO) always skip response masking.
+            # Raw-text datasets and preference datasets (DPO/ORPO/CPO) always skip response masking.
             is_cpt = training_args.get("is_cpt", False)
             is_preference_training = (
-                training_args.get("training_method") in ("DPO", "CPO")
+                training_args.get("training_method") in ("DPO", "ORPO", "CPO")
                 or format_type in ("preference_dpo", "preference_cpo", "dpo", "cpo")
             )
             train_on_responses_enabled = (
@@ -5399,7 +5429,7 @@ class UnslothTrainer:
             if is_cpt:
                 logger.info("CPT mode: skipping train_on_responses_only — training on all tokens\n")
             elif is_preference_training:
-                logger.info("Preference mode: skipping train_on_responses_only — handled by DPO/CPO trainer\n")
+                logger.info("Preference mode: skipping train_on_responses_only — handled by DPO/ORPO/CPO trainer\n")
             elif raw_text_mode:
                 logger.info(
                     "Raw-text mode: skipping train_on_responses_only — training on all tokens\n"

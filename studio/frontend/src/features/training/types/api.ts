@@ -18,7 +18,7 @@ export interface TrainingStartRequest {
   actual_model_repo_id?: string | null;
   project_name: string | null;
   training_type: string;
-  training_method?: "SFT" | "DPO" | "CPO";
+  training_method?: "SFT" | "DPO" | "ORPO" | "CPO";
   dpo_beta?: number;
   cpo_alpha?: number;
   max_prompt_length?: number | null;

@@ -3996,6 +3996,8 @@ export const ar = {
         hfDatasetRequired: "اختر مجموعة بيانات Hugging Face أولًا.",
         hfDatasetSplitRequired: "اختر قسم التدريب أو أدخله أولًا.",
         localDatasetRequired: "اختر مجموعة بيانات محلية أولًا.",
+        preferenceDatasetMismatch:
+          "تحتاج DPO وORPO وCPO إلى مجموعة بيانات تحتوي على عمودي chosen وrejected. اختر مجموعة بيانات تفضيل، أو غيّر وضع التفضيل إلى SFT.",
         unsupportedDatasetSource: "مصدر مجموعة البيانات غير مدعوم.",
       },
       startFailed: "فشل بدء التدريب",

@@ -3,6 +3,7 @@
 
 import {
   isRawTextDatasetFormat,
+  toBackendPreferenceMethod,
   toBackendTrainingType,
 } from "../lib/training-methods";
 import type { SystemInfoResponse } from "@/hooks/use-system";
@@ -222,24 +223,13 @@ export function buildTrainingStartPayload(
     model_name: config.selectedModel ?? "",
     project_name: (config.projectName || "").trim() || null,
     training_type: toBackendTrainingType(trainingMethod),
-    training_method:
-      config.preferenceTrainingMethod === "cpo"
-        ? "CPO"
-        : config.preferenceTrainingMethod === "dpo"
-          ? "DPO"
-          : "SFT",
+    training_method: toBackendPreferenceMethod(config.preferenceTrainingMethod),
     dpo_beta:
-      config.preferenceTrainingMethod === "dpo" ||
-      config.preferenceTrainingMethod === "cpo"
-        ? config.dpoBeta
-        : 0.1,
+      config.preferenceTrainingMethod !== "sft" ? config.dpoBeta : 0.1,
     cpo_alpha:
       config.preferenceTrainingMethod === "cpo" ? config.cpoAlpha : 1.0,
     max_prompt_length:
-      config.preferenceTrainingMethod === "dpo" ||
-      config.preferenceTrainingMethod === "cpo"
-        ? config.maxPromptLength
-        : 512,
+      config.preferenceTrainingMethod !== "sft" ? config.maxPromptLength : 512,
     hf_token: hfToken,
     model_known_cached: config.modelKnownCached,
     model_local_path: config.modelKnownCached ? config.modelLocalPath : null,

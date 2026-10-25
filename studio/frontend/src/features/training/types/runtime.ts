@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
+import type { PreferenceTrainingMethod } from "@/types/training";
+
 export type TrainingPhase =
   | "idle"
   | "downloading_model"
@@ -45,6 +47,18 @@ export interface TrainingStatusResponse {
     grad_norm_steps?: number[];
     eval_loss?: number[];
     eval_steps?: number[];
+    reward_accuracy?: number[];
+    reward_accuracy_steps?: number[];
+    reward_margin?: number[];
+    reward_margin_steps?: number[];
+    eval_reward_accuracy?: number[];
+    eval_reward_accuracy_steps?: number[];
+    eval_reward_margin?: number[];
+    eval_reward_margin_steps?: number[];
+    nll_loss?: number[];
+    nll_loss_steps?: number[];
+    log_odds_ratio?: number[];
+    log_odds_ratio_steps?: number[];
   } | null;
 }
 
@@ -80,6 +94,8 @@ export interface TrainingProgressPayload {
   rewards_margins: number | null;
   eval_rewards_accuracies: number | null;
   eval_rewards_margins: number | null;
+  nll_loss: number | null;
+  log_odds_ratio: number | null;
 }
 
 export interface TrainingSeriesPoint {
@@ -130,6 +146,8 @@ export interface TrainingRuntimeState {
   rewardMarginHistory: TrainingSeriesPoint[];
   evalRewardAccuracyHistory: TrainingSeriesPoint[];
   evalRewardMarginHistory: TrainingSeriesPoint[];
+  nllLossHistory: TrainingSeriesPoint[];
+  logOddsRatioHistory: TrainingSeriesPoint[];
   resetGeneration: number;
   stopRequested: boolean;
   configureRequest: number;
@@ -196,6 +214,8 @@ export interface TrainingViewData {
   modelName: string;
   projectName: string | null;
   trainingMethod: string;
+  // DPO/ORPO/CPO objective saved with the run; null/undefined for a plain SFT run.
+  preferenceMethod?: PreferenceTrainingMethod | null;
   isDecision?: boolean;
 
   lossHistory: TrainingSeriesPoint[];
@@ -206,4 +226,6 @@ export interface TrainingViewData {
   rewardMarginHistory: TrainingSeriesPoint[];
   evalRewardAccuracyHistory: TrainingSeriesPoint[];
   evalRewardMarginHistory: TrainingSeriesPoint[];
+  nllLossHistory: TrainingSeriesPoint[];
+  logOddsRatioHistory: TrainingSeriesPoint[];
 }

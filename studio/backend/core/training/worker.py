@@ -5713,6 +5713,12 @@ def _create_trainer_progress_callback(event_queue: Any) -> Callable[[TrainingPro
             progress.eval_loss,
             progress.cer,
             progress.wer,
+            getattr(progress, "rewards_accuracies", None),
+            getattr(progress, "rewards_margins", None),
+            getattr(progress, "eval_rewards_accuracies", None),
+            getattr(progress, "eval_rewards_margins", None),
+            getattr(progress, "nll_loss", None),
+            getattr(progress, "log_odds_ratio", None),
         )
         is_repeat = metrics == last_metrics[0]
         if (
@@ -5738,6 +5744,16 @@ def _create_trainer_progress_callback(event_queue: Any) -> Callable[[TrainingPro
                     "eval_loss": progress.eval_loss,
                     "cer": progress.cer,
                     "wer": progress.wer,
+                    "rewards_chosen": getattr(progress, "rewards_chosen", None),
+                    "rewards_rejected": getattr(progress, "rewards_rejected", None),
+                    "rewards_accuracies": getattr(progress, "rewards_accuracies", None),
+                    "rewards_margins": getattr(progress, "rewards_margins", None),
+                    "eval_rewards_accuracies": getattr(
+                        progress, "eval_rewards_accuracies", None
+                    ),
+                    "eval_rewards_margins": getattr(progress, "eval_rewards_margins", None),
+                    "nll_loss": getattr(progress, "nll_loss", None),
+                    "log_odds_ratio": getattr(progress, "log_odds_ratio", None),
                     "status_message": progress.status_message,
                     "offload": getattr(progress, "offload", None),
                     "ts": time.time(),

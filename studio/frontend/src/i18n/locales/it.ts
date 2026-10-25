@@ -4039,6 +4039,8 @@ export const it = {
         hfDatasetSplitRequired:
           "Seleziona o inserisci prima uno split di addestramento.",
         localDatasetRequired: "Seleziona prima un dataset locale.",
+        preferenceDatasetMismatch:
+          "DPO, ORPO e CPO richiedono un dataset con le colonne chosen e rejected. Scegli un dataset di preferenze oppure imposta la modalità preferenza su SFT.",
         unsupportedDatasetSource: "Origine del dataset non supportata.",
       },
       startFailed: "Avvio dell'addestramento non riuscito",

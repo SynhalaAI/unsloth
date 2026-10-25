@@ -19,11 +19,14 @@ export {
   shouldShowTrainingArtifactsDeleted,
 } from "./lib/run-display";
 export {
+  formatTrainingMethodLabel,
+  getPreferenceMethodLabel,
   getTrainingMethodLabel,
   isRawTextDatasetFormat,
   isTrainingLoraVariantSupportedOnDevice,
   isTrainingMethodSupportedOnDevice,
   isTrainingModelTypeSupportedOnDevice,
+  parseBackendPreferenceMethod,
   parseBackendTrainingMethod,
 } from "./lib/training-methods";
 export { useTrainingHistorySidebarItems } from "./hooks/use-training-history-sidebar";

@@ -3015,6 +3015,28 @@ def _build_training_status(
             "cer_steps": list(getattr(backend, "cer_step_history", [])),
             "wer": list(getattr(backend, "wer_history", [])),
             "wer_steps": list(getattr(backend, "wer_step_history", [])),
+            "reward_accuracy": list(getattr(backend, "reward_accuracy_history", [])),
+            "reward_accuracy_steps": list(
+                getattr(backend, "reward_accuracy_step_history", [])
+            ),
+            "reward_margin": list(getattr(backend, "reward_margin_history", [])),
+            "reward_margin_steps": list(getattr(backend, "reward_margin_step_history", [])),
+            "eval_reward_accuracy": list(
+                getattr(backend, "eval_reward_accuracy_history", [])
+            ),
+            "eval_reward_accuracy_steps": list(
+                getattr(backend, "eval_reward_accuracy_step_history", [])
+            ),
+            "eval_reward_margin": list(getattr(backend, "eval_reward_margin_history", [])),
+            "eval_reward_margin_steps": list(
+                getattr(backend, "eval_reward_margin_step_history", [])
+            ),
+            "nll_loss": list(getattr(backend, "nll_loss_history", [])),
+            "nll_loss_steps": list(getattr(backend, "nll_loss_step_history", [])),
+            "log_odds_ratio": list(getattr(backend, "log_odds_ratio_history", [])),
+            "log_odds_ratio_steps": list(
+                getattr(backend, "log_odds_ratio_step_history", [])
+            ),
         }
 
     return TrainingStatus(
@@ -3236,6 +3258,22 @@ async def stream_training_progress(
                 eval_loss = eval_loss,
                 cer = cer,
                 wer = wer,
+                rewards_chosen = getattr(progress, "rewards_chosen", None) if progress else None,
+                rewards_rejected = (
+                    getattr(progress, "rewards_rejected", None) if progress else None
+                ),
+                rewards_accuracies = (
+                    getattr(progress, "rewards_accuracies", None) if progress else None
+                ),
+                rewards_margins = getattr(progress, "rewards_margins", None) if progress else None,
+                eval_rewards_accuracies = (
+                    getattr(progress, "eval_rewards_accuracies", None) if progress else None
+                ),
+                eval_rewards_margins = (
+                    getattr(progress, "eval_rewards_margins", None) if progress else None
+                ),
+                nll_loss = getattr(progress, "nll_loss", None) if progress else None,
+                log_odds_ratio = getattr(progress, "log_odds_ratio", None) if progress else None,
             )
 
         def format_sse(

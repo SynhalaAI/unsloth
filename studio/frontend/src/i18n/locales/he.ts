@@ -4090,6 +4090,8 @@ export const he = {
         hfDatasetRequired: "בחר תחילה מערך נתונים מ-Hugging Face.",
         hfDatasetSplitRequired: "בחר או הזן תחילה פיצול אימון.",
         localDatasetRequired: "בחר תחילה מערך נתונים מקומי.",
+        preferenceDatasetMismatch:
+          "DPO, ORPO ו-CPO דורשים מערך נתונים עם עמודות chosen ו-rejected. בחרו מערך נתוני העדפות, או החליפו את מצב ההעדפה ל-SFT.",
         unsupportedDatasetSource: "מקור מערך נתונים שאינו נתמך.",
       },
       startFailed: "התחלת האימון נכשלה",

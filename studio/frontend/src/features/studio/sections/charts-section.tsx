@@ -28,6 +28,8 @@ interface ChartsSectionProps {
   rewardMarginHistory?: TrainingSeriesPoint[];
   evalRewardAccuracyHistory?: TrainingSeriesPoint[];
   evalRewardMarginHistory?: TrainingSeriesPoint[];
+  nllLossHistory?: TrainingSeriesPoint[];
+  logOddsRatioHistory?: TrainingSeriesPoint[];
 }
 
 export function ChartsSection({
@@ -42,6 +44,8 @@ export function ChartsSection({
   rewardMarginHistory = [],
   evalRewardAccuracyHistory = [],
   evalRewardMarginHistory = [],
+  nllLossHistory = [],
+  logOddsRatioHistory = [],
 }: ChartsSectionProps): ReactElement | null {
   const series = useMemo(
     () => ({
@@ -79,8 +83,16 @@ export function ChartsSection({
         step: point.step,
         margin: point.value,
       })),
+      nllLossHistory: nllLossHistory.map((point) => ({
+        step: point.step,
+        nllLoss: point.value,
+      })),
+      logOddsRatioHistory: logOddsRatioHistory.map((point) => ({
+        step: point.step,
+        logOddsRatio: point.value,
+      })),
     }),
-    [currentStep, evalLossHistory, evalRewardAccuracyHistory, evalRewardMarginHistory, gradNormHistory, lossHistory, lrHistory, rewardAccuracyHistory, rewardMarginHistory, totalSteps],
+    [currentStep, evalLossHistory, evalRewardAccuracyHistory, evalRewardMarginHistory, gradNormHistory, logOddsRatioHistory, lossHistory, lrHistory, nllLossHistory, rewardAccuracyHistory, rewardMarginHistory, totalSteps],
   );
 
   if (
@@ -91,7 +103,9 @@ export function ChartsSection({
     series.rewardAccuracyHistory.length === 0 &&
     series.rewardMarginHistory.length === 0 &&
     series.evalRewardAccuracyHistory.length === 0 &&
-    series.evalRewardMarginHistory.length === 0
+    series.evalRewardMarginHistory.length === 0 &&
+    series.nllLossHistory.length === 0 &&
+    series.logOddsRatioHistory.length === 0
   ) {
     return null;
   }

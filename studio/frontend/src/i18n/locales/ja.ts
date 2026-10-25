@@ -3963,6 +3963,8 @@ export const ja = {
         hfDatasetSplitRequired:
           "先に学習用分割を選択または入力してください。",
         localDatasetRequired: "先にローカルデータセットを選択してください。",
+        preferenceDatasetMismatch:
+          "DPO、ORPO、CPO には chosen と rejected の列を持つデータセットが必要です。選好データセットを選ぶか、Preference mode を SFT に切り替えてください。",
         unsupportedDatasetSource:
           "サポートされていないデータセットソースです。",
       },
