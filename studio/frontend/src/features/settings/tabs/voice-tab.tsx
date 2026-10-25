@@ -1346,7 +1346,7 @@ export function VoiceTab() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="h-7 px-2.5 text-xs"
+                      className="text-xs"
                       disabled={downloadingThisModel || sttDownloadStarting}
                       onClick={() => void beginSttDownload()}
                     >
@@ -1360,7 +1360,7 @@ export function VoiceTab() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-7 px-2.5 text-xs"
+                        className="text-xs"
                         disabled={sttUnloading}
                         onClick={releaseSttModel}
                       >
@@ -1387,7 +1387,7 @@ export function VoiceTab() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-7 px-2.5 text-xs"
+                        className="text-xs"
                         onClick={warmSttModel}
                       >
                         {sttPhase === "error"
