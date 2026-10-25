@@ -324,6 +324,10 @@ def setup_preference_trainer(
     )
     if normalized == "CPO":
         config_kwargs["cpo_alpha"] = float(cpo_alpha)
+    if normalized in ("ORPO", "CPO"):
+        # Their default DPODataCollatorWithPadding reads the prompt/chosen/rejected columns, so
+        # TRL sets this itself and warns on every run. DPO keeps Trainer's signature columns.
+        config_kwargs["remove_unused_columns"] = False
     dpo_peft = normalized != "DPO" or _is_peft_model(model)
     if normalized == "DPO" and not dpo_peft:
         # A full finetune has no adapter to disable, and TRL would silently deep-copy the whole

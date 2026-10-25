@@ -187,6 +187,7 @@ def _install_fake_trl(monkeypatch, events, *, tokenizer_kwarg = False):
         max_length: int = 1024
         max_prompt_length: int = 512
         precompute_ref_log_probs: bool = False
+        remove_unused_columns: bool = True
 
     @dataclass
     class ORPOConfig:
@@ -196,6 +197,7 @@ def _install_fake_trl(monkeypatch, events, *, tokenizer_kwarg = False):
         beta: float = 0.1
         max_length: int = 1024
         max_prompt_length: int = 512
+        remove_unused_columns: bool = True
 
     @dataclass
     class CPOConfig:
@@ -206,6 +208,7 @@ def _install_fake_trl(monkeypatch, events, *, tokenizer_kwarg = False):
         max_length: int = 1024
         max_prompt_length: int = 512
         cpo_alpha: float = 1.0
+        remove_unused_columns: bool = True
 
     classes = {
         "DPOConfig": DPOConfig,
@@ -389,6 +392,22 @@ def test_full_finetune_dpo_refuses_a_streaming_dataset(monkeypatch):
 
 
 @pytest.mark.parametrize("method", ["ORPO", "CPO"])
+def test_orpo_and_cpo_disable_remove_unused_columns(monkeypatch, method):
+    trainer, _, _ = _setup(monkeypatch, method)
+
+    # Their DPODataCollatorWithPadding needs the prompt/chosen/rejected columns. TRL flips this
+    # itself but warns on every run, so Studio sets it explicitly.
+    assert trainer.args.remove_unused_columns is False
+
+
+def test_dpo_leaves_remove_unused_columns_to_trl(monkeypatch):
+    trainer, _, _ = _setup(monkeypatch, "dpo")
+
+    # DPOTrainer overrides the signature columns instead, so it must keep the Trainer default.
+    assert trainer.args.remove_unused_columns is True
+
+
+@pytest.mark.parametrize("method", ["ORPO", "CPO"])
 def test_orpo_and_cpo_take_no_reference_model(monkeypatch, method):
     trainer, _, _ = _setup(monkeypatch, method, cpo_alpha = 0.7)
 
@@ -508,6 +527,7 @@ def test_orpo_falls_back_to_trl_experimental(monkeypatch):
         beta: float = 0.1
         max_length: int = 1024
         max_prompt_length: int = 512
+        remove_unused_columns: bool = True
 
     class ORPOTrainer:
         def __init__(self, model = None, args = None, train_dataset = None, processing_class = None):
