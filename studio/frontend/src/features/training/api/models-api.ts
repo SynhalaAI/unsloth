@@ -45,6 +45,11 @@ interface BackendTrainingDefaults {
   trust_remote_code?: boolean;
   whisper_language?: string | null;
   whisper_task?: string | null;
+  // Preference objective and its own hyperparameters, so a DPO/ORPO/CPO recipe round-trips.
+  training_method?: string;
+  dpo_beta?: number;
+  cpo_alpha?: number;
+  max_prompt_length?: number | null;
 }
 
 interface BackendLoraDefaults {

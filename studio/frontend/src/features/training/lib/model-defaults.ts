@@ -5,6 +5,10 @@ import { usePlatformStore } from "@/config/env";
 import type { BackendModelConfig } from "../api/models-api";
 import type { TrainingConfigState } from "../types/config";
 import type { ModelDefaultsPatch } from "./model-defaults-edit-policy";
+import { parseBackendPreferenceMethod } from "./training-methods";
+
+// The upper bound studio/backend/models/training.py puts on max_prompt_length (_MAX_SEQ_LENGTH).
+const MAX_PROMPT_LENGTH = 2_000_000;
 
 function toNumber(value: unknown): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -220,6 +224,32 @@ export function mapBackendModelConfigToTrainingPatch(
   const trainOnCompletions = toBoolean(training?.train_on_completions);
   if (trainOnCompletions !== undefined) {
     patch.trainOnCompletions = trainOnCompletions;
+  }
+
+  // A saved preference recipe carries its objective and its own hyperparameters. The method
+  // is authoritative (an SFT file clears a stale selection); an unknown value is ignored.
+  const preferenceTrainingMethod = parseBackendPreferenceMethod(
+    training?.training_method,
+  );
+  if (preferenceTrainingMethod !== null) {
+    patch.preferenceTrainingMethod = preferenceTrainingMethod;
+  }
+  // Clamp to the bounds studio/backend/models/training.py accepts, so a hand-edited file
+  // cannot produce a start request the API rejects.
+  const dpoBeta = toNumber(training?.dpo_beta);
+  if (dpoBeta !== undefined) {
+    patch.dpoBeta = Math.min(2, Math.max(0.001, dpoBeta));
+  }
+  const cpoAlpha = toNumber(training?.cpo_alpha);
+  if (cpoAlpha !== undefined) {
+    patch.cpoAlpha = Math.min(10, Math.max(0, cpoAlpha));
+  }
+  const maxPromptLength = toNumber(training?.max_prompt_length);
+  if (maxPromptLength !== undefined) {
+    patch.maxPromptLength = Math.min(
+      MAX_PROMPT_LENGTH,
+      Math.max(1, Math.floor(maxPromptLength)),
+    );
   }
 
   const gradientCheckpointing = toGradientCheckpointing(

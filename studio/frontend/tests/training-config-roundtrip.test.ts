@@ -64,6 +64,60 @@ function importConfig(text: string): void {
   useTrainingConfigStore.getState().applyConfigPatch(parseYamlConfig(text));
 }
 
+test("a saved DPO/ORPO/CPO config restores the objective and its knobs", () => {
+  seedTunedModelDefaults();
+  useTrainingConfigStore.setState({
+    preferenceTrainingMethod: "orpo",
+    dpoBeta: 0.42,
+    maxPromptLength: 2048,
+  });
+  const saved = serializeConfigToYaml(useTrainingConfigStore.getState(), false);
+
+  // A plain selection must not swallow the file's objective.
+  useTrainingConfigStore.setState({
+    preferenceTrainingMethod: "sft",
+    dpoBeta: 0.1,
+    cpoAlpha: 1,
+    maxPromptLength: 512,
+  });
+  importConfig(saved);
+
+  let after = useTrainingConfigStore.getState();
+  assert.equal(after.preferenceTrainingMethod, "orpo");
+  assert.equal(after.dpoBeta, 0.42);
+  assert.equal(after.maxPromptLength, 2048);
+
+  // SFT is written too, so importing an SFT file clears a stale preference choice.
+  useTrainingConfigStore.setState({ preferenceTrainingMethod: "sft" });
+  importConfig(serializeConfigToYaml(useTrainingConfigStore.getState(), false));
+  after = useTrainingConfigStore.getState();
+  assert.equal(after.preferenceTrainingMethod, "sft");
+});
+
+test("an imported preference config is clamped to the request bounds", () => {
+  const clamped = mapBackendModelConfigToTrainingPatch(
+    parseYamlConfig(
+      "training:\n  training_method: dpo\n  dpo_beta: 9\n  cpo_alpha: -1\n  max_prompt_length: 0\n",
+    ),
+  );
+  assert.equal(clamped.preferenceTrainingMethod, "dpo");
+  assert.equal(clamped.dpoBeta, 2);
+  assert.equal(clamped.cpoAlpha, 0);
+  assert.equal(clamped.maxPromptLength, 1);
+
+  // The API also caps the prompt length, so a wildly large value is pulled back to the bound.
+  const huge = mapBackendModelConfigToTrainingPatch(
+    parseYamlConfig("training:\n  max_prompt_length: 5000000\n"),
+  );
+  assert.equal(huge.maxPromptLength, 2_000_000);
+
+  // Not a preference objective: leave whatever the user has selected alone.
+  const unknown = mapBackendModelConfigToTrainingPatch(
+    parseYamlConfig("training:\n  training_method: RLHF\n"),
+  );
+  assert.equal("preferenceTrainingMethod" in unknown, false);
+});
+
 test("a partial import patches only the keys the file names", () => {
   seedTunedModelDefaults();
 

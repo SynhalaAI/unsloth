@@ -101,6 +101,31 @@ test("a saved preference config leaves both toggles out of the file", () => {
   assert.equal(sft.train_on_completions, true);
 });
 
+test("a saved preference config keeps the objective and its hyperparameters", () => {
+  const training = savedTrainingSection({
+    ...CONFIG,
+    preferenceTrainingMethod: "cpo",
+    dpoBeta: 0.35,
+    cpoAlpha: 0.4,
+    maxPromptLength: 1024,
+  });
+  assert.equal(training.training_method, "CPO");
+  assert.equal(training.dpo_beta, 0.35);
+  assert.equal(training.cpo_alpha, 0.4);
+  assert.equal(training.max_prompt_length, 1024);
+
+  // An SFT run still records its objective, so importing it back clears a stale preference
+  // choice; the preference-only knobs stay out of its file.
+  const sft = savedTrainingSection({
+    ...CONFIG,
+    preferenceTrainingMethod: "sft",
+  });
+  assert.equal(sft.training_method, "SFT");
+  assert.equal("dpo_beta" in sft, false);
+  assert.equal("cpo_alpha" in sft, false);
+  assert.equal("max_prompt_length" in sft, false);
+});
+
 test("the advanced settings summary does not count the two dead toggles", () => {
   assert.equal(
     countNonDefaultAdvancedSettings({

@@ -47,7 +47,14 @@ export const MODEL_DEFAULT_STATE_KEYS = [
 export type ModelDefaultsPatch = Partial<
   Pick<TrainingConfigState, (typeof MODEL_DEFAULT_STATE_KEYS)[number]>
 > &
-  Partial<Pick<TrainingConfigState, "checkpointBackup">>;
+  Partial<Pick<TrainingConfigState, "checkpointBackup">> &
+  // Carried by an imported YAML file, not by a model default: switching models keeps them.
+  Partial<
+    Pick<
+      TrainingConfigState,
+      "preferenceTrainingMethod" | "dpoBeta" | "cpoAlpha" | "maxPromptLength"
+    >
+  >;
 
 export function trainingConfigPatchTouchesModelDefaults(
   patch: Partial<TrainingConfigState>,

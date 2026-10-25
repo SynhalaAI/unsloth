@@ -76,6 +76,20 @@ def test_every_locale_translates_the_new_popover_keys():
             )
 
 
+def test_preference_config_import_export_keeps_the_objective():
+    yaml_config = _read(
+        _FRONTEND / "features" / "training" / "lib" / "yaml-config.ts"
+    )
+    defaults = _read(
+        _FRONTEND / "features" / "training" / "lib" / "model-defaults.ts"
+    )
+    for key in ("training_method", "dpo_beta", "cpo_alpha", "max_prompt_length"):
+        assert key in yaml_config, "yaml-config.ts must save %s" % key
+        assert key in defaults, "model-defaults.ts must import %s" % key
+    # SFT files carry the method too, so an import can clear a stale preference selection.
+    assert "state.preferenceTrainingMethod.toUpperCase()" in yaml_config
+
+
 def test_reward_level_chart_is_wired_end_to_end():
     card = _read(_STUDIO / "sections" / "charts" / "reward-chart-card.tsx")
     assert "export function RewardChartCard" in card

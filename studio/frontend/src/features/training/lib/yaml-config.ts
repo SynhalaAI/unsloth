@@ -146,6 +146,18 @@ export function serializeConfigToYaml(
     optim: state.optimizerType,
     lr_scheduler_type: state.lrSchedulerType,
     whisper_language: state.isWhisperModel ? state.whisperLanguage : null,
+    // Always written, so importing an SFT file also clears a stale DPO/ORPO/CPO choice.
+    // The hyperparameters are left out unless their own objective uses them.
+    training_method: state.preferenceTrainingMethod.toUpperCase(),
+    ...(state.preferenceTrainingMethod !== "sft"
+      ? {
+          dpo_beta: state.dpoBeta,
+          max_prompt_length: state.maxPromptLength,
+        }
+      : {}),
+    ...(state.preferenceTrainingMethod === "cpo"
+      ? { cpo_alpha: state.cpoAlpha }
+      : {}),
   };
   // Only when on, so a file exported without the feature reads exactly as before.
   if (state.drafterEnabled) {
