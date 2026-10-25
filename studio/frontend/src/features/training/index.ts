@@ -30,6 +30,11 @@ export {
   parseBackendTrainingMethod,
   usesPreferenceObjective,
 } from "./lib/training-methods";
+export {
+  effectiveMaxPromptLength,
+  maxPromptLengthCap,
+  maxPromptLengthPresets,
+} from "./lib/preference-limits";
 export { useTrainingHistorySidebarItems } from "./hooks/use-training-history-sidebar";
 export { useTrainingRuntimeLifecycle } from "./hooks/use-training-runtime-lifecycle";
 export { useTrainingCompletionWatch } from "./hooks/use-training-completion-watch";

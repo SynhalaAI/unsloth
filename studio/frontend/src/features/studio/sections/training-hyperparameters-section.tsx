@@ -22,7 +22,12 @@ import {
   MLX_OPTIMIZER_OPTIONS,
   OPTIMIZER_OPTIONS,
 } from "@/config/training";
-import { useTrainingConfigStore } from "@/features/training";
+import {
+  effectiveMaxPromptLength,
+  maxPromptLengthCap,
+  maxPromptLengthPresets,
+  useTrainingConfigStore,
+} from "@/features/training";
 import { useT } from "@/i18n";
 import { ChevronDownStandardIcon } from "@/lib/chevron-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -32,8 +37,6 @@ import { ParamsRow, ParamsSliderRow } from "./params-section-controls";
 import { TrainingMemoryParams } from "./training-memory-params";
 
 type HyperparameterTab = "optimization" | "schedule" | "memory" | "preference";
-
-const MAX_PROMPT_LENGTH_OPTIONS = [128, 256, 512, 1024, 2048, 4096, 8192];
 
 // Whisper language names accepted by WhisperProcessor.from_pretrained(language=...).
 // Keep in sync with transformers.models.whisper.tokenization_whisper.LANGUAGES.
@@ -171,6 +174,7 @@ export function TrainingHyperparametersSection({
   const store = useTrainingConfigStore(
     useShallow((state) => ({
       epochs: state.epochs,
+      contextLength: state.contextLength,
       isPreferenceDataset: state.isPreferenceDataset,
       preferenceTrainingMethod: state.preferenceTrainingMethod,
       dpoBeta: state.dpoBeta,
@@ -214,6 +218,16 @@ export function TrainingHyperparametersSection({
   const [tab, setTab] = useState<HyperparameterTab>("optimization");
   const showPreferenceTab =
     store.isPreferenceDataset || store.preferenceTrainingMethod !== "sft";
+  // CPT trains every token, so the preference objective and its knobs never apply.
+  const showPreferenceRows =
+    store.preferenceTrainingMethod !== "sft" && !store.isCpt;
+  // Mirror the trainers' own cap so the row cannot offer a value the run would reduce.
+  const promptLengthCap = maxPromptLengthCap(store.contextLength);
+  const effectivePromptLength = effectiveMaxPromptLength(
+    store.contextLength,
+    store.maxPromptLength,
+  );
+  const promptLengthPresets = maxPromptLengthPresets(store.contextLength);
   const activeTab =
     tab === "preference" && !showPreferenceTab ? "optimization" : tab;
   const isMac = platformDeviceType === "mac";
@@ -429,14 +443,18 @@ export function TrainingHyperparametersSection({
                   </SelectContent>
                 </Select>
               </ParamsRow>
-              {store.preferenceTrainingMethod !== "sft" &&
-                !store.isCpt &&
-                !store.isPreferenceDataset && (
-                  <p className="text-ui-11p5 leading-relaxed text-destructive">
-                    {t("studio.training.validation.preferenceDatasetMismatch")}
-                  </p>
-                )}
-              {store.preferenceTrainingMethod !== "sft" && (
+              {showPreferenceRows && !store.isPreferenceDataset && (
+                <p className="text-ui-11p5 leading-relaxed text-destructive">
+                  {t("studio.training.validation.preferenceDatasetMismatch")}
+                </p>
+              )}
+              {store.isCpt && store.preferenceTrainingMethod !== "sft" && (
+                <p className="text-ui-11p5 leading-relaxed text-muted-foreground">
+                  CPT trains every token, so the preference objective and its
+                  knobs are ignored.
+                </p>
+              )}
+              {showPreferenceRows && (
                 <>
                   <ParamsSliderRow
                     label={
@@ -462,9 +480,18 @@ export function TrainingHyperparametersSection({
                       step={0.1}
                     />
                   )}
-                  <ParamsRow label="Max prompt length">
+                  <ParamsRow
+                    label="Max prompt length"
+                    tooltip={
+                      <>
+                        Prompt tokens kept for the preference pairs. The trainers
+                        also cap this at half the context length (
+                        {promptLengthCap}), so a larger value is reduced.
+                      </>
+                    }
+                  >
                     <Select
-                      value={String(store.maxPromptLength)}
+                      value={String(effectivePromptLength)}
                       onValueChange={(value) =>
                         store.setMaxPromptLength(Number(value))
                       }
@@ -473,14 +500,14 @@ export function TrainingHyperparametersSection({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {!MAX_PROMPT_LENGTH_OPTIONS.includes(
-                          store.maxPromptLength,
+                        {!promptLengthPresets.includes(
+                          effectivePromptLength,
                         ) && (
-                          <SelectItem value={String(store.maxPromptLength)}>
-                            {store.maxPromptLength} (Custom)
+                          <SelectItem value={String(effectivePromptLength)}>
+                            {effectivePromptLength} (Custom)
                           </SelectItem>
                         )}
-                        {MAX_PROMPT_LENGTH_OPTIONS.map((length) => (
+                        {promptLengthPresets.map((length) => (
                           <SelectItem key={length} value={String(length)}>
                             {length}
                           </SelectItem>
@@ -488,6 +515,12 @@ export function TrainingHyperparametersSection({
                       </SelectContent>
                     </Select>
                   </ParamsRow>
+                  {effectivePromptLength < store.maxPromptLength && (
+                    <p className="text-ui-11p5 leading-relaxed text-muted-foreground">
+                      {store.maxPromptLength} exceeds half the context length;
+                      the run uses {effectivePromptLength}.
+                    </p>
+                  )}
                 </>
               )}
             </TabsContent>

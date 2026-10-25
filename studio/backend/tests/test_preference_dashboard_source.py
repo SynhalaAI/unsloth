@@ -90,6 +90,37 @@ def test_preference_config_import_export_keeps_the_objective():
     assert "state.preferenceTrainingMethod.toUpperCase()" in yaml_config
 
 
+def test_max_prompt_length_row_shows_the_trainers_cap():
+    limits = _read(
+        _FRONTEND / "features" / "training" / "lib" / "preference-limits.ts"
+    )
+    trainer = _read(
+        _FRONTEND.parents[1]
+        / "backend"
+        / "core"
+        / "training"
+        / "preference_trainer.py"
+    )
+    section = _read(_STUDIO / "sections" / "training-hyperparameters-section.tsx")
+    # The UI mirrors the trainer's own cap instead of offering values it would reduce.
+    assert "max_length // 2" in trainer, "the trainer must keep its half-context cap"
+    assert "export function maxPromptLengthCap" in limits
+    assert re.search(
+        r"effectiveMaxPromptLength\(\s*store\.contextLength,\s*store\.maxPromptLength,",
+        section,
+    ), "the row must show the capped value"
+    assert "maxPromptLengthPresets(store.contextLength)" in section
+    assert "MAX_PROMPT_LENGTH_OPTIONS" not in section
+
+
+def test_preference_rows_are_hidden_for_cpt():
+    section = _read(_STUDIO / "sections" / "training-hyperparameters-section.tsx")
+    # CPT dispatches before the preference branch, so its knobs cannot change the run.
+    assert "const showPreferenceRows =" in section
+    assert 'store.preferenceTrainingMethod !== "sft" && !store.isCpt' in section
+    assert "{showPreferenceRows && (" in section
+
+
 def test_reward_level_chart_is_wired_end_to_end():
     card = _read(_STUDIO / "sections" / "charts" / "reward-chart-card.tsx")
     assert "export function RewardChartCard" in card
