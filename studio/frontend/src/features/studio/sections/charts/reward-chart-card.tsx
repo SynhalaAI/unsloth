@@ -17,12 +17,12 @@ export function RewardChartCard({ data }: { data: Point[] }): ReactElement {
   const values = data.flatMap((point) => [point.chosen, point.rejected]).filter(Number.isFinite);
   const domain = buildYDomain(values);
   const config = {
-    chosen: { label: "Reward (chosen)", color: "#2563eb" },
-    rejected: { label: "Reward (rejected)", color: "#dc2626" },
+    chosen: { label: "Chosen", color: "#2563eb" },
+    rejected: { label: "Rejected", color: "#dc2626" },
   } satisfies ChartConfig;
   return (
     <Card data-tour="studio-training-reward" size="sm">
-      <CardHeader><CardTitle className="text-sm">Reward (chosen / rejected)</CardTitle></CardHeader>
+      <CardHeader><CardTitle className="text-sm">Reward</CardTitle></CardHeader>
       <CardContent>
         <ChartContainer config={config} className={CHART_CONTAINER_CLASS}>
           <LineChart data={data} syncId={CHART_SYNC_ID} margin={DEFAULT_CHART_MARGIN}>

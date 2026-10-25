@@ -141,8 +141,10 @@ def test_reward_level_chart_is_wired_end_to_end():
     card = _read(_STUDIO / "sections" / "charts" / "reward-chart-card.tsx")
     assert "export function RewardChartCard" in card
     assert 'data-tour="studio-training-reward"' in card
-    assert 'label: "Reward (chosen)"' in card
-    assert 'label: "Reward (rejected)"' in card
+    # The card title already says "Reward", so the legend only names the side.
+    assert 'label: "Chosen"' in card
+    assert 'label: "Rejected"' in card
+    assert "Reward (chosen)" not in card
 
     content = _read(_STUDIO / "sections" / "charts-content.tsx")
     assert "const reducedRewardData = useMemo(" in content
