@@ -34,6 +34,7 @@ import {
   useTrainingActions,
   useTrainingConfigStore,
   useTrainingRuntimeStore,
+  usesPreferenceObjective,
 } from "@/features/training";
 import { useGpuUtilization } from "@/hooks";
 import type { GpuUtilization } from "@/hooks/use-gpu-utilization";
@@ -128,6 +129,10 @@ export function ProgressSection({
       loraAlpha: state.loraAlpha,
       loraDropout: state.loraDropout,
       loraVariant: state.loraVariant,
+      preferenceMethod: state.preferenceTrainingMethod,
+      dpoBeta: state.dpoBeta,
+      cpoAlpha: state.cpoAlpha,
+      maxPromptLength: state.maxPromptLength,
     })),
   );
 
@@ -239,6 +244,11 @@ export function ProgressSection({
   const cfgLoraAlpha = cfg?.loraAlpha;
   const cfgLoraDropout = cfg?.loraDropout;
   const cfgLoraVariant = cfg?.loraVariant;
+  const cfgPreferenceMethod =
+    cfg?.preferenceMethod ?? data.preferenceMethod ?? null;
+  const cfgDpoBeta = cfg?.dpoBeta;
+  const cfgCpoAlpha = cfg?.cpoAlpha;
+  const cfgMaxPromptLength = cfg?.maxPromptLength;
 
   // Mirror the training form: on Mac the MLX backend runs CUDA optimizers as AdamW.
   const effectiveOptimizer =
@@ -268,6 +278,23 @@ export function ProgressSection({
         configRow(t("studio.progress.warmupSteps"), cfgWarmupSteps),
       ],
     },
+    ...(usesPreferenceObjective(data.trainingMethod, cfgPreferenceMethod)
+      ? [
+        {
+          section: t("studio.progress.preference"),
+          rows: [
+            configRow(t("studio.progress.preferenceBeta"), cfgDpoBeta),
+            ...(cfgPreferenceMethod === "cpo"
+              ? [configRow(t("studio.progress.preferenceAlpha"), cfgCpoAlpha)]
+              : []),
+            configRow(
+              t("studio.progress.preferenceMaxPromptLength"),
+              cfgMaxPromptLength,
+            ),
+          ],
+        },
+      ]
+      : []),
     ...(data.trainingMethod !== "full"
       ? [
         {

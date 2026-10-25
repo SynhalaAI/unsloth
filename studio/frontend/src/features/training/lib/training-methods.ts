@@ -95,13 +95,9 @@ export function formatTrainingMethodLabel(
 ): string {
   const base = getTrainingMethodLabel(trainingMethod);
   const label = getPreferenceMethodLabel(preferenceMethod);
-  // Only LoRA/QLoRA runs train a preference objective here; CPT and full finetuning
-  // ignore a stale dropdown selection, so they keep the plain label.
-  if (
-    (trainingMethod !== "qlora" && trainingMethod !== "lora") ||
-    !label ||
-    preferenceMethod === "sft"
-  ) {
+  // LoRA, QLoRA and full finetuning all train a preference objective here; CPT keeps
+  // its dropdown selection but ignores it, so it keeps the plain label.
+  if (!label || !usesPreferenceObjective(trainingMethod, preferenceMethod)) {
     return base;
   }
   return `${base} · ${label}`;

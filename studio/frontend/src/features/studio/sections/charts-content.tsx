@@ -159,6 +159,12 @@ export function ChartsContent({
     }
     return compressSeries(Array.from(points.values()), MAX_RENDER_POINTS);
   }, [metrics.logOddsRatioHistory, metrics.nllLossHistory]);
+  // ORPO is the only preference method that logs both halves of its objective: CPO logs
+  // nll_loss alone, so the components card needs at least one step with a log-odds ratio.
+  const hasOrpoComponents = useMemo(
+    () => reducedOrpoData.some((point) => Number.isFinite(point.logOddsRatio)),
+    [reducedOrpoData],
+  );
   const allSteps = useMemo(() => {
     const set = new Set<number>();
     for (const point of metrics.lossHistory) {
@@ -361,7 +367,7 @@ export function ChartsContent({
           evalData={reducedEvalPreferenceData}
         />
       )}
-      {reducedOrpoData.length > 0 && (
+      {hasOrpoComponents && (
         <OrpoComponentsChartCard data={reducedOrpoData} />
       )}
     </div>

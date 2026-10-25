@@ -12,6 +12,7 @@ const {
   formatTrainingMethodLabel,
   getPreferenceMethodLabel,
   parseBackendPreferenceMethod,
+  usesPreferenceObjective,
 } = await import("../src/features/training/lib/training-methods.ts");
 
 test("parseBackendPreferenceMethod maps every saved preference objective", () => {
@@ -46,11 +47,24 @@ test("formatTrainingMethodLabel appends the objective for adapter runs", () => {
   assert.equal(formatTrainingMethodLabel("lora", "cpo"), "LoRA · CPO");
 });
 
-test("formatTrainingMethodLabel keeps plain labels for SFT, CPT and full finetuning", () => {
+test("formatTrainingMethodLabel keeps plain labels for SFT and CPT", () => {
   assert.equal(formatTrainingMethodLabel("qlora", "sft"), "QLoRA");
   assert.equal(formatTrainingMethodLabel("qlora", null), "QLoRA");
   assert.equal(formatTrainingMethodLabel("qlora", undefined), "QLoRA");
-  // A stale dropdown selection must not relabel a run the backend trains without ORPO.
+  // CPT keeps the dropdown selection but the backend trains it as plain SFT.
   assert.equal(formatTrainingMethodLabel("cpt", "orpo"), "CPT");
-  assert.equal(formatTrainingMethodLabel("full", "orpo"), "Full");
+});
+
+test("formatTrainingMethodLabel labels full finetuning preference runs", () => {
+  // Full finetuning dispatches to the same DPO/ORPO/CPO trainers as LoRA and QLoRA.
+  assert.equal(formatTrainingMethodLabel("full", "dpo"), "Full · DPO");
+  assert.equal(formatTrainingMethodLabel("full", "orpo"), "Full · ORPO");
+  assert.equal(formatTrainingMethodLabel("full", "sft"), "Full");
+});
+
+test("usesPreferenceObjective includes full finetuning but not CPT", () => {
+  assert.equal(usesPreferenceObjective("full", "cpo"), true);
+  assert.equal(usesPreferenceObjective("qlora", "cpo"), true);
+  assert.equal(usesPreferenceObjective("full", "sft"), false);
+  assert.equal(usesPreferenceObjective("cpt", "cpo"), false);
 });

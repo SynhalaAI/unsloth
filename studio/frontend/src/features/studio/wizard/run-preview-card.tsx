@@ -15,11 +15,11 @@ import {
   useTrainingReadiness,
   useTrainingResourceNotices,
   useTrainingTransformersUpgradeNotice,
+  usesPreferenceObjective,
 } from "@/features/training";
 import { useGpuInfo } from "@/hooks";
 import { type TranslationKey, useLocale, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
-import { isAdapterMethod } from "@/types/training";
 import { InformationCircleIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { type ReactElement, type ReactNode, useMemo } from "react";
@@ -421,12 +421,12 @@ export function RunPreviewCard({
   });
   const methodMeta =
     TRAINING_METHOD_META[trainingMethod] ?? TRAINING_METHOD_META.qlora;
-  const preferenceLabel =
-    isAdapterMethod(trainingMethod) &&
-    trainingMethod !== "cpt" &&
-    preferenceTrainingMethod !== "sft"
-      ? getPreferenceMethodLabel(preferenceTrainingMethod)
-      : null;
+  const preferenceLabel = usesPreferenceObjective(
+    trainingMethod,
+    preferenceTrainingMethod,
+  )
+    ? getPreferenceMethodLabel(preferenceTrainingMethod)
+    : null;
   const lengthUnit = maxSteps && maxSteps > 0 ? "step" : "epoch";
   const lengthCount = lengthUnit === "step" ? maxSteps : epochs;
   const lengthLabel = t(

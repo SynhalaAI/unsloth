@@ -442,7 +442,9 @@ export function TrainingHyperparametersSection({
                     label={
                       store.preferenceTrainingMethod === "orpo"
                         ? "ORPO β"
-                        : "DPO β"
+                        : store.preferenceTrainingMethod === "cpo"
+                          ? "CPO β"
+                          : "DPO β"
                     }
                     value={store.dpoBeta}
                     onChange={store.setDpoBeta}
