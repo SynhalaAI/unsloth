@@ -130,6 +130,11 @@ function SampleCard({
     <div className="flex flex-col gap-2 rounded-lg border bg-card p-3">
       <div className="flex flex-wrap items-center gap-2 text-xs">
         {label ? <span className="font-medium">{label}</span> : null}
+        {sample.role ? (
+          <code className="rounded-sm bg-muted px-1 py-0.5 font-mono text-ui-9 text-muted-foreground">
+            {sample.role}
+          </code>
+        ) : null}
         <span className="text-muted-foreground">
           {t("studio.dataset.tokenPreview.stats", {
             tokens: sample.num_tokens.toLocaleString(),

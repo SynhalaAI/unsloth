@@ -575,3 +575,164 @@ def test_pretokenized_rows_show_their_own_ids_and_labels(monkeypatch):
     assert [token[0] for token in sample["tokens"]] == [1, 2, 3, 4]
     assert [token[2] for token in sample["tokens"]] == [False, False, True, True]
     assert sample["truncated_from"] == 5 and out["masking"]["applied"] is False
+
+
+class _ChatTokenizer:
+    """Spells turns as <role>content</role> and maps every character to its code point."""
+
+    chat_template = "x"
+    eos_token_id = 9
+    bos_token = eos_token = None
+
+    def apply_chat_template(
+        self,
+        messages,
+        tokenize = False,
+        add_generation_prompt = False,
+        continue_final_message = False,
+        **kwargs,
+    ):
+        text = "".join(
+            f"<{message['role']}>{message['content']}</{message['role']}>" for message in messages
+        )
+        return text + ("<assistant>" if add_generation_prompt else "")
+
+    def __call__(
+        self,
+        text,
+        add_special_tokens = True,
+        truncation = False,
+        max_length = None,
+        **kwargs,
+    ):
+        texts = text if isinstance(text, list) else [text]
+        encoded = [
+            [ord(char) for char in item][: max_length if truncation and max_length else None]
+            for item in texts
+        ]
+        return {"input_ids": encoded if isinstance(text, list) else encoded[0]}
+
+    def convert_ids_to_tokens(self, ids):
+        return ["<eos>" if token_id == 9 else chr(token_id) for token_id in ids]
+
+    def decode(self, ids):
+        return "".join("<eos>" if token_id == 9 else chr(token_id) for token_id in ids)
+
+    def __len__(self):
+        return 100
+
+
+class _NoTemplateTokenizer(_ChatTokenizer):
+    """A base model: no chat template, so TRL falls back to the plain strings."""
+
+    chat_template = None
+
+    def apply_chat_template(self, messages, **kwargs):
+        raise AssertionError("no chat template, so nothing may be templated")
+
+
+def _preference_preview(monkeypatch, rows, **request):
+    from utils.datasets import chat_templates
+
+    monkeypatch.setattr(chat_templates, "get_training_chat_template", lambda tok, *args: tok)
+    return token_preview_worker._preview(
+        _ChatTokenizer(),
+        {"model_name": "m"},
+        {"rows": rows, "max_seq_length": 512, "num_samples": 3, "seed": 0, **request},
+    )
+
+
+def test_a_chosen_rejected_dataset_previews_both_sides(monkeypatch):
+    out = _preference_preview(monkeypatch, [{"prompt": "Q?", "chosen": "yes", "rejected": "no"}])
+    assert out["final_format"] == "preference_dpo"
+    # Every preference method trains the completions and keeps the prompt as context.
+    assert out["masking"]["applied"] is True
+    assert [sample["role"] for sample in out["samples"]] == ["chosen", "rejected"]
+
+    chosen = out["samples"][0]
+    prompt_text = "<user>Q?</user><assistant>"
+    assert chosen["text"] == prompt_text + "yes</assistant>"
+    assert chosen["num_tokens"] == len(prompt_text) + chosen["num_trained"]
+    # The prompt is masked up to its last character; the completion and its EOS are trained.
+    assert [trained for _, _, trained in chosen["tokens"][: len(prompt_text)]] == [False] * len(
+        prompt_text
+    )
+    assert all(trained for _, _, trained in chosen["tokens"][len(prompt_text) :])
+    assert chosen["num_trained"] == len("yes</assistant>") + 1
+    assert out["samples"][1]["text"].endswith("no</assistant>")
+
+
+def test_preference_column_aliases_are_standardized_first(monkeypatch):
+    out = _preference_preview(
+        monkeypatch, [{"instruction": "Q?", "preferred": "yes", "dispreferred": "no"}]
+    )
+    assert [sample["role"] for sample in out["samples"]] == ["chosen", "rejected"]
+    assert out["samples"][0]["text"] == "<user>Q?</user><assistant>yes</assistant>"
+
+
+def test_preference_rows_never_reach_the_sft_formatter(monkeypatch):
+    import utils.datasets as datasets_pkg
+
+    monkeypatch.setattr(
+        datasets_pkg,
+        "format_and_template_dataset",
+        lambda *args, **kwargs: pytest.fail("a chosen/rejected dataset has no text column"),
+    )
+    out = _preference_preview(monkeypatch, [{"prompt": "Q?", "chosen": "yes", "rejected": "no"}])
+    assert len(out["samples"]) == 2
+
+
+def test_a_preference_row_is_cut_by_the_context_length(monkeypatch):
+    out = _preference_preview(
+        monkeypatch,
+        [{"prompt": "Q?", "chosen": "yes", "rejected": "no"}],
+        max_seq_length = 6,
+    )
+    sample = out["samples"][0]
+    assert sample["num_tokens"] == 6
+    assert sample["truncated_from"] == len("<user>Q?</user><assistant>yes</assistant>") + 1
+    assert sample["num_trained"] == 0
+
+
+def test_a_base_model_trains_the_whole_completion_without_a_template(monkeypatch):
+    from utils.datasets import chat_templates
+
+    monkeypatch.setattr(chat_templates, "get_training_chat_template", lambda tok, *args: tok)
+    out = token_preview_worker._preview(
+        _NoTemplateTokenizer(),
+        {"model_name": "m"},
+        {
+            "rows": [{"prompt": "Q?", "chosen": "yes", "rejected": "no"}],
+            "max_seq_length": 512,
+            "num_samples": 1,
+            "seed": 0,
+        },
+    )
+    # TRL falls back to the raw strings, so there is no prompt prefix to mask.
+    assert [sample["num_trained"] for sample in out["samples"]] == [
+        len("yes") + 1,
+        len("no") + 1,
+    ]
+    assert out["samples"][0]["num_tokens"] == out["samples"][0]["num_trained"]
+
+
+def test_a_text_dataset_still_takes_the_sft_formatter(monkeypatch):
+    import utils.datasets as datasets_pkg
+    from utils.datasets import chat_templates
+
+    calls = []
+    monkeypatch.setattr(
+        datasets_pkg,
+        "format_and_template_dataset",
+        lambda dataset, **kwargs: calls.append(1)
+        or {"dataset": dataset, "final_format": "chatml_messages"},
+    )
+    monkeypatch.setattr(chat_templates, "get_training_chat_template", lambda tok, *args: tok)
+    out = token_preview_worker._preview(
+        _ChatTokenizer(),
+        {"model_name": "m"},
+        {"rows": [{"text": "hi"}], "max_seq_length": 64, "num_samples": 1, "seed": 0},
+    )
+    assert calls == [1]
+    assert out["final_format"] == "chatml_messages"
+    assert "role" not in out["samples"][0]

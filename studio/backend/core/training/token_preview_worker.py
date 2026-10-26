@@ -17,6 +17,7 @@ import queue
 import sys
 import traceback
 import types
+from itertools import takewhile
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ IDLE_TIMEOUT_S = 300
 # A token list this long already fills the dialog; the counts below still cover the whole row.
 MAX_TOKENS_SHOWN = 4096
 PRETOKENIZED_FORMAT = "pretokenized"  # utils.datasets.pretokenized, kept import-free here
+PREFERENCE_FORMAT = "preference_dpo"  # utils.datasets.format_detection, kept import-free here
 
 _EXAMPLE_CONVERSATION = [
     {"role": "user", "content": "What is the capital of Hungary?"},
@@ -222,6 +224,136 @@ def _sample(texts: list, count: int, seed: int) -> list:
     return random.Random(seed).sample(texts, count)
 
 
+def _example_text(tokenizer) -> str | None:
+    """A two-turn example rendered by the chat template, for the text tab's insert button."""
+    if not getattr(tokenizer, "chat_template", None):
+        return None
+    try:
+        return tokenizer.apply_chat_template(_EXAMPLE_CONVERSATION, tokenize = False)
+    except Exception:
+        return None
+
+
+def _preference_columns(rows: list) -> dict | None:
+    """The chosen/rejected columns of these rows, or None when they are not a preference dataset."""
+    from utils.datasets.preference import detect_preference_columns
+
+    if not rows:
+        return None
+    return detect_preference_columns(list(rows[0].keys()))
+
+
+def _turns(value: Any, role: str) -> list[dict]:
+    """A row value as chat turns: a plain string becomes one turn, a list of turns is kept."""
+    if isinstance(value, list):
+        return [
+            turn if isinstance(turn, dict) else {"role": role, "content": str(turn)}
+            for turn in value
+        ]
+    return [{"role": role, "content": "" if value is None else str(value)}]
+
+
+def _encode(tokenizer, text: str) -> list[int]:
+    # TRL tokenizes the prompt and each completion on its own, adding no special tokens of its own.
+    return [int(token_id) for token_id in tokenizer(text, add_special_tokens = False)["input_ids"]]
+
+
+def _preference_texts(tokenizer, prompt: list, sides: dict) -> tuple[str, dict]:
+    """The prompt and each completion as TRL renders a preference pair.
+
+    TRL templates the prompt with the generation prompt, templates the whole conversation, and
+    keeps their shared prefix as the prompt (DeepSeek's template inserts a token with the
+    generation prompt, so the prefix is compared rather than assumed).
+    """
+    apply = getattr(tokenizer, "apply_chat_template", None)
+    if apply is None or not getattr(tokenizer, "chat_template", None):
+        # No template (a base model): TRL falls back to the plain strings, so nothing is masked.
+        return "", {
+            role: "".join(str(turn.get("content", "")) for turn in messages)
+            for role, messages in sides.items()
+        }
+    prompt_text = apply(
+        prompt, tokenize = False, add_generation_prompt = True, continue_final_message = False
+    )
+    full = {}
+    for role in ("chosen", "rejected"):
+        if role not in sides:
+            continue
+        full[role] = apply(prompt + sides[role], tokenize = False)
+        prompt_text = "".join(
+            left
+            for left, right in takewhile(
+                lambda pair: pair[0] == pair[1], zip(prompt_text, full[role])
+            )
+        )
+    return prompt_text, {role: text[len(prompt_text) :] for role, text in full.items()}
+
+
+def _preference_preview(tokenizer, model_name: str, request: dict) -> dict:
+    """Both sides of each row, trained as a DPO/ORPO/CPO forward trains them.
+
+    The prompt is context (masked) and both completions are trained, so a pair shows exactly
+    what separates the chosen side from the rejected one.
+    """
+    from datasets import Dataset
+    from utils.datasets.chat_templates import get_training_chat_template
+    from utils.datasets.preference import standardize_preference_dataset
+
+    if not getattr(tokenizer, "chat_template", None):
+        tokenizer = copy.deepcopy(tokenizer)
+    tokenizer = get_training_chat_template(tokenizer, model_name, PREFERENCE_FORMAT)
+
+    max_length = int(request.get("max_seq_length") or 2048)
+    rows = _sample(
+        list(request["rows"]),
+        int(request.get("num_samples") or 3),
+        request.get("seed") or 0,
+    )
+    # The trainer's own normalization: column aliases (preferred/negative...) and a system turn.
+    dataset = standardize_preference_dataset(Dataset.from_list(rows))
+    eos_token_id = getattr(tokenizer, "eos_token_id", None)
+
+    samples = []
+    for row in dataset:
+        sides = {
+            role: _turns(row.get(role), "assistant")
+            for role in ("chosen", "rejected")
+            if role in row
+        }
+        prompt_text, completions = _preference_texts(
+            tokenizer, _turns(row.get("prompt"), "user"), sides
+        )
+        prompt_ids = _encode(tokenizer, prompt_text)
+        for role, completion_text in completions.items():
+            completion_ids = _encode(tokenizer, completion_text)
+            if eos_token_id is not None:
+                completion_ids = completion_ids + [int(eos_token_id)]
+            input_ids = prompt_ids + completion_ids
+            labels = [-100] * len(prompt_ids) + completion_ids
+            sample = _render_tokens(tokenizer, input_ids[:max_length], labels[:max_length])
+            sample["text"] = prompt_text + completion_text
+            sample["truncated_from"] = len(input_ids) if len(input_ids) > max_length else None
+            sample["role"] = role
+            samples.append(sample)
+
+    return {
+        "samples": samples,
+        # Every preference method trains the completions and leaves the prompt as context.
+        "masking": {
+            "applied": True,
+            "instruction_part": None,
+            "response_part": None,
+            "notes": [],
+        },
+        "final_format": PREFERENCE_FORMAT,
+        "add_special_tokens": False,
+        "vocab_size": len(tokenizer),
+        "bos_token": getattr(tokenizer, "bos_token", None),
+        "eos_token": getattr(tokenizer, "eos_token", None),
+        "example_text": _example_text(tokenizer),
+    }
+
+
 def _preview(tokenizer, config: dict, request: dict) -> dict:
     from utils.datasets.chat_templates import get_training_chat_template
     from utils.datasets.online_tokenization import resolve_add_special_tokens
@@ -234,6 +366,10 @@ def _preview(tokenizer, config: dict, request: dict) -> dict:
         texts, final_format = [request["text"]], str(request.get("final_format") or "").lower()
         first_text = texts[0]
     else:
+        # A chosen/rejected dataset has no "text" column, so the SFT formatter would reject it.
+        # Preview both sides the way a DPO/ORPO/CPO forward reads them instead.
+        if not request.get("raw_text") and _preference_columns(request.get("rows")):
+            return _preference_preview(tokenizer, model_name, request)
         # Formatting may set a template on the tokenizer it is given; training formats with a throwaway
         # tokenizer too, and masks with the one the model load returns. The whole pool is formatted so a
         # raw-text column and the BOS rule are chosen from the dataset's head, as training does.
@@ -274,13 +410,6 @@ def _preview(tokenizer, config: dict, request: dict) -> dict:
         sample["truncated_from"] = full_length if full_length > len(input_ids) else None
         samples.append(sample)
 
-    example_text = None
-    if getattr(tokenizer, "chat_template", None):
-        try:
-            example_text = tokenizer.apply_chat_template(_EXAMPLE_CONVERSATION, tokenize = False)
-        except Exception:
-            example_text = None
-
     return {
         "samples": samples,
         "masking": masking,
@@ -289,7 +418,7 @@ def _preview(tokenizer, config: dict, request: dict) -> dict:
         "vocab_size": len(tokenizer),
         "bos_token": getattr(tokenizer, "bos_token", None),
         "eos_token": getattr(tokenizer, "eos_token", None),
-        "example_text": example_text,
+        "example_text": _example_text(tokenizer),
     }
 
 

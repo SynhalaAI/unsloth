@@ -19,6 +19,8 @@ export type TokenPreviewSample = {
   num_hidden: number;
   truncated_from: number | null;
   text: string;
+  /** Preference rows show both sides: which of them this sample is. */
+  role?: "chosen" | "rejected" | null;
 };
 
 export type TokenPreviewResponse = {
