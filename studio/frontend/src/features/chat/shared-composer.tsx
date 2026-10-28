@@ -3418,7 +3418,7 @@ export function SharedComposer({
                       {isFinalizingModelAudio ? (
                         <Spinner className="size-4" />
                       ) : (
-                        <SquareIcon className="size-3 animate-pulse fill-current" />
+                        <HugeiconsIcon icon={StopIcon} className="size-3 animate-pulse fill-current" />
                       )}
                     </TooltipIconButton>
                     {isRecordingModelAudio ? (
@@ -3430,7 +3430,7 @@ export function SharedComposer({
                         onClick={cancelModelAudioRecording}
                         aria-label="Cancel audio recording"
                       >
-                        <XIcon className="size-4" />
+                        <HugeiconsIcon icon={Cancel01Icon} className="size-4" />
                       </TooltipIconButton>
                     ) : null}
                   </>
