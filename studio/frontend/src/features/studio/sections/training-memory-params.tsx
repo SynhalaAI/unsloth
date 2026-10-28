@@ -48,7 +48,7 @@ function PackingOption({
     <div className="flex items-center gap-2">
       <Checkbox
         id="packing"
-        checked={checked}
+        checked={checked && !isMac}
         disabled={isMac}
         onCheckedChange={(value) => onChange(!!value)}
       />

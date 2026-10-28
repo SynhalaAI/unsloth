@@ -12,13 +12,27 @@ import type {
 } from "@/features/training";
 // eslint-disable-next-line no-restricted-imports -- keep this helper free of the barrel's store imports
 import { usesPreferenceObjective } from "@/features/training/lib/training-methods";
+import { trainingToggleDefaults } from "@/features/training/stores/training-config-policy";
 import { isAdapterMethod } from "@/types/training";
 
 type AdvancedSettingsState = Pick<
   TrainingConfigState,
   "trainingMethod" | keyof AdvancedSettingsBaseline
 > &
-  Partial<Pick<TrainingConfigState, "modelType" | "preferenceTrainingMethod">>;
+  Partial<
+    Pick<
+      TrainingConfigState,
+      | "modelType"
+      | "preferenceTrainingMethod"
+      | "isVisionModel"
+      | "isAudioModel"
+      | "isEmbeddingModel"
+      | "isDatasetImage"
+      | "isDatasetAudio"
+      | "datasetStreaming"
+      | "datasetFormat"
+    >
+  >;
 
 const SCALAR_DEFAULTS = {
   optimizerType: DEFAULT_HYPERPARAMS.optimizerType,
@@ -97,14 +111,26 @@ function countNonDefaultScalarSettings(
   state: AdvancedSettingsState,
   baseline: AdvancedSettingsBaseline | null,
 ): number {
+  // Objective/data restrictions turn these off automatically; that is not a user change.
+  const automaticToggles = trainingToggleDefaults({
+    isVisionModel: state.isVisionModel ?? false,
+    isAudioModel: state.isAudioModel ?? false,
+    isEmbeddingModel: state.isEmbeddingModel ?? false,
+    isDatasetImage: state.isDatasetImage ?? null,
+    isDatasetAudio: state.isDatasetAudio ?? false,
+    modelType: state.modelType ?? null,
+    datasetStreaming: state.datasetStreaming ?? false,
+    datasetFormat: state.datasetFormat ?? "auto",
+    trainingMethod: state.trainingMethod,
+  });
   return Object.entries(SCALAR_DEFAULTS).reduce((total, [rawKey, value]) => {
     const key = rawKey as keyof typeof SCALAR_DEFAULTS;
     if (isIgnored(state, key)) {
       return total;
     }
     const expected =
-      key === "trainOnCompletions" && state.trainingMethod === "cpt"
-        ? false
+      key === "packing" || key === "trainOnCompletions"
+        ? baselineValue(baseline, key, value as boolean) && automaticToggles[key]
         : baselineValue(baseline, key, value);
     return state[key] === expected ? total : total + 1;
   }, 0);

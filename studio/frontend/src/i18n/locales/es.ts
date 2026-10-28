@@ -139,6 +139,11 @@ export const es = {
     more: "Más",
     addressPlaceholder: "Busca o escribe una URL",
     local: "Local",
+    browserUse: {
+      label: "Uso del navegador",
+      description: "Permite que los modelos controlen el navegador integrado",
+      unavailable: "Carga un modelo que pueda llamar herramientas para que use el navegador.",
+    },
     suggested: "Sugerencias",
     suggestedMenu: {
       open: "Abrir",
@@ -496,7 +501,6 @@ export const es = {
       clearDataFailed: "No se pudieron borrar los datos de sitios. Inténtalo de nuevo.",
     },
   },
-  // English fallback until this experimental feature is translated.
   managedEngines: en.managedEngines,
   sandboxSetup: {
     levelTitle: "El sandbox del sistema no está disponible",
@@ -704,7 +708,6 @@ export const es = {
     shutdown: "Apagar",
   },
   shell: {
-    // The Help submenu of the account menu, and the desktop app's Help menu.
     helpMenu: {
       documentation: "Documentación",
       keyboardShortcuts: "Atajos de teclado",
@@ -776,11 +779,8 @@ export const es = {
       export: "Exportar",
       recents: "Recientes",
       noChatsYet: "Aún no hay chats",
-      // Shown under an empty project folder in the sidebar.
       noChats: "Sin chats",
-      // Shown in the Projects section when every project is pinned, so it has no rows.
       allProjectsPinned: "Todos los proyectos fijados",
-      // Same, when some of them are filed in custom sections instead.
       allProjectsFiled: "Todos los proyectos están fijados o en secciones",
       noProjects: "No hay proyectos",
       showMore: "Mostrar más",
@@ -792,6 +792,8 @@ export const es = {
       guidedTour: "Recorrido guiado",
       help: "Ayuda",
       logOut: "Cerrar sesión",
+      logOutNeedsPassword: "Define una contraseña en Ajustes > Acceso remoto antes de cerrar sesión para poder volver a entrar.",
+      logOutFailed: "No se pudo cerrar sesión de forma segura. Inténtalo de nuevo en un momento.",
       shutdown: "Apagar",
     },
     commandPalette: {
@@ -882,11 +884,9 @@ export const es = {
       organizeChats: "Organizar chats",
       organizeProjects: "Organizar proyectos",
       sortPinnedChats: "Ordenar chats fijados",
-      // Header of the menu's section-visibility toggles.
       show: "Mostrar",
       newSection: "Nueva sección",
     },
-    // User-made sidebar sections that group chats and projects.
     sections: {
       createTitle: "Nueva sección",
       createDescription: "Agrupa chats y proyectos como quieras",
@@ -897,16 +897,13 @@ export const es = {
       edit: "Editar",
       remove: "Quitar sección",
       markAllRead: "Marcar todo como leído",
-      // The row menu's one submenu for projects and sections, and its headings.
       moveTo: "Mover a",
       section: "Sección",
       sectionsHeading: "Secciones",
       removeFromProject: "Quitar del proyecto",
       newSection: "Nueva sección",
       removeFromSection: "Quitar de la sección",
-      // Names the project or section the row leaves; the two above are for when it is not one.
       removeFrom: "Quitar de {name}",
-      // Shown in a section with nothing filed in it yet.
       empty: "Arrastra chats o proyectos aquí",
       sectionOptions: "Opciones de sección",
       newChatInSection: "Nuevo chat en {name}",
@@ -942,6 +939,11 @@ export const es = {
   },
   settings: {
     accounts: {
+      signsInAs: "Inicia sesión como {username}",
+      signsInAsOwner: "Inicia sesión como {alias} o {username}",
+      signInName: "Tu nombre de inicio de sesión",
+      signInNameDescription: "El nombre que escribes para iniciar sesión cuando esta instalación tiene más de una cuenta. unsloth también funciona siempre. Déjalo vacío para usar solo unsloth.",
+      signInNameSave: "Guardar nombre",
       title: "Cuentas",
       description: "Crea cuentas privadas de Unsloth. Los nuevos usuarios inician sesión con un código de configuración de un solo uso y eligen una contraseña.",
       username: "Nombre de usuario",
@@ -1424,13 +1426,13 @@ export const es = {
       unsupportedArch: "El sandbox de Windows (MXC) solo funciona en Windows x64, así que no está disponible en este PC.",
       builtinNeedsUpdate: "El contenedor integrado de Windows necesita la compilación {required} o posterior, y este PC usa {current}. Instala la última actualización de Windows para usarlo sin un paso de administrador, o activa el sandbox alternativo de abajo.",
       unsupportedBuild: "El sandbox de Windows (MXC) necesita Windows 11 24H2 (compilación 26100) o posterior, así que no está disponible en este PC.",
-      permissionsIntro: "Elige cuándo preguntan primero las herramientas y si Python y Terminal también se ejecutan en el sandbox del sistema.",
       permissionLabel: "Permisos de herramientas",
+      levelRowLabel: "Nivel de sandbox",
       levelPickerTitle: "¿Cómo debe aislarse el código?",
       levelOff: "Desactivado",
       levelOffShort: "Acceso total desactiva el sandbox",
-      levelHighDetail: "Sandbox del sistema. Python y Terminal se ejecutan en el sandbox del sistema (bubblewrap, Seatbelt o MXC) además de las protecciones de software. Sin un sandbox del sistema que funcione, las llamadas arriesgadas preguntan primero.",
-      levelLowDetail: "Sandbox de software. Python y Terminal se ejecutan solo con las protecciones de software, fuera del sandbox del sistema. Las llamadas arriesgadas preguntan primero, salvo con Acceso total.",
+      levelHighDetail: "Python y Terminal se ejecutan en el sandbox del sistema (bubblewrap, Seatbelt o MXC) además de las protecciones de software. Sin un sandbox del sistema que funcione, las llamadas arriesgadas preguntan primero.",
+      levelLowDetail: "Python y Terminal se ejecutan solo con las protecciones de software, fuera del sandbox del sistema. Las llamadas arriesgadas preguntan primero, salvo con Acceso total.",
       levelLabel: "Sandbox",
       levelHigh: "Alto",
       levelLow: "Bajo",
@@ -2082,13 +2084,13 @@ export const es = {
         },
         details: {
           ask:
-            "Pide aprobación antes de cada llamada a herramientas, incluido el código de terminal y Python, las búsquedas web, la edición de archivos y las herramientas MCP. Las herramientas que ejecuta un proveedor externo no se detienen. Ideal si quieres revisar cada paso.",
+            "Pide aprobación antes de cada llamada a herramientas, incluido el código de terminal y Python, las búsquedas web, la edición de archivos y las herramientas MCP. Las herramientas que ejecuta un proveedor externo no se detienen.",
           auto:
             "Ejecuta por sí solo las llamadas habituales y solo pregunta cuando una acción parece arriesgada, como leer credenciales, elevar privilegios o ejecutar comandos destructivos.",
           off:
-            "Ejecuta todas las llamadas a herramientas sin preguntar. El código de Python y terminal sigue ejecutándose en el sandbox, que limita a qué archivos de tu equipo puede acceder. Si este equipo no tiene un sandbox del sistema que funcione, las llamadas arriesgadas de Python y terminal preguntan primero.",
+            "Ejecuta todas las llamadas a herramientas sin preguntar. El código de Python y terminal sigue ejecutándose en el sandbox, que limita a qué archivos de tu equipo puede acceder. Sin un sandbox del sistema que funcione, las llamadas arriesgadas preguntan primero.",
           full:
-            "Ejecuta todas las llamadas a herramientas sin preguntar y desactiva el sandbox de código, así el código de Python y terminal puede leer y cambiar cualquier archivo al que tenga acceso tu cuenta. Ideal para tareas de confianza que necesitan trabajar fuera del sandbox.",
+            "Ejecuta todas las llamadas a herramientas sin preguntar y desactiva el sandbox de código, así el código de Python y terminal puede leer y cambiar cualquier archivo al que tenga acceso tu cuenta.",
         },
       },
     },
@@ -2345,6 +2347,7 @@ export const es = {
       liveMonitor: {
         title: "Monitor en vivo",
         apiTitle: "Monitor de API",
+        apiDescription: "Mira lo que otras apps envían a la API de este servidor en cuanto llega.",
         summary: "Solicitudes en curso, errores y uso de tokens",
         status: "{active} activas · {recent} recientes · {model}",
         noModelLoaded: "ningún modelo cargado",
@@ -2364,7 +2367,7 @@ export const es = {
         gpuUnusableDetail: "Detectada, pero PyTorch no puede usarla",
         detailedView: "Vista detallada",
         detailedViewDescription:
-          "Muestra la carga de la CPU y la carga, temperatura y consumo de cada GPU en la ventana flotante y aquí.",
+          "Muestra la carga de la CPU y la carga, temperatura y consumo de cada GPU en la ventana flotante.",
         cpuLoad: "Carga de CPU",
         gpuLoad: "Carga de GPU",
         temperature: "Temperatura",
@@ -2398,6 +2401,10 @@ export const es = {
         used: "{value} en uso",
         free: "Libre: {value}",
         total: "{value} en total",
+        usedOf: "{used} en uso de {total}",
+        segmentUsed: "En uso por la GPU",
+        segmentSystem: "En uso por el sistema",
+        segmentAvailable: "Disponible",
       },
       llamaBackend: {
         title: "Motor de inferencia GGUF",
@@ -2449,7 +2456,6 @@ export const es = {
           updateChecksDisabled:
             "Las comprobaciones de actualizaciones están desactivadas (UNSLOTH_DISABLE_UPDATE_CHECK=1), así que no se consultan los backends disponibles.",
         },
-        // No se muestra: términos adicionales para la búsqueda de ajustes.
         llamaBackendKeywords:
           "llama.cpp backend gguf inferencia cuda rocm hip vulkan metal cpu gpu acelerador prebuilt cambiar motor",
       },
@@ -2483,7 +2489,6 @@ export const es = {
         reloadRequired: "Vuelve a cargar el modelo para aplicar las nuevas opciones de memoria.",
         loadError: "No se pudieron cargar los ajustes de memoria del modelo",
         saveError: "No se pudieron guardar los ajustes de memoria del modelo",
-        // Not rendered: extra terms the settings search matches these rows on.
         modelMemoryKeywords:
           "mlock memlock ulimit vram gpu memoria ram residente fijar anclar bloquear mantener cargado descargar inactivo mmap no-mmap load-mode paginacion intercambio",
         multiModelKeywords:
@@ -2587,6 +2592,8 @@ export const es = {
         python: "Python",
         torch: "Torch",
         transformers: "Transformers",
+        mlxLm: "mlx-lm",
+        mlxVlm: "mlx-vlm",
         uptime: "Tiempo activo",
         processMemory: "Memoria del proceso",
         notInstalled: "No instalado",
@@ -2626,8 +2633,6 @@ export const es = {
       docsLabel: "Abrir la documentación de unsloth start",
       agentDocs: "Abrir la documentación de configuración de {agent}",
       copyGeneratedCommand: "Copiar el comando generado",
-      // English is the baseline until translated: the three-part sentence is assembled around an
-      // inline link and needs restructuring first.
       automaticSettingsNote:
         "Unsloth automatically applies the model’s recommended settings if you have not set any flags.",
       configurationNote:
@@ -3351,6 +3356,7 @@ export const es = {
       desktopAppVersionUnavailable: "No disponible",
       llamaCppVersion: "Versión de llama.cpp",
       audioCppVersion: "Versión de audio.cpp",
+      mlxVersion: "Versión de MLX",
       whisperCppVersion: "Versión de whisper.cpp",
       engines: {
         title: "Motores",
@@ -4457,6 +4463,21 @@ export const es = {
       archiveSuccessful: "Archivar ejecuciones correctas",
       project: "Proyecto",
       projectNone: "Ninguno",
+      model: "Modelo",
+      modelLoaded: "El modelo que esté cargado",
+      modelOnDevice: "En este dispositivo",
+      modelNote: "Si este modelo no está cargado cuando se ejecuta la tarea, Unsloth pregunta primero.",
+      modelNoteAllowed: "Cambia a este modelo solo mientras no usas Unsloth y luego vuelve al que tenías.",
+      modelEmpty: "Descarga un modelo en Model Hub o añade una conexión para elegir otro.",
+      modelMissing: "{model} (no está en este dispositivo)",
+      allowLoad: "Cambiar automáticamente cuando no esté",
+      allowLoadHint:
+        "Cuando toca esta tarea y no has usado Unsloth en 5 minutos, carga este modelo sin preguntar, ejecuta la tarea y luego vuelve al modelo que tenías. Si estás usando Unsloth o entrenando en ese momento, la ejecución se omite y tu modelo no se toca. Si está desactivado, Unsloth pregunta antes de cargarlo.",
+      reasoning: "Esfuerzo de pensamiento",
+      reasoningDefault: "Predeterminado",
+      reasoningOff: "Desactivado",
+      reasoningLowest: "Mínimo",
+      reasoningHighest: "Máximo",
       create: "Crear",
     },
     deleteDialog: {
@@ -4465,6 +4486,10 @@ export const es = {
     },
     errors: {
       noModel: "No había ningún modelo cargado. Carga un modelo en el chat y vuelve a ejecutar la tarea.",
+      modelNotLoaded: "El modelo de la tarea no estaba cargado. Cárgalo en el chat y vuelve a ejecutar la tarea.",
+      modelLoadFailed: "No se pudo cargar el modelo de la tarea. Comprueba que siga descargado en Model Hub.",
+      modelBusy: "Omitida mientras usabas Unsloth, así que tu modelo no se tocó.",
+      connectionUnavailable: "La conexión de la tarea no existe o está desactivada. Revísala en Conexiones.",
       timeout: "El modelo tardó demasiado en responder.",
       cancelled: "La ejecución se detuvo antes de terminar.",
       interrupted: "Unsloth se cerró antes de que terminara la ejecución.",
@@ -4474,6 +4499,13 @@ export const es = {
       updateFailed: "No se pudo actualizar la tarea",
       deleteFailed: "No se pudo eliminar la tarea",
       runFailed: "No se pudo iniciar la tarea",
+    },
+    loadPrompt: {
+      title: "¿Cargar {model}?",
+      description: "«{title}» usa {model}, que no está cargado. Ejecutarla cambia el chat a {model} hasta que termine y luego vuelve.",
+      always: "No volver a preguntar. Cambiar solo mientras no uso Unsloth.",
+      notNow: "Ahora no",
+      load: "Cargar y ejecutar",
     },
     toast: {
       finished: "«{title}» está lista",
@@ -4497,7 +4529,6 @@ export const es = {
       all: "Todo",
       chats: "Chats",
     },
-    // The Chats tab: conversations and projects, kept apart from every file tab.
     chats: {
       sections: {
         chats: "Chats",
@@ -4631,6 +4662,7 @@ export const es = {
       modelsTitle: "Aún no hay modelos ajustados",
       modelsDescription: "Los modelos que entrenes o exportes en Unsloth aparecen aquí.",
       createFolder: "Crear carpeta",
+      generateImage: "Generar una imagen",
       generateVideo: "Generar un vídeo",
       generateAudio: "Generar audio",
       trainModel: "Entrenar un modelo",

@@ -136,6 +136,11 @@ export const en = {
     more: "More",
     addressPlaceholder: "Search or enter a URL",
     local: "Local",
+    browserUse: {
+      label: "Browser use",
+      description: "Let models control the in-built browser",
+      unavailable: "Load a model that can call tools to let it use the browser.",
+    },
     suggested: "Suggested",
     suggestedMenu: {
       open: "Open",
@@ -753,7 +758,6 @@ export const en = {
     shutdown: "Shutdown",
   },
   shell: {
-    // The Help submenu of the account menu, and the desktop app's Help menu.
     helpMenu: {
       documentation: "Documentation",
       keyboardShortcuts: "Keyboard Shortcuts",
@@ -821,20 +825,17 @@ export const en = {
       trainChecking: "Checking this machine for training support...",
       videoChecking: "Checking this machine for video support...",
       more: "More",
-      // Last entry of the More flyout; opens Settings -> Appearance.
       customizeSidebar: "Customize sidebar",
-      // Rendered uppercase in a pill beside a recently shipped tab.
+      // Rendered uppercase in a pill.
       newBadge: "New",
       export: "Export",
       recents: "Recents",
       noChatsYet: "No chats yet",
-      // Shown under an empty project folder in the sidebar.
       noChats: "No chats",
-      // Shown in the Projects section when every project is pinned, so it has no rows.
+      // Every project is pinned, so the section has no rows.
       allProjectsPinned: "All projects pinned",
-      // Same, when some of them are filed in custom sections instead.
+      // Same, when some are filed in custom sections instead.
       allProjectsFiled: "All projects are pinned or in sections",
-      // Shown in the Projects section when there are no projects yet.
       noProjects: "No projects",
       showMore: "Show more",
       showLess: "Show less",
@@ -845,6 +846,8 @@ export const en = {
       guidedTour: "Guided Tour",
       help: "Help",
       logOut: "Log out",
+      logOutNeedsPassword: "Set a password in Settings > Remote access before logging out, so you can sign back in.",
+      logOutFailed: "Couldn't log out safely. Try again in a moment.",
       shutdown: "Shutdown",
     },
     commandPalette: {
@@ -899,7 +902,6 @@ export const en = {
       description: "{path} does not exist.",
       backToChat: "Back to chat",
     },
-    // Bulk actions on a multi-row selection.
     selection: {
       pinProjects: "Pin projects",
       unpinProjects: "Unpin projects",
@@ -924,7 +926,6 @@ export const en = {
       deleteChatFilesDescription:
         "This chat's own sandbox folder is removed from disk. Files it wrote inside a project stay in that project's workspace.",
     },
-    // Sidebar list headers: how chats are grouped and ordered.
     organize: {
       sidebarHeading: "Organize sidebar",
       byProject: "By project",
@@ -937,11 +938,9 @@ export const en = {
       organizeChats: "Organize chats",
       organizeProjects: "Organize projects",
       sortPinnedChats: "Sort pinned chats",
-      // Header of the menu's section-visibility toggles.
       show: "Show",
       newSection: "New section",
     },
-    // User-made sidebar sections that group chats and projects.
     sections: {
       createTitle: "New section",
       createDescription: "Group chats and projects however you like",
@@ -952,16 +951,14 @@ export const en = {
       edit: "Edit",
       remove: "Remove section",
       markAllRead: "Mark all as read",
-      // The row menu's one submenu for projects and sections, and its headings.
       moveTo: "Move to",
       section: "Section",
       sectionsHeading: "Sections",
       removeFromProject: "Remove from project",
       newSection: "New section",
       removeFromSection: "Remove from section",
-      // Names the project or section the row leaves; the two above are for when it is not one.
+      // Names the project or section the row leaves.
       removeFrom: "Remove from {name}",
-      // Shown in a section with nothing filed in it yet.
       empty: "Drag chats or projects here",
       sectionOptions: "Section options",
       newChatInSection: "New chat in {name}",
@@ -996,6 +993,11 @@ export const en = {
   },
   settings: {
     accounts: {
+      signsInAs: "Signs in as {username}",
+      signsInAsOwner: "Signs in as {alias} or {username}",
+      signInName: "Your sign-in name",
+      signInNameDescription: "The name you type to sign in when this installation has more than one account. unsloth always works too. Leave empty to use only unsloth.",
+      signInNameSave: "Save name",
       title: "Accounts",
       description: "Create private Unsloth accounts. New users sign in with a one-time setup code and choose a password.",
       username: "Username",
@@ -1478,13 +1480,13 @@ export const en = {
       unsupportedArch: "The Windows sandbox (MXC) only runs on x64 Windows, so it is not available on this PC.",
       builtinNeedsUpdate: "Windows' built-in container needs build {required} or newer, and this PC runs {current}. Install the latest Windows update to use it without an administrator step, or turn on the fallback below.",
       unsupportedBuild: "The Windows sandbox (MXC) needs Windows 11 24H2 (build 26100) or newer, so it is not available on this PC.",
-      permissionsIntro: "Choose when tools ask first, and whether Python and Terminal also run inside the OS sandbox.",
       permissionLabel: "Tool permissions",
+      levelRowLabel: "Sandbox level",
       levelPickerTitle: "How should code be sandboxed?",
       levelOff: "Disabled",
       levelOffShort: "Full access turns the sandbox off",
-      levelHighDetail: "OS sandboxing. Python and Terminal run inside the OS sandbox (bubblewrap, Seatbelt or MXC) on top of software sandboxing. Without a working OS sandbox, risky calls ask first.",
-      levelLowDetail: "Software sandboxing. Python and Terminal run with software sandboxing only, outside the OS sandbox. Risky calls ask first unless you chose Full access.",
+      levelHighDetail: "Python and Terminal run inside the OS sandbox (bubblewrap, Seatbelt or MXC) on top of software sandboxing. Without a working OS sandbox, risky calls ask first.",
+      levelLowDetail: "Python and Terminal run with software sandboxing only, outside the OS sandbox. Risky calls ask first unless you chose Full access.",
       levelLabel: "Sandbox",
       levelHigh: "High",
       levelLow: "Low",
@@ -1538,7 +1540,7 @@ export const en = {
       exportFailed: "Could not download the logs.",
       exportTooOld: "Running Unsloth backend is too old to export logs. Update that backend and restart.",
       exportForbidden: "Downloading all logs needs a signed-in Unsloth session. An API key is not enough.",
-      // Not rendered: extra terms the settings search matches this tab on.
+      // Not rendered: extra settings-search terms.
       keywords: "debug debugging log logs error errors crash traceback stack trace troubleshoot diagnostics failed",
     },
     voice: {
@@ -1848,10 +1850,10 @@ export const en = {
         idleSecondsAriaLabel: "Idle auto-unload seconds",
         mediaEnable: "Switch image and video model by request",
         mediaEnableDescription:
-          "Load a downloaded image or video model named in an API request before generating. Its own setting: the one above covers the chat model only. Off by default.",
+          "Load a downloaded image or video model named in an API request before generating. Separate from the chat model switch. Off by default.",
         mediaIdleUnload: "Idle auto-unload for image and video",
         mediaIdleUnloadDescription:
-          "Free VRAM by unloading the image and video models after this many idle seconds. Its own setting: the one above covers the chat model only. 0 keeps them loaded, minimum 60.",
+          "Free VRAM by unloading the image and video models after this many idle seconds. Separate from the chat model switch. 0 keeps them loaded, minimum 60.",
         mediaIdleSecondsAriaLabel: "Image and video idle auto-unload seconds",
         mediaIdlePaused: "Paused while Keep model in GPU memory is on.",
         idleNeedsEnable: "Turn on Switch model by request first.",
@@ -1919,13 +1921,13 @@ export const en = {
         },
         details: {
           ask:
-            "Asks before every tool call, including terminal and Python code, web searches, file edits and MCP tools. Tools run by an external provider are not paused. Best when you want to review each step.",
+            "Asks before every tool call, including terminal and Python code, web searches, file edits and MCP tools. Tools run by an external provider are not paused.",
           auto:
             "Runs routine tool calls on its own and only asks when an action looks risky, such as reading credentials, escalating privileges or running destructive commands.",
           off:
-            "Runs every tool call without asking. Python and terminal code still run in the sandbox, which limits which files they can reach on your computer. If this computer has no working OS sandbox, risky Python and terminal calls ask first.",
+            "Runs every tool call without asking. Python and terminal code still run in the sandbox, which limits which files they can reach on your computer. Without a working OS sandbox, risky calls ask first.",
           full:
-            "Runs every tool call without asking and turns off the code sandbox, so Python and terminal code can read and change any file your account can access. Best for trusted tasks that need to work outside the sandbox.",
+            "Runs every tool call without asking and turns off the code sandbox, so Python and terminal code can read and change any file your account can access.",
         },
       },
       notifications: {
@@ -2383,6 +2385,7 @@ export const en = {
       liveMonitor: {
         title: "Live monitor",
         apiTitle: "API monitor",
+        apiDescription: "See what other apps send to this server's API as it arrives.",
         summary: "Live requests, errors, and token usage",
         status: "{active} active · {recent} recent · {model}",
         noModelLoaded: "no model loaded",
@@ -2401,7 +2404,7 @@ export const en = {
         gpuUnusableDetail: "Detected, but PyTorch cannot use it",
         detailedView: "Detailed view",
         detailedViewDescription:
-          "Show CPU load and each GPU's load, temperature and power in the floating window and here.",
+          "Show CPU load and each GPU's load, temperature and power in the floating window.",
         cpuLoad: "CPU load",
         gpuLoad: "GPU load",
         temperature: "Temperature",
@@ -2434,6 +2437,10 @@ export const en = {
         used: "{value} used",
         free: "{value} free",
         total: "{value} total",
+        usedOf: "{used} used of {total}",
+        segmentUsed: "Used by GPU",
+        segmentSystem: "Used by system",
+        segmentAvailable: "Available",
       },
       llamaBackend: {
         title: "GGUF inference engine",
@@ -2485,7 +2492,7 @@ export const en = {
           updateChecksDisabled:
             "Update checks are disabled (UNSLOTH_DISABLE_UPDATE_CHECK=1), so the available backends are not looked up.",
         },
-        // Not rendered: extra terms the settings search matches these rows on.
+        // Not rendered: extra settings-search terms.
         llamaBackendKeywords:
           "llama.cpp backend gguf inference cuda rocm hip vulkan metal cpu gpu accelerator prebuilt switch engine custom path folder directory llama-server executable binary",
       },
@@ -2498,7 +2505,7 @@ export const en = {
         noRamReserveDescription: "Reduce host RAM held for model weights.",
         noRamReserveHint: "Skips memory-mapped loading on supported Windows builds when the model is fully offloaded to the GPU, so its pages are not held resident. Otherwise keeps memory-mapped loading. Required CPU buffers can still use RAM. Drops --no-mmap and --mlock.",
         multiModel: "Keep multiple models loaded",
-        openSystemSettings: "System settings",
+        openSystemSettings: "Open in System",
         multiModelOff: "Off",
         multiModelFit: "When they fit",
         multiModelAlways: "Always",
@@ -2519,7 +2526,7 @@ export const en = {
         reloadRequired: "Reload the model to apply the new memory flags.",
         loadError: "Failed to load model memory settings",
         saveError: "Failed to save model memory settings",
-        // Not rendered: extra terms the settings search matches these rows on.
+        // Not rendered: extra settings-search terms.
         modelMemoryKeywords:
           "mlock memlock ulimit vram gpu memory ram resident residency pin pinned page lock locked keep loaded unload idle mmap no-mmap load-mode swap paging",
         multiModelKeywords:
@@ -2543,7 +2550,7 @@ export const en = {
         modelsFolder: "Models folder",
         modelsFolderDescription: "Where downloaded models are stored.",
         modelsFolderHint: "Where downloaded models are stored. Change it to keep models off your system drive. Applies to new downloads only. Models you already have stay where they are.",
-        // Not rendered: extra terms the settings search matches this row on.
+        // Not rendered: extra settings-search terms.
         modelsFolderKeywords:
           "models folder directory path location download downloads cache storage disk drive move relocate hugging face",
         futureDownloads: "New downloads only",
@@ -2565,7 +2572,7 @@ export const en = {
           label: "Cache files",
           description: "{size} in caches, of which {reclaimable} can be cleared now.",
           hint: "Package downloads, compiled kernels and transfer caches that Unsloth rebuilds when it needs them. Downloaded models, projects, chats, settings and your Hugging Face token are never cleared here.",
-          // Not rendered: extra terms the settings search matches this row on.
+          // Not rendered: extra settings-search terms.
           keywords:
             "cache caches purge prune clear clean free space disk uv pip npm bun triton inductor cuda numba matplotlib vllm compiled xet temporary",
           measuring: "Measuring cache sizes...",
@@ -2622,6 +2629,8 @@ export const en = {
         python: "Python",
         torch: "Torch",
         transformers: "Transformers",
+        mlxLm: "mlx-lm",
+        mlxVlm: "mlx-vlm",
         uptime: "Uptime",
         processMemory: "Process memory",
         notInstalled: "Not installed",
@@ -3220,7 +3229,7 @@ export const en = {
       accessTokenCopied: "Access token copied",
       copyAccessToken: "Copy access token",
       copyNow: "Copy now - this won't be shown again.",
-      usageExamples: "Usage examples",
+      usageExamples: "Chat API",
       usageNoModel:
         "Load or download a model to see runnable examples. This server has no model to name yet.",
       usageTools: "Tools",
@@ -3283,7 +3292,7 @@ export const en = {
         useViaApi: "Use via API",
       },
       mediaApi: {
-        title: "Image and video API",
+        title: "Images / Video API",
         description: "Generate images and videos from your own code with the OpenAI-compatible endpoints.",
         images: "Images",
         video: "Video",
@@ -3341,7 +3350,7 @@ export const en = {
         loadError: "Couldn't load Decision API settings.",
         sendsTo: "Requests are sent to {provider}.",
         connectionMissing: "This connection is gone or has no decision models. Pick another model.",
-        addConnection: "To use a hosted decision model, add TypeSafe, Liquid AI or OpenRouter in Connections.",
+        addConnection: "To use a cloud hosted decision model, add TypeSafe, OpenRouter etc. in Connections.",
         openConnections: "Open Connections",
       },
       mcp: {
@@ -3367,6 +3376,7 @@ export const en = {
       desktopAppVersionUnavailable: "Unavailable",
       llamaCppVersion: "llama.cpp Version",
       audioCppVersion: "audio.cpp Version",
+      mlxVersion: "MLX Version",
       whisperCppVersion: "whisper.cpp Version",
       engines: {
         title: "Engines",
@@ -3515,7 +3525,7 @@ export const en = {
       datasetLabel: "Dataset",
       datasetTooltip: "The training data used to fine-tune the model.",
       hfTokenDescription: "Required for gated or private models and datasets.",
-      uploadLocalLabel: "Or upload a local file",
+      uploadLocalLabel: "Upload a local file",
       sourceBrowse: "Browse",
       releaseToUpload: "Release to upload",
       loadYaml: "Load YAML",
@@ -3941,11 +3951,11 @@ export const en = {
       attentionModules: "Attention modules",
       mlpModules: "MLP modules",
       targetModules: "Target Modules",
-      enableLora: "Enable LoRA",
+      enableLora: "LoRA",
       trainWithLora: "Train with LoRA",
-      stableRank: "Stable Rank",
-      memoryEfficient: "Memory Efficient",
-      weightDecomposed: "Weight-Decomposed",
+      stableRank: "Rank-stabilized LoRA",
+      memoryEfficient: "SVD-initialized LoRA",
+      weightDecomposed: "LoRA with multipliers",
       notSupportedAppleSilicon: "Not supported on Apple Silicon",
       doraNeedsVisionLayersOff: "Turn off vision layer training to use DoRA",
       optimization: "Optimization",
@@ -3956,7 +3966,7 @@ export const en = {
         "Optimization algorithm. 8-bit variants reduce memory usage. Fused is recommended for vision models.",
       optimizerTooltipMlx:
         "Optimization algorithm. AdamW is the default. Lion uses less memory but usually needs a lower learning rate.",
-      lrScheduler: "LR scheduler",
+      lrScheduler: "LR Scheduler",
       lrSchedulerTooltip:
         "How the learning rate changes over training. Linear decays steadily; cosine decays in a curve.",
       optimizerOptions: {
@@ -3973,7 +3983,7 @@ export const en = {
       },
       batchSize: "Batch Size",
       batchSizeTooltip: "Samples processed per step. Higher uses more VRAM.",
-      gradAccum: "Grad Accum",
+      gradAccum: "Grad Accum Steps",
       gradAccumTooltip: "Simulates larger batch sizes without extra VRAM.",
       weightDecay: "Weight Decay",
       weightDecayTooltip: "L2 regularization to prevent overfitting.",
@@ -4017,7 +4027,7 @@ export const en = {
       offloadPanelSweepNote: "The moving window shows the order layers are fetched in, slowed down to be visible; the numbers are measured on the last step.",
       offloadPanelCard: "GPU {index}",
       offloadPanelCardUnknown: "Unknown card",
-      gradCheckpoint: "Grad Checkpoint",
+      gradCheckpoint: "Grad Checkpointing",
       gradCheckpointTooltip:
         "Trade compute for memory by recomputing activations.",
       none: "None",
@@ -4291,7 +4301,7 @@ export const en = {
       "Weights {model} + context {context} = {total} of {budget} usable VRAM",
     readoutWithSpec:
       "Weights {model} + KV {kv} + MTP draft {spec} = {total} of {budget} usable VRAM",
-    // Measured against llama.cpp: the cache is allocated at context creation, sized to n_ctx.
+    // The cache is allocated at context creation, sized to n_ctx.
     kvRate: "KV reserved, ~{rate}/token",
     oomLikely: "With current settings OOM likely",
     tooLarge: "Larger than VRAM, will offload to CPU. A smaller quantization runs faster",
@@ -4378,7 +4388,7 @@ export const en = {
   // The Scheduled page: prompts that run on a schedule, each run answered in a new chat.
   scheduledTasks: {
     title: "Scheduled",
-    description: "Run prompts on a schedule with your loaded model.",
+    description: "Run prompts on a schedule with any of your models.",
     newTask: "New task",
     upcoming: "Upcoming",
     // Column headers over the list, and the Repeats value of a monthly task.
@@ -4457,6 +4467,21 @@ export const en = {
       archiveSuccessful: "Archive successful runs",
       project: "Project",
       projectNone: "None",
+      model: "Model",
+      modelLoaded: "Whichever model is loaded",
+      modelOnDevice: "On this device",
+      modelNote: "If this model isn't loaded when the task runs, Unsloth asks first.",
+      modelNoteAllowed: "Loads this model only while you're away from Unsloth, then puts back what you had.",
+      modelEmpty: "Download a model in Model hub or add a connection to choose another.",
+      modelMissing: "{model} (not on this device)",
+      allowLoad: "Switch automatically when I'm away",
+      allowLoadHint:
+        "When this task is due and you haven't used Unsloth for 5 minutes, it loads this model without asking, runs the task, then switches back to the model you had. If you're using Unsloth or training at that time, the run is skipped and your model is left alone. Off, Unsloth asks before loading.",
+      reasoning: "Thinking effort",
+      reasoningDefault: "Default",
+      reasoningOff: "Off",
+      reasoningLowest: "Lowest",
+      reasoningHighest: "Highest",
       create: "Create",
     },
     deleteDialog: {
@@ -4465,6 +4490,10 @@ export const en = {
     },
     errors: {
       noModel: "No model was loaded. Load a model in Chat, then run the task again.",
+      modelNotLoaded: "The task's model wasn't loaded. Load it in Chat, then run the task again.",
+      modelLoadFailed: "Couldn't load the task's model. Make sure it's still downloaded in Model hub.",
+      modelBusy: "Skipped while you were using Unsloth, so your model was left alone.",
+      connectionUnavailable: "The task's connection is missing or turned off. Check it in Connections.",
       timeout: "The model took too long to answer.",
       cancelled: "The run was stopped before it finished.",
       interrupted: "Unsloth closed before the run finished.",
@@ -4474,6 +4503,14 @@ export const en = {
       updateFailed: "Could not update the task",
       deleteFailed: "Could not delete the task",
       runFailed: "Could not start the task",
+    },
+    // Asked when a task's model is not loaded: loading it replaces the model in Chat.
+    loadPrompt: {
+      title: "Load {model}?",
+      description: "“{title}” runs on {model}, which isn't loaded. Running it loads {model} until it finishes, then puts back what you had.",
+      always: "Don't ask again. Switch only while I'm away from Unsloth.",
+      notNow: "Not now",
+      load: "Load and run",
     },
     toast: {
       finished: "“{title}” is ready",
@@ -4498,7 +4535,6 @@ export const en = {
       all: "All",
       chats: "Chats",
     },
-    // The Chats tab: conversations and projects, kept apart from every file tab.
     chats: {
       sections: {
         chats: "Chats",
@@ -4616,7 +4652,6 @@ export const en = {
         uploadFailed: "Could not upload {name}",
       },
     },
-    // One title and description per tab, shown when it has nothing yet.
     empty: {
       suggestedTitle: "Your library is empty",
       suggestedDescription: "Files you upload or create in chats show up here.",
@@ -4633,6 +4668,7 @@ export const en = {
       modelsTitle: "No fine-tuned models yet",
       modelsDescription: "Models you train or export in Unsloth show up here.",
       createFolder: "Create folder",
+      generateImage: "Generate an image",
       generateVideo: "Generate a video",
       generateAudio: "Generate audio",
       trainModel: "Train a model",
@@ -4652,11 +4688,10 @@ export const en = {
     searchFolder: "Search folder",
     dropToUpload: "Drop to upload",
     dropToUploadInto: 'Drop to upload to "{folder}"',
-    // Folder cards and list rows. The singular form is used when count is 1.
+    // The singular form is used when count is 1.
     itemCountOne: "{count} item",
     itemCount: "{count} items",
     selectItem: "Select {name}",
-    // The bar that floats over the page while anything is selected.
     selection: {
       startChat: "Start chat",
       move: "Move",
@@ -4679,7 +4714,6 @@ export const en = {
       noFolder: "Library (no folder)",
       deleteFolder: "Delete folder",
     },
-    // Each platform's own name for opening the file manager at a file.
     reveal: {
       finder: "Reveal in Finder",
       explorer: "Show in Explorer",
@@ -4737,7 +4771,7 @@ export const en = {
       modifiedColumn: "Modified",
       justNow: "just now",
     },
-    // File sizes. {value} is already formatted for the locale.
+    // {value} is already formatted for the locale.
     size: {
       bytes: "{value} B",
       kilobytes: "{value} KB",
@@ -4745,7 +4779,6 @@ export const en = {
       gigabytes: "{value} GB",
       terabytes: "{value} TB",
     },
-    // Fine-tuned models, by how they were made.
     modelKind: {
       lora: "LoRA",
       fullFineTune: "Full fine-tune",
@@ -4773,7 +4806,7 @@ export const en = {
       deleteSandbox: "It is also removed from the chat that created it.",
       deleteModel: "This permanently deletes the model from disk.",
       unsavedTitle: "Your changes weren't saved",
-      // {reason} is why the save failed, ending in a full stop.
+      // {reason} ends in a full stop.
       unsavedDescription: "{reason} Try again, or discard your changes to close the file.",
       keepEditing: "Keep editing",
       discardChanges: "Discard changes",
@@ -4804,7 +4837,6 @@ export const en = {
       readOnlyNotUtf8:
         "This file is not UTF-8 text, so it opens read-only here. Some characters may not show correctly.",
     },
-    // The full-window file viewer, shared with the Images, Video and Audio pages.
     viewer: {
       scale: "Scale",
       fit: "Zoom to fit",
@@ -4818,7 +4850,6 @@ export const en = {
       untitledImage: "Untitled image",
       untitledVideo: "Untitled video",
     },
-    // The Project submenu that copies a file into a project.
     project: {
       label: "Project",
       newProject: "New project",
@@ -4883,7 +4914,6 @@ export const en = {
       speechModel: "{name} is a speech model",
       speechModelDescription: "Pick it from the model menu on the Audio page.",
       noMediaLink: "The server returned no link to play this file.",
-      // A Library "View in" link to a gallery entry that is no longer listed.
       imageNotFound: "Could not find this image",
       clipNotFound: "Could not find this clip",
       notFoundDescription: "It may be archived or deleted.",

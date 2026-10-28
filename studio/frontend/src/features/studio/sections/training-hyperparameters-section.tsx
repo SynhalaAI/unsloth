@@ -213,7 +213,7 @@ export function TrainingHyperparametersSection({
       setWhisperLanguage: state.setWhisperLanguage,
     })),
   );
-  // Only mounted in advanced mode, so start expanded when the user switches to it.
+  // Only mounted in advanced mode, so start expanded.
   const [open, setOpen] = useState(true);
   const [tab, setTab] = useState<HyperparameterTab>("optimization");
   const showPreferenceTab =
@@ -261,7 +261,7 @@ export function TrainingHyperparametersSection({
           onValueChange={(value) => setTab(value as HyperparameterTab)}
           className="w-full"
         >
-          <div className="flex justify-center">
+          <div className="flex justify-start">
             <SegmentedTabsList
               value={activeTab}
               options={tabs}

@@ -172,9 +172,7 @@ def standardize_chat_format(
                 # Use the inferred keys first, falling back per-message so mixed ShareGPT/ChatML rows keep valid turns.
                 original_role = message.get(role_key)
                 original_content = message.get(content_key)
-                # Blank counts as absent for the ROLE, matching the preview: `is None` here
-                # trained {"role": "", "from": "gpt"} as a user turn. Content is not blank-
-                # checked, because an empty message is a legitimate value.
+                # Blank role counts as absent, as in the preview; an is None check trained a blank-role gpt turn as a user turn. Blank content is legitimate.
                 if not _normalize_role_alias(original_role):
                     original_role = message.get("role") or message.get("from") or ""
                 if original_content is None:
@@ -515,8 +513,7 @@ def convert_to_vlm_format(
         return Image.open(_own_image_path(image_data, account)).convert("RGB")
 
     def _convert_single_sample(sample):
-        """Convert a single sample to VLM format."""
-        # Image may be a PIL Image, local path, URL, or bare filename
+        """Image may be a PIL Image, local path, URL, or bare filename."""
         image_data = sample[image_column]
 
         if image_data is None:

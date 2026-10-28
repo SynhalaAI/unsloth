@@ -139,6 +139,11 @@ export const zhCN = {
     more: "更多",
     addressPlaceholder: "搜索或输入网址",
     local: "本地",
+    browserUse: {
+      label: "浏览器操作",
+      description: "允许模型控制内置浏览器",
+      unavailable: "请加载支持工具调用的模型，才能让它使用浏览器。",
+    },
     suggested: "推荐",
     suggestedMenu: {
       open: "打开",
@@ -496,7 +501,6 @@ export const zhCN = {
       clearDataFailed: "无法清除网站数据。请重试。",
     },
   },
-  // English fallback until this experimental feature is translated.
   managedEngines: en.managedEngines,
   sandboxSetup: {
     levelTitle: "操作系统沙盒不可用",
@@ -699,7 +703,6 @@ export const zhCN = {
     shutdown: "关闭服务",
   },
   shell: {
-    // The Help submenu of the account menu, and the desktop app's Help menu.
     helpMenu: {
       documentation: "文档",
       keyboardShortcuts: "键盘快捷键",
@@ -771,11 +774,8 @@ export const zhCN = {
       export: "导出",
       recents: "最近",
       noChatsYet: "暂无对话",
-      // Shown under an empty project folder in the sidebar.
       noChats: "无对话",
-      // Shown in the Projects section when every project is pinned, so it has no rows.
       allProjectsPinned: "所有项目均已置顶",
-      // Same, when some of them are filed in custom sections instead.
       allProjectsFiled: "所有项目均已置顶或归入分区",
       noProjects: "暂无项目",
       showMore: "显示更多",
@@ -787,6 +787,8 @@ export const zhCN = {
       guidedTour: "引导教程",
       help: "帮助",
       logOut: "退出登录",
+      logOutNeedsPassword: "退出登录前，请先在 设置 > 远程访问 中设置密码，以便重新登录。",
+      logOutFailed: "无法安全退出登录，请稍后重试。",
       shutdown: "关闭服务",
     },
     commandPalette: {
@@ -877,11 +879,9 @@ export const zhCN = {
       organizeChats: "整理对话",
       organizeProjects: "整理项目",
       sortPinnedChats: "对置顶对话排序",
-      // Header of the menu's section-visibility toggles.
       show: "显示",
       newSection: "新建分区",
     },
-    // User-made sidebar sections that group chats and projects.
     sections: {
       createTitle: "新建分区",
       createDescription: "按你的喜好对对话和项目进行分组",
@@ -892,16 +892,13 @@ export const zhCN = {
       edit: "编辑",
       remove: "移除分区",
       markAllRead: "全部标为已读",
-      // The row menu's one submenu for projects and sections, and its headings.
       moveTo: "移动到",
       section: "分区",
       sectionsHeading: "分区",
       removeFromProject: "从项目中移除",
       newSection: "新建分区",
       removeFromSection: "从分区中移除",
-      // Names the project or section the row leaves; the two above are for when it is not one.
       removeFrom: "从{name}中移除",
-      // Shown in a section with nothing filed in it yet.
       empty: "将对话或项目拖到此处",
       sectionOptions: "分区选项",
       newChatInSection: "在 {name} 中新建聊天",
@@ -936,6 +933,11 @@ export const zhCN = {
   },
   settings: {
     accounts: {
+      signsInAs: "以 {username} 登录",
+      signsInAsOwner: "以 {alias} 或 {username} 登录",
+      signInName: "你的登录名",
+      signInNameDescription: "当此安装有多个账户时，登录时输入的名称。unsloth 也始终可用。留空则只使用 unsloth。",
+      signInNameSave: "保存名称",
       title: "账户",
       description: "创建独立的 Unsloth 账户。新用户使用一次性设置码登录并设置密码。",
       username: "用户名",
@@ -1419,13 +1421,13 @@ export const zhCN = {
       builtinNeedsUpdate:
         "Windows 内置容器需要版本 {required} 或更高，而这台电脑运行的是 {current}。安装最新的 Windows 更新即可无需管理员步骤使用它，或在下方开启备用沙盒。",
       unsupportedBuild: "Windows 沙箱 (MXC) 需要 Windows 11 24H2（版本 26100）或更高版本，因此在此电脑上不可用。",
-      permissionsIntro: "选择工具何时先询问，以及 Python 和终端是否也在操作系统沙盒中运行。",
       permissionLabel: "工具权限",
+      levelRowLabel: "沙盒级别",
       levelPickerTitle: "代码应如何隔离？",
       levelOff: "已停用",
       levelOffShort: "完全访问会关闭沙盒",
-      levelHighDetail: "操作系统沙盒。Python 和终端在软件防护之外，还在操作系统沙盒（bubblewrap、Seatbelt 或 MXC）中运行。没有可用的操作系统沙盒时，有风险的调用会先询问。",
-      levelLowDetail: "软件沙盒。Python 和终端仅使用软件防护，在操作系统沙盒之外运行。除完全访问外，有风险的调用会先询问。",
+      levelHighDetail: "Python 和终端在软件防护之外，还在操作系统沙盒（bubblewrap、Seatbelt 或 MXC）中运行。没有可用的操作系统沙盒时，有风险的调用会先询问。",
+      levelLowDetail: "Python 和终端仅使用软件防护，在操作系统沙盒之外运行。除完全访问外，有风险的调用会先询问。",
       levelLabel: "沙盒",
       levelHigh: "高",
       levelLow: "低",
@@ -2035,13 +2037,13 @@ export const zhCN = {
         },
         details: {
           ask:
-            "每次调用工具前都会询问，包括终端和 Python 代码、网页搜索、编辑文件以及 MCP 工具。由外部提供商运行的工具不会暂停。适合需要逐步检查的场景。",
+            "每次调用工具前都会询问，包括终端和 Python 代码、网页搜索、编辑文件以及 MCP 工具。由外部提供商运行的工具不会暂停。",
           auto:
             "常规工具调用会自动执行，只有在操作看起来有风险时才会询问，例如读取凭据、提升权限或执行破坏性命令。",
           off:
-            "所有工具调用都不再询问。Python 和终端代码仍在沙箱中运行，沙箱会限制它们能访问你电脑上的哪些文件。如果这台电脑没有可用的系统沙箱，高风险的 Python 和终端调用会先询问。",
+            "所有工具调用都不再询问。Python 和终端代码仍在沙箱中运行，沙箱会限制它们能访问你电脑上的哪些文件。没有可用的操作系统沙盒时，有风险的调用会先询问。",
           full:
-            "所有工具调用都不再询问，并关闭代码沙箱，Python 和终端代码可以读取和修改你的账户能访问的任何文件。适合需要在沙箱外工作的可信任务。",
+            "所有工具调用都不再询问，并关闭代码沙箱，Python 和终端代码可以读取和修改你的账户能访问的任何文件。",
         },
       },
     },
@@ -2292,6 +2294,7 @@ export const zhCN = {
       liveMonitor: {
         title: "实时监控",
         apiTitle: "API 监控",
+        apiDescription: "实时查看其他应用发送到此服务器 API 的内容。",
         summary: "实时请求、错误和 token 用量",
         status: "{active} 个进行中 · {recent} 个近期请求 · {model}",
         noModelLoaded: "未加载模型",
@@ -2310,7 +2313,7 @@ export const zhCN = {
         gpuUnusableDetail: "已检测到，但 PyTorch 无法使用",
         detailedView: "详细视图",
         detailedViewDescription:
-          "在浮动窗口和此处显示 CPU 负载以及每个 GPU 的负载、温度和功耗。",
+          "在浮动窗口中显示 CPU 负载以及每个 GPU 的负载、温度和功耗。",
         cpuLoad: "CPU 负载",
         gpuLoad: "GPU 负载",
         temperature: "温度",
@@ -2341,6 +2344,10 @@ export const zhCN = {
         used: "已用 {value}",
         free: "{value} 可用",
         total: "共 {value}",
+        usedOf: "已用 {used}，共 {total}",
+        segmentUsed: "GPU 已用",
+        segmentSystem: "系统已用",
+        segmentAvailable: "可用",
       },
       llamaBackend: {
         title: "GGUF 推理引擎",
@@ -2392,7 +2399,6 @@ export const zhCN = {
           updateChecksDisabled:
             "更新检查已禁用（UNSLOTH_DISABLE_UPDATE_CHECK=1），因此不会查询可用的后端。",
         },
-        // 不显示：用于设置搜索的额外词条。
         llamaBackendKeywords:
           "llama.cpp backend gguf 推理 cuda rocm hip vulkan metal cpu gpu 加速器 prebuilt 切换 引擎",
       },
@@ -2426,7 +2432,6 @@ export const zhCN = {
         reloadRequired: "重新加载模型以应用新的内存选项。",
         loadError: "加载模型内存设置失败",
         saveError: "保存模型内存设置失败",
-        // Not rendered: extra terms the settings search matches these rows on.
         modelMemoryKeywords:
           "mlock memlock ulimit vram gpu 内存 显存 常驻 固定 锁定 保持 已加载 卸载 空闲 mmap no-mmap load-mode 交换 分页",
         multiModelKeywords: "多个 模型 同时 一起 切换 容纳 卸载 驱逐 vram gpu 图像 视频 聊天 总是 空闲 语音 朗读 tts",
@@ -2523,6 +2528,8 @@ export const zhCN = {
         python: "Python",
         torch: "Torch",
         transformers: "Transformers",
+        mlxLm: "mlx-lm",
+        mlxVlm: "mlx-vlm",
         uptime: "运行时长",
         processMemory: "进程内存",
         notInstalled: "未安装",
@@ -2561,8 +2568,6 @@ export const zhCN = {
       docsLabel: "打开 unsloth start 文档",
       agentDocs: "打开 {agent} 的配置文档",
       copyGeneratedCommand: "复制生成的命令",
-      // English is the baseline until translated: the three-part sentence is assembled around an
-      // inline link and needs restructuring first.
       automaticSettingsNote:
         "Unsloth automatically applies the model’s recommended settings if you have not set any flags.",
       configurationNote:
@@ -3256,6 +3261,7 @@ export const zhCN = {
       desktopAppVersionUnavailable: "不可用",
       llamaCppVersion: "llama.cpp 版本",
       audioCppVersion: "audio.cpp 版本",
+      mlxVersion: "MLX 版本",
       whisperCppVersion: "whisper.cpp 版本",
       engines: {
         title: "引擎",
@@ -4285,6 +4291,21 @@ export const zhCN = {
       archiveSuccessful: "归档成功的运行",
       project: "项目",
       projectNone: "无",
+      model: "模型",
+      modelLoaded: "当前已加载的任意模型",
+      modelOnDevice: "此设备",
+      modelNote: "如果任务运行时此模型未加载，Unsloth 会先询问。",
+      modelNoteAllowed: "仅在你离开 Unsloth 时切换到此模型，完成后切回原来的模型。",
+      modelEmpty: "在模型中心下载模型或添加连接，即可选择其他模型。",
+      modelMissing: "{model}（不在此设备上）",
+      allowLoad: "离开时自动切换",
+      allowLoadHint:
+        "到了任务时间且你已 5 分钟未使用 Unsloth 时，它会直接加载此模型、运行任务，然后切换回你原来的模型。如果当时你正在使用 Unsloth 或正在训练，本次运行会被跳过，你的模型保持不变。关闭时，Unsloth 会在加载前询问。",
+      reasoning: "思考强度",
+      reasoningDefault: "默认",
+      reasoningOff: "关闭",
+      reasoningLowest: "最低",
+      reasoningHighest: "最高",
       create: "创建",
     },
     deleteDialog: {
@@ -4293,6 +4314,10 @@ export const zhCN = {
     },
     errors: {
       noModel: "当时没有加载模型。请在聊天中加载模型，然后重新运行任务。",
+      modelNotLoaded: "任务的模型未加载。请在聊天中加载后再次运行任务。",
+      modelLoadFailed: "无法加载任务的模型。请确认它仍已下载到模型中心。",
+      modelBusy: "因你正在使用 Unsloth 而跳过，你的模型未被更换。",
+      connectionUnavailable: "任务的连接不存在或已关闭。请在“连接”中检查。",
       timeout: "模型回答用时过长。",
       cancelled: "运行在完成前被停止。",
       interrupted: "运行完成前 Unsloth 已关闭。",
@@ -4302,6 +4327,13 @@ export const zhCN = {
       updateFailed: "无法更新任务",
       deleteFailed: "无法删除任务",
       runFailed: "无法启动任务",
+    },
+    loadPrompt: {
+      title: "加载 {model}？",
+      description: "“{title}”使用 {model} 运行，但它尚未加载。运行时聊天会切换到 {model}，完成后再切回。",
+      always: "不再询问。仅在我不使用 Unsloth 时切换。",
+      notNow: "暂不",
+      load: "加载并运行",
     },
     toast: {
       finished: "“{title}”已完成",
@@ -4325,7 +4357,6 @@ export const zhCN = {
       all: "全部",
       chats: "聊天",
     },
-    // The Chats tab: conversations and projects, kept apart from every file tab.
     chats: {
       sections: {
         chats: "聊天",
@@ -4459,6 +4490,7 @@ export const zhCN = {
       modelsTitle: "还没有微调模型",
       modelsDescription: "你在 Unsloth 中训练或导出的模型会显示在这里。",
       createFolder: "创建文件夹",
+      generateImage: "生成图像",
       generateVideo: "生成视频",
       generateAudio: "生成音频",
       trainModel: "训练模型",

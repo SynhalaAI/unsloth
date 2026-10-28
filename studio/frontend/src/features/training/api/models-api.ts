@@ -155,7 +155,7 @@ interface LocalModelListResponse {
   models: LocalModelInfo[];
 }
 
-/** GET /api/models/check-vision; pass the token so a gated/private VLM is not misread as non-vision. */
+/** Pass the token so a gated/private VLM is not misread as non-vision. */
 export async function checkVisionModel(
   modelName: string,
   hfToken?: string | null,
@@ -173,7 +173,6 @@ export async function checkVisionModel(
   return data.is_vision;
 }
 
-/** GET /api/models/check-embedding; pass the token for gated/private repos. */
 export async function checkEmbeddingModel(
   modelName: string,
   hfToken?: string | null,
@@ -183,7 +182,6 @@ export async function checkEmbeddingModel(
     headers: hubTokenHeader(hfToken?.trim() || null),
   });
   if (!response.ok) {
-    // Check failure (e.g. network error): default to non-embedding.
     return false;
   }
   const data = (await response.json()) as EmbeddingCheckResponse;
