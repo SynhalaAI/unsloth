@@ -1362,8 +1362,8 @@ def _nonced_docs_response(html: str, *, tag: "_re.Pattern[str]") -> HTMLResponse
     return HTMLResponse(nonced, headers = {_CSP_SCRIPT_NONCE_HEADER: nonce})
 
 
-# FastAPI's own /openapi.json builds the schema on the event loop: seconds for ~550 routes, fetched by the chat
-# sidebar every session, stalling every request behind it (#9712). Built once in a worker thread instead.
+# FastAPI's own /openapi.json builds the schema on the event loop: seconds for ~550 routes, fetched by older chat
+# sidebars every session, stalling every request behind it (#9712). Built once in a worker thread instead.
 _openapi_build_lock = threading.Lock()
 _build_openapi_schema = app.openapi
 
@@ -3292,3 +3292,9 @@ def setup_frontend(
     # The lifespan reads this to decide whether engine paths need their own GET denial.
     app.state.frontend_mounted = True
     return True
+
+
+# Last, after every module-level route is registered; routes added later stay unguarded.
+from utils.route_prefix_guard import install_route_prefix_guards  # noqa: E402
+
+install_route_prefix_guards(app.router.routes)
