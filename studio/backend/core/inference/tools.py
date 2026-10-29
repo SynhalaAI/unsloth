@@ -12279,19 +12279,21 @@ DEEP_RESEARCH_TOOL = {
     "function": {
         "name": "deep_research",
         "description": (
-            "Start Deep Research on the user's question: a multi-step web investigation that "
-            "gathers current sources and writes a cited report, replacing your reply. The user "
-            "turned this on because they want researched answers, so call it for any question "
-            "about the world -- facts, events, laws, products, papers, prices, comparisons, "
-            "anything that may have changed since your training -- even when you think you know "
-            "the answer. Do not answer such questions from memory.\n"
-            "Do not call it for a message with no question in it, such as a hello or a thanks, or "
-            "for a request to write or transform text the user supplied.\n"
-            "If the topic is too vague to research well, do not call this yet: ask one short "
-            "clarifying question, then call it once the user has narrowed it down.\n"
-            "The question you pass is what gets researched, so make it specific and "
-            "self-contained: fold in what the conversation established rather than repeating "
-            "the user's words."
+            "Hand off the user's factual question or research request to Deep Research. This "
+            "workflow gathers current sources and writes a cited report that replaces your "
+            "reply. Call it before drafting an answer, outline, or report, even when you think "
+            "you know the answer. Do not use it only to look up individual details while "
+            "writing the report yourself.\n"
+            "Research requests include commands to investigate, compare, or write a report, "
+            "including detailed briefs in pasted text or attachments. They do not need to be "
+            "phrased as questions. A supplied research brief is not merely text to rewrite.\n"
+            "Do not call it for a hello, thanks, or a remark about you, or for a request only "
+            "to rewrite or transform supplied text without outside research. If the topic is "
+            "too vague to research well, ask one short clarifying question first.\n"
+            "Call once with a concise, self-contained question covering the whole request, "
+            "including its main topics and requested outputs. Summarize the brief in a few "
+            "sentences rather than copying it or answering it. Include relevant context from "
+            "the conversation so the research workflow can complete the report."
         ),
         "parameters": {
             "type": "object",
@@ -12299,8 +12301,9 @@ DEEP_RESEARCH_TOOL = {
                 "question": {
                     "type": "string",
                     "description": (
-                        "The specific, self-contained question to research. Not the user's raw "
-                        "message unless it already reads as one."
+                        "A concise, self-contained research brief in a few sentences: include the "
+                        "main topics and requested outputs, not just one detail to look up. "
+                        "Do not copy the full prompt or write the report in this argument."
                     ),
                 },
             },
@@ -20677,12 +20680,20 @@ def _stamp_size(stamp: str) -> "int | None":
 
 def _file_digest(path: str, expected_size: "int | None" = None) -> "str | None":
     """Opened with O_NOFOLLOW and O_NONBLOCK, so a symlink or FIFO swapped in at the path is rejected."""
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
+    no_follow = getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_RDONLY | no_follow | getattr(os, "O_NONBLOCK", 0)
     fd = None
     try:
+        # Windows has no O_NOFOLLOW: refuse a link up front, and a link swapped in before the
+        # open shows up as a different file once it is open.
+        named = None if no_follow else os.lstat(path)
+        if named is not None and not stat.S_ISREG(named.st_mode):
+            return None
         fd = os.open(path, flags)
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
+            return None
+        if named is not None and (info.st_dev, info.st_ino) != (named.st_dev, named.st_ino):
             return None
         if expected_size is not None and info.st_size != expected_size:
             return None
