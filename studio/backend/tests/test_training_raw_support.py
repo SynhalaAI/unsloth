@@ -483,6 +483,14 @@ class TestTrainingRawSupport(unittest.TestCase):
         self.assertEqual(result["dataset"][0]["text"], "hello")
         self.assertFalse(result["requires_manual_mapping"])
 
+    def test_format_dataset_raw_text_keeps_only_the_text_column(self):
+        dataset = Dataset.from_dict({"text": ["hello"], "labels": [7]})
+
+        result = format_dataset(dataset, format_type = "raw")
+
+        self.assertEqual(result["final_format"], "raw_text")
+        self.assertEqual(result["dataset"].column_names, ["text"])
+
     def test_format_and_template_dataset_supports_raw_text_without_template(self):
         dataset = Dataset.from_dict({"body": ["hello raw world"]})
 

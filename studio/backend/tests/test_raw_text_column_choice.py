@@ -51,6 +51,45 @@ def test_raw_text_scores_unspaced_scripts_by_length_not_by_spaces():
     assert list(result.dataset["text"]) == [doc, doc]
 
 
+@pytest.mark.parametrize("streaming", [False, True])
+def test_cpt_keeps_only_the_text_column(streaming):
+    """A leftover 'labels' column makes the trainer read the rows as already
+    tokenized and fail asking for 'input_ids'; CPT trains on text alone."""
+    dataset = Dataset.from_dict({"text": ["hello", "world"], "labels": [0, 1]})
+    if streaming:
+        dataset = dataset.to_iterable_dataset()
+
+    result = prepare_raw_text_dataset(
+        dataset,
+        mode_label = "CPT",
+        split_name = "train",
+        eos_token = "</s>",
+        append_eos = True,
+    )
+
+    rows = list(result.dataset)
+    assert [list(row) for row in rows] == [["text"], ["text"]]
+    assert [row["text"] for row in rows] == ["hello</s>", "world</s>"]
+    assert any(
+        "keeping only the 'text' column" in notice.message
+        and "'labels'" in notice.message
+        for notice in result.notices
+    )
+
+
+def test_raw_text_drops_metadata_columns_after_renaming_the_text_column():
+    result = prepare_raw_text_dataset(
+        Dataset.from_dict({"content": ["aaa"], "labels": [3], "source": ["x"]}),
+        mode_label = "CPT",
+        split_name = "train",
+    )
+
+    assert result.dataset.column_names == ["text"]
+    assert list(result.dataset["text"]) == ["aaa"]
+    assert result.source_column == "content"
+    assert any("keeping only the 'text' column" in n.message for n in result.notices)
+
+
 def test_raw_format_eval_split_reuses_the_train_column():
     from utils.datasets.dataset_utils import format_and_template_dataset
 

@@ -185,6 +185,27 @@ def prepare_raw_text_dataset(
         )
         dataset = dataset.rename_column(renamed_col, "text")
 
+    # Raw text / CPT trains on the 'text' column alone. Any other column is dead weight
+    # at best: a leftover 'labels' makes the trainer take the rows for already tokenized
+    # ones and fail asking for 'input_ids', and another string column reaches the
+    # collator as something it cannot stack. Declared columns only: a probe would
+    # consume the streaming row the filter below is the one allowed to read.
+    declared_columns = getattr(dataset, "column_names", None) or list(
+        getattr(dataset, "features", None) or {}
+    )
+    extra_columns = [col for col in declared_columns if col != "text"]
+    if extra_columns:
+        dataset = dataset.select_columns(["text"])
+        notices.append(
+            RawTextNotice(
+                message = (
+                    f"{mode_title}: keeping only the 'text' column for {split_scope}; "
+                    f"dropped {extra_columns}"
+                ),
+                level = "info",
+            )
+        )
+
     dataset, invalid_row_notices = _drop_invalid_text_rows(
         dataset,
         mode_title = mode_title,
