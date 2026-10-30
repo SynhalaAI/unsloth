@@ -7,7 +7,11 @@ import re
 from typing import Any, Optional
 
 from utils.datasets.cells import text_cell_check, unwrap_message_column
-from utils.datasets.format_detection import detect_dataset_format, has_message_prompt_completion
+from utils.datasets.format_detection import (
+    detect_dataset_format,
+    has_message_prompt_completion,
+    is_plain_text_dataset,
+)
 from utils.datasets.preference import detect_preference_columns
 from utils.datasets.vlm_processing import detect_vlm_instruction_column
 from utils.datasets.pretokenized import PRETOKENIZED_FORMAT, is_pretokenized_dataset
@@ -748,6 +752,23 @@ def check_dataset_format(dataset, is_vlm: bool = False) -> dict:
         "detected_audio_column": multimodal_info.get("detected_audio_column"),
         "detected_speaker_column": multimodal_info.get("detected_speaker_column"),
     }
+    if is_plain_text_dataset(dataset):
+        # Before the VLM branch: text-only data trains as raw text on a vision model too.
+        # Media flags off: a name match (a "speech" column) would route an audio model to its audio path.
+        return {
+            "requires_manual_mapping": False,
+            "detected_format": "raw",
+            "columns": columns,
+            "suggested_mapping": None,
+            "detected_image_column": None,
+            "detected_text_column": None,
+            "is_image": False,
+            "multimodal_columns": None,
+            "is_audio": False,
+            "detected_audio_column": None,
+            "detected_speaker_column": None,
+        }
+
     # A vision-capable model can still train on a text-only preference dataset.
     # Keep this aligned with the preview, which enables VLM detection only after
     # the dataset itself is known to contain images.

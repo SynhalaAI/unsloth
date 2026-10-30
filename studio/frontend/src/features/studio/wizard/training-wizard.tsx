@@ -32,10 +32,10 @@ import {
 } from "@/features/training";
 import { ResumeCheckpointPicker } from "@/features/training/components/resume-checkpoint-picker";
 import { useT } from "@/i18n";
+import { ChipIcon } from "@/lib/hugeicons-derived";
 import { cn } from "@/lib/utils";
 import type { TrainingMethod } from "@/types/training";
 import {
-  ChipIcon,
   Database02Icon,
   PencilEdit01Icon,
   Refresh01Icon,
