@@ -665,6 +665,15 @@ def _move_gemma4_token_types_to_input_embeddings(model):
     def to_input_embeddings(module, args, kwargs):
         if kwargs.get("mm_token_type_ids") is not None:
             kwargs["mm_token_type_ids"] = kwargs["mm_token_type_ids"].to(target)
+        # 5.5 also builds `multimodal_mask` from `input_ids` (the root hook's device) and combines
+        # it with the embedding's output. E2B/E4B set `hidden_size_per_layer_input`, which reaches
+        # that `torch.where` on every row, media or not, and the tied embedding is pinned to the
+        # head's card: ids left on the root's card mix cuda:0 with cuda:1 and the first step dies.
+        ids = kwargs.get("input_ids")
+        if ids is not None and hasattr(ids, "to"):
+            kwargs["input_ids"] = ids.to(target)
+        elif args and hasattr(args[0], "to"):
+            args = (args[0].to(target),) + args[1:]
         return args, kwargs
 
     inner.register_forward_pre_hook(to_input_embeddings, with_kwargs = True)
