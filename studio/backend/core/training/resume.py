@@ -315,9 +315,15 @@ def can_resume_run(run: dict, *, resource_cache: Optional[dict[str, bool]] = Non
     if not resume_state_available:
         return False
 
-    from core.training.provenance import resource_provenance_allows_resume
+    from core.training.provenance import (
+        repair_incomplete_model_provenance,
+        resource_provenance_allows_resume,
+    )
 
-    config = training_run_config(run)
+    config = dict(training_run_config(run))
+    # The history UI refuses a run before the start route can repair it, so report cache-attestable
+    # runs as resumable; the start route persists the same repair before training.
+    repair_incomplete_model_provenance(config)
     cache_key = _resource_resume_cache_key(config)
     if resource_cache is None or cache_key is None:
         return resource_provenance_allows_resume(config)

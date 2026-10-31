@@ -553,6 +553,92 @@ def test_resume_repair_config_reattests_the_stored_run(tmp_path):
     assert resource_provenance_allows_resume(merged) is True
 
 
+def test_can_resume_accepts_a_run_the_cache_can_still_attest(tmp_path, monkeypatch):
+    from core.training import resume
+
+    _model_snapshot(tmp_path, "org/model", "model-commit", quantized = True)
+    dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")
+    stored = _unattested_run_config(dataset)
+    row = {
+        "status": "stopped",
+        "output_dir": str(tmp_path / "run-1"),
+        "final_step": 5,
+        "total_steps": 100,
+        "config_json": json.dumps(stored),
+    }
+    monkeypatch.setattr(resume, "has_resume_state", lambda *_args: True)
+
+    assert resume.can_resume_run(row) is True
+    # The stored marker is only repaired on disk by the start route, not by this read path.
+    assert json.loads(row["config_json"])[RESOURCE_PROVENANCE_KEY]["model_status"] == "incomplete"
+
+
+def test_can_resume_still_refuses_an_ambiguous_cache(tmp_path, monkeypatch):
+    from core.training import resume
+
+    _model_snapshot(tmp_path, "org/model", "model-commit", quantized = True)
+    _model_snapshot(tmp_path, "org/model", "newer-commit", quantized = True)
+    dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")
+    row = {
+        "status": "stopped",
+        "output_dir": str(tmp_path / "run-1"),
+        "final_step": 5,
+        "total_steps": 100,
+        "config_json": json.dumps(_unattested_run_config(dataset)),
+    }
+    monkeypatch.setattr(resume, "has_resume_state", lambda *_args: True)
+
+    assert resume.can_resume_run(row) is False
+
+
+def test_resume_start_persists_the_reattestation(tmp_path, monkeypatch):
+    from routes import training as training_route
+    from storage import studio_db
+
+    _model_snapshot(tmp_path, "org/model", "model-commit", quantized = True)
+    dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")
+    stored = _unattested_run_config(dataset)
+    saved = {}
+
+    def fake_repair(run_id, output_dir, config_json = None, total_steps = None, final_step = None):
+        saved["config"] = json.loads(config_json)
+        return {"id": run_id, "config_json": config_json, "output_dir": output_dir}
+
+    monkeypatch.setattr(studio_db, "repair_run_for_resume", fake_repair)
+    row = {
+        "id": "run-1",
+        "output_dir": str(tmp_path / "run-1"),
+        "config_json": json.dumps(stored),
+    }
+
+    result = training_route._repair_resume_model_provenance(row, row["output_dir"])
+
+    assert saved["config"]["resource_provenance"]["model_status"] == "attested"
+    assert resource_provenance_allows_resume(saved["config"]) is True
+    assert result["id"] == "run-1"
+
+
+def test_resume_start_leaves_an_ambiguous_run_alone(tmp_path, monkeypatch):
+    from routes import training as training_route
+    from storage import studio_db
+
+    _model_snapshot(tmp_path, "org/model", "model-commit", quantized = True)
+    _model_snapshot(tmp_path, "org/model", "newer-commit", quantized = True)
+    dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")
+    row = {
+        "id": "run-1",
+        "output_dir": str(tmp_path / "run-1"),
+        "config_json": json.dumps(_unattested_run_config(dataset)),
+    }
+
+    def fail(*args, **kwargs):
+        raise AssertionError("an ambiguous cache must not be persisted")
+
+    monkeypatch.setattr(studio_db, "repair_run_for_resume", fail)
+
+    assert training_route._repair_resume_model_provenance(row, row["output_dir"]) is row
+
+
 def test_mlx_runtime_4bit_metadata_attests_unpinned_hub_load(tmp_path):
     model_snapshot = _model_snapshot(tmp_path, "org/model", "model-commit")
     dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")

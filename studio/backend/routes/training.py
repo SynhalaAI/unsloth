@@ -1580,6 +1580,27 @@ def _build_resume_recovered_config(request: TrainingStartRequest, output_dir: st
     return json.dumps(req_dict)
 
 
+def _repair_resume_model_provenance(run: Optional[dict], output_dir: str) -> Optional[dict]:
+    """Persist the cache re-attestation the history gate assumed, before the resume starts."""
+    if not run or not run.get("id"):
+        return run
+    stored = training_run_config(run)
+    from core.training.provenance import repair_incomplete_model_provenance
+
+    if not repair_incomplete_model_provenance(stored):
+        return run
+    from storage.studio_db import repair_run_for_resume
+
+    return (
+        repair_run_for_resume(
+            run["id"],
+            output_dir or run.get("output_dir") or "",
+            json.dumps(stored),
+        )
+        or run
+    )
+
+
 def _prepare_resume_resource_provenance(
     request: TrainingStartRequest, resume_run: dict
 ) -> tuple[Optional[str], bool, bool, bool, Optional[str]]:
@@ -2029,6 +2050,11 @@ async def _admit_training_request(
 
         resume_run = await asyncio.to_thread(
             get_resumable_run_by_output_dir,
+            resume_output_dir,
+        )
+        resume_run = await asyncio.to_thread(
+            _repair_resume_model_provenance,
+            resume_run,
             resume_output_dir,
         )
         if not resume_run or not await asyncio.to_thread(can_resume_run, resume_run):
