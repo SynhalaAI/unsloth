@@ -1559,6 +1559,11 @@ def _build_resume_repair_config(request: TrainingStartRequest, existing_run: dic
         merged["hf_dataset"] = request.hf_dataset
     if request.training_type:
         merged["training_type"] = request.training_type
+    # Runs stored without a model pin were marked unattested; re-attest from the cache here so their
+    # checkpoints stay resumable instead of forcing a retrain.
+    from core.training.provenance import repair_incomplete_model_provenance
+
+    repair_incomplete_model_provenance(merged)
     return json.dumps(merged)
 
 

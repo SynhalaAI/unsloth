@@ -994,3 +994,84 @@ def resource_provenance_resume_blocker(config: dict[str, Any]) -> Optional[str]:
     return (
         f"This run's recorded resource provenance is not in a resumable state (status: {status!r})."
     )
+
+
+_MODEL_PROVENANCE_REASONS = frozenset(
+    {
+        "model_snapshot_unattested",
+        "model_quantized_snapshot_unattested",
+        "model_metadata_ambiguous",
+        "model_event_invalid",
+    }
+)
+
+
+def _unique_cached_model_snapshot(repo_id: str) -> Optional[str]:
+    """The single valid cached snapshot for *repo_id*, or None when there is none or several."""
+    from hub.utils.hf_cache_state import iter_repo_cache_dirs
+
+    snapshots: set[str] = set()
+    for repo_dir in iter_repo_cache_dirs("model", repo_id):
+        snapshots_dir = Path(repo_dir) / "snapshots"
+        try:
+            revisions = [entry for entry in snapshots_dir.iterdir() if entry.is_dir()]
+        except OSError:
+            continue
+        for revision in revisions:
+            resolved = exact_model_snapshot_path(str(revision), repo_id)
+            if resolved is not None:
+                snapshots.add(resolved)
+    return snapshots.pop() if len(snapshots) == 1 else None
+
+
+def repair_incomplete_model_provenance(config: dict[str, Any]) -> bool:
+    """Re-attest a stored run whose model was recorded as unattested, using the cache it trained from.
+
+    Resume repairs call this: runs that stored no pin at all (the commit-only config case) were marked
+    incomplete, so nothing contradicts the cache. Only a repo with exactly one valid cached snapshot whose
+    quantization matches the recorded load mode is accepted; anything ambiguous stays unattested.
+    """
+    marker = config.get(RESOURCE_PROVENANCE_KEY)
+    if (
+        not isinstance(marker, dict)
+        or marker.get("version") != RESOURCE_PROVENANCE_VERSION
+        or marker.get("model_status") != _INCOMPLETE
+        or config.get("actual_model_repo_id")
+        or config.get("model_snapshot_path")
+    ):
+        return False
+
+    from utils.paths import is_local_path
+    from utils.utils import canonical_model_repo_id
+
+    model_name = str(config.get("model_name") or "")
+    if is_local_path(model_name):
+        return False
+    repo_id = _normalized_repo_id(canonical_model_repo_id(model_name))
+    if repo_id is None:
+        return False
+
+    snapshot = _unique_cached_model_snapshot(repo_id)
+    if snapshot is None:
+        return False
+    load_mode = _attested_model_load_mode(snapshot, None, bool(config.get("load_in_4bit")))
+    if load_mode is None:
+        return False
+    stored_mode = marker.get("model_load_mode")
+    if stored_mode is not None and stored_mode != load_mode:
+        return False
+
+    config["actual_model_repo_id"] = repo_id
+    config["model_snapshot_path"] = snapshot
+    config[RESOURCE_PROVENANCE_KEY] = {
+        **marker,
+        "status": "complete" if marker.get("dataset_status") == _ATTESTED else "incomplete",
+        "model_status": _ATTESTED,
+        "model_load_mode": load_mode,
+        "reasons": [
+            reason
+            for reason in _normalized_reasons(marker.get("reasons"))
+            if reason not in _MODEL_PROVENANCE_REASONS
+        ],
+    }
+    return True

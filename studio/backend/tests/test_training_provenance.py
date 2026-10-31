@@ -25,6 +25,7 @@ from core.training.provenance import (
     exact_dataset_snapshot_path,
     exact_model_snapshot_path,
     normalize_worker_provenance_event,
+    repair_incomplete_model_provenance,
     resolve_resume_dataset_target,
     resource_provenance_allows_resume,
     validate_exact_dataset_pin,
@@ -470,6 +471,86 @@ def test_commit_only_config_does_not_borrow_another_repos_commit(tmp_path):
 
     assert event["model"]["status"] == "incomplete"
     assert "model_snapshot_unattested" in event["reasons"]
+
+
+def _unattested_run_config(dataset, *, load_in_4bit = False):
+    """A stored run whose model was marked incomplete, with no pin recorded (the commit-only bug)."""
+    return {
+        "model_name": "org/model",
+        "hf_dataset": "org/dataset",
+        "dataset_snapshot_path": str(dataset),
+        "load_in_4bit": load_in_4bit,
+        RESOURCE_PROVENANCE_KEY: {
+            "version": 1,
+            "status": "incomplete",
+            "model_status": "incomplete",
+            "model_load_mode": None,
+            "dataset_status": "attested",
+            "reasons": ["model_snapshot_unattested"],
+        },
+    }
+
+
+def test_repair_reattests_a_run_that_stored_no_model_pin(tmp_path):
+    model_snapshot = _model_snapshot(tmp_path, "org/model", "model-commit", quantized = True)
+    dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")
+    config = _unattested_run_config(dataset)
+
+    assert repair_incomplete_model_provenance(config) is True
+
+    assert config["actual_model_repo_id"] == "org/model"
+    assert config["model_snapshot_path"] == str(model_snapshot)
+    marker = config[RESOURCE_PROVENANCE_KEY]
+    assert marker["model_status"] == "attested"
+    assert marker["model_load_mode"] == "prequantized_4bit"
+    assert marker["status"] == "complete"
+    assert marker["reasons"] == []
+    assert resource_provenance_allows_resume(config) is True
+    assert exact_resume_resource_requirements(config) == (True, True)
+
+
+def test_repair_refuses_when_the_cache_holds_more_than_one_snapshot(tmp_path):
+    _model_snapshot(tmp_path, "org/model", "model-commit", quantized = True)
+    _model_snapshot(tmp_path, "org/model", "newer-commit", quantized = True)
+    dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")
+    config = _unattested_run_config(dataset)
+
+    assert repair_incomplete_model_provenance(config) is False
+    assert "actual_model_repo_id" not in config
+    assert resource_provenance_allows_resume(config) is False
+
+
+def test_repair_refuses_a_4bit_run_with_no_quantized_snapshot(tmp_path):
+    _model_snapshot(tmp_path, "org/model", "model-commit")
+    dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")
+    config = _unattested_run_config(dataset, load_in_4bit = True)
+
+    assert repair_incomplete_model_provenance(config) is False
+    assert "actual_model_repo_id" not in config
+
+
+def test_resume_repair_config_reattests_the_stored_run(tmp_path):
+    from routes import training as training_route
+
+    _model_snapshot(tmp_path, "org/model", "model-commit", quantized = True)
+    dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")
+    stored = _unattested_run_config(dataset)
+    existing_run = {
+        "config_json": json.dumps(stored),
+        "output_dir": str(tmp_path / "run-1"),
+    }
+    request = SimpleNamespace(
+        model_dump = lambda **kwargs: {"model_name": "org/model"},
+        model_name = "org/model",
+        hf_dataset = "org/dataset",
+        training_type = "Continued Pretraining",
+    )
+
+    merged = json.loads(training_route._build_resume_repair_config(request, existing_run))
+
+    assert merged["actual_model_repo_id"] == "org/model"
+    assert merged[RESOURCE_PROVENANCE_KEY]["model_status"] == "attested"
+    assert resource_provenance_allows_resume(merged) is True
 
 
 def test_mlx_runtime_4bit_metadata_attests_unpinned_hub_load(tmp_path):
