@@ -1024,21 +1024,75 @@ def _unique_cached_model_snapshot(repo_id: str) -> Optional[str]:
     return snapshots.pop() if len(snapshots) == 1 else None
 
 
-def repair_incomplete_model_provenance(config: dict[str, Any]) -> bool:
-    """Re-attest a stored run whose model was recorded as unattested, using the cache it trained from.
+def _repair_pending_pins(config: dict[str, Any], marker: dict[str, Any]) -> bool:
+    """A run stopped before the worker's event keeps a pending marker and its start pins."""
+    if marker.get("model_status") is not None or marker.get("dataset_status") is not None:
+        return False
 
-    Resume repairs call this: runs that stored no pin at all (the commit-only config case) were marked
-    incomplete, so nothing contradicts the cache. Only a repo with exactly one valid cached snapshot whose
-    quantization matches the recorded load mode is accepted; anything ambiguous stays unattested.
+    from utils.paths import is_local_path
+    from utils.utils import canonical_model_repo_id
+
+    model_name = str(config.get("model_name") or "")
+    needs_model = not is_local_path(model_name)
+    repo_id = _normalized_repo_id(config.get("actual_model_repo_id")) or _normalized_repo_id(
+        canonical_model_repo_id(model_name)
+    )
+    snapshot = None
+    load_mode = None
+    if needs_model and repo_id is not None:
+        snapshot = exact_model_snapshot_path(config.get("model_snapshot_path"), repo_id)
+        if snapshot is not None:
+            load_mode = _attested_model_load_mode(
+                snapshot, None, bool(config.get("load_in_4bit"))
+            )
+    repaired_model = load_mode is not None
+
+    dataset_repo_id = _normalized_repo_id(config.get("hf_dataset"))
+    repaired_dataset = False
+    if dataset_repo_id is not None:
+        try:
+            resolve_resume_dataset_target(config)
+        except ExactResumeResourcesUnavailable:
+            repaired_dataset = False
+        else:
+            repaired_dataset = True
+    if not repaired_model and not repaired_dataset:
+        return False
+
+    updated = dict(marker)
+    if repaired_model:
+        config["actual_model_repo_id"] = repo_id
+        config["model_snapshot_path"] = snapshot
+        updated["model_status"] = _ATTESTED
+        updated["model_load_mode"] = load_mode
+    if repaired_dataset:
+        updated["dataset_status"] = _ATTESTED
+    complete = (repaired_model or not needs_model) and (
+        repaired_dataset or dataset_repo_id is None
+    )
+    updated["status"] = "complete" if complete else "incomplete"
+    updated["reasons"] = []
+    config[RESOURCE_PROVENANCE_KEY] = updated
+    return True
+
+
+def repair_incomplete_model_provenance(config: dict[str, Any]) -> bool:
+    """Re-attest a stored run from the cache and the pins it was started with.
+
+    Resume repairs call this for runs that never got a complete marker: the commit-only config bug
+    left an incomplete marker and no pin at all, and a run stopped before the worker's event left a
+    pending marker with its start pin. Only a pin that still resolves exactly, or a repo with
+    exactly one valid cached snapshot whose quantization matches the recorded load mode, is
+    accepted; anything ambiguous stays unattested.
     """
     marker = config.get(RESOURCE_PROVENANCE_KEY)
-    if (
-        not isinstance(marker, dict)
-        or marker.get("version") != RESOURCE_PROVENANCE_VERSION
-        or marker.get("model_status") != _INCOMPLETE
-        or config.get("actual_model_repo_id")
-        or config.get("model_snapshot_path")
-    ):
+    if not isinstance(marker, dict) or marker.get("version") != RESOURCE_PROVENANCE_VERSION:
+        return False
+    if marker.get("status") == "pending":
+        return _repair_pending_pins(config, marker)
+    if marker.get("status") != "incomplete" or marker.get("model_status") != _INCOMPLETE:
+        return False
+    if config.get("actual_model_repo_id") or config.get("model_snapshot_path"):
         return False
 
     from utils.paths import is_local_path

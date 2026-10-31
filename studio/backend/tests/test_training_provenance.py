@@ -639,6 +639,92 @@ def test_resume_start_leaves_an_ambiguous_run_alone(tmp_path, monkeypatch):
     assert training_route._repair_resume_model_provenance(row, row["output_dir"]) is row
 
 
+def test_pending_pins_are_repaired_on_resume(tmp_path):
+    """A resume that dies before the provenance event leaves a pending marker plus its pins."""
+    model_snapshot = _model_snapshot(tmp_path, "org/model", "model-commit", quantized = True)
+    dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")
+    config = {
+        "model_name": "org/model",
+        "actual_model_repo_id": "org/model",
+        "model_snapshot_path": str(model_snapshot),
+        "hf_dataset": "org/dataset",
+        "dataset_snapshot_path": str(dataset),
+        "load_in_4bit": True,
+        RESOURCE_PROVENANCE_KEY: {"version": 1, "status": "pending"},
+    }
+
+    # Pins alone are not attestation; the resume repair is what turns them into one.
+    assert resource_provenance_allows_resume(config) is False
+    assert repair_incomplete_model_provenance(config) is True
+
+    marker = config[RESOURCE_PROVENANCE_KEY]
+    assert marker["model_status"] == "attested"
+    assert marker["model_load_mode"] == "prequantized_4bit"
+    assert marker["dataset_status"] == "attested"
+    assert marker["status"] == "complete"
+    assert resource_provenance_allows_resume(config) is True
+
+
+def test_pending_pins_are_not_repaired_when_a_pin_no_longer_resolves(tmp_path):
+    model_snapshot = _model_snapshot(tmp_path, "org/model", "model-commit", quantized = True)
+    config = {
+        "model_name": "org/model",
+        "actual_model_repo_id": "org/model",
+        "model_snapshot_path": str(model_snapshot.parent / "gone"),
+        "load_in_4bit": True,
+        RESOURCE_PROVENANCE_KEY: {"version": 1, "status": "pending"},
+    }
+
+    assert repair_incomplete_model_provenance(config) is False
+    assert resource_provenance_allows_resume(config) is False
+
+
+def test_pending_pins_repair_what_resolves_and_leave_the_rest_unattested(tmp_path):
+    dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")
+    config = {
+        "model_name": "org/model",
+        "actual_model_repo_id": "org/model",
+        "model_snapshot_path": str(tmp_path / "gone"),
+        "hf_dataset": "org/dataset",
+        "dataset_snapshot_path": str(dataset),
+        RESOURCE_PROVENANCE_KEY: {"version": 1, "status": "pending"},
+    }
+
+    assert repair_incomplete_model_provenance(config) is True
+    marker = config[RESOURCE_PROVENANCE_KEY]
+    assert marker["status"] == "incomplete"
+    assert marker["dataset_status"] == "attested"
+    assert marker.get("model_status") is None
+    assert resource_provenance_allows_resume(config) is False
+
+
+def test_can_resume_repairs_a_pending_run_from_its_pin(tmp_path, monkeypatch):
+    from core.training import resume
+
+    model_snapshot = _model_snapshot(tmp_path, "org/model", "model-commit", quantized = True)
+    dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")
+    config = {
+        "model_name": "org/model",
+        "actual_model_repo_id": "org/model",
+        "model_snapshot_path": str(model_snapshot),
+        "hf_dataset": "org/dataset",
+        "dataset_snapshot_path": str(dataset),
+        "load_in_4bit": True,
+        RESOURCE_PROVENANCE_KEY: {"version": 1, "status": "pending"},
+    }
+    row = {
+        "status": "stopped",
+        "output_dir": str(tmp_path / "run-1"),
+        "final_step": 5,
+        "total_steps": 100,
+        "config_json": json.dumps(config),
+    }
+    monkeypatch.setattr(resume, "has_resume_state", lambda *_args: True)
+
+    assert resume.can_resume_run(row) is True
+    assert json.loads(row["config_json"])[RESOURCE_PROVENANCE_KEY]["status"] == "pending"
+
+
 def test_mlx_runtime_4bit_metadata_attests_unpinned_hub_load(tmp_path):
     model_snapshot = _model_snapshot(tmp_path, "org/model", "model-commit")
     dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")
