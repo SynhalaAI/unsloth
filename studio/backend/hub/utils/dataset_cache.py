@@ -493,7 +493,8 @@ def _snapshot_inference_data_files(
 
     datasets infers the module from the dataset card's first config, so a snapshot that holds only
     the selected config's files looks empty to it. The config named by ``subset`` still decides
-    which files the builder reads; these files only pick the module.
+    which files the builder reads; these files only pick the module. They stay relative to the
+    snapshot, because a Hub card's own paths are relative too and an absolute one is refused there.
     """
     candidates = cached_dataset_candidates(
         snapshot,
@@ -504,7 +505,15 @@ def _snapshot_inference_data_files(
     if subset:
         labelled = [path for path in candidates if _matches_label(snapshot, path, subset)]
         candidates = labelled or candidates
-    return [str(path) for path in candidates]
+    files: list[str] = []
+    for path in candidates:
+        try:
+            relative = path.relative_to(snapshot).as_posix()
+        except ValueError:
+            continue
+        if relative and ".." not in relative.split("/"):
+            files.append(relative)
+    return files
 
 
 def _load_snapshot_dataset_with_inference_hint(
@@ -525,7 +534,9 @@ def _load_snapshot_dataset_with_inference_hint(
         data_files = _snapshot_inference_data_files(snapshot, subset, split)
         if not data_files:
             raise
-        return load_dataset(**{**kwargs, "data_files": {"train": data_files}})
+        # Keyed by the bare split the caller asked for, so a split expression still finds its files.
+        entry = split.split("[", 1)[0].strip() or "train"
+        return load_dataset(**{**kwargs, "data_files": {entry: data_files}})
 
 
 def load_cached_hf_dataset(
@@ -585,7 +596,13 @@ def load_cached_hf_dataset(
         with tempfile.TemporaryDirectory(prefix = "unsloth-dataset-slice-") as cache_dir:
             kwargs["cache_dir"] = cache_dir
             requested_split = kwargs.pop("split")
-            streams = load_dataset(**kwargs)
+            streams = _load_snapshot_dataset_with_inference_hint(
+                load_dataset,
+                kwargs,
+                snapshot = snapshot,
+                subset = subset,
+                split = requested_split,
+            )
             available_splits = list(streams)
             if requested_split not in streams:
                 raise ValueError(

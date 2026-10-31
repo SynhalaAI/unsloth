@@ -212,9 +212,24 @@ def test_cached_snapshot_retries_inference_with_the_selected_config_files(monkey
 
     assert result == {"loaded": True}
     assert len(calls) == 2
-    assert calls[1]["data_files"] == {"train": [str(medium.resolve())]}
+    # Relative to the snapshot: a Hub card's own paths are relative, and an absolute one is refused.
+    assert calls[1]["data_files"] == {"train": ["data/Medium/train-00000-of-00001.parquet"]}
     assert calls[1]["name"] == "Medium"
     assert calls[1]["split"] == "train"
+
+
+def test_snapshot_inference_hint_is_relative_to_the_snapshot(tmp_path):
+    repo_id = "Org/Data"
+    _, snapshot = _dataset_repo(tmp_path, repo_id)
+    nested = snapshot / "data" / "Medium" / "train-00000-of-00001.parquet"
+    nested.parent.mkdir(parents = True)
+    nested.write_bytes(b"rows")
+    (snapshot / "extra.csv").write_bytes(b"rows")
+
+    hints = dataset_cache._snapshot_inference_data_files(snapshot, None, "train")
+
+    assert hints == ["data/Medium/train-00000-of-00001.parquet", "extra.csv"]
+    assert not any(Path(hint).is_absolute() for hint in hints)
 
 
 def test_cached_snapshot_does_not_retry_other_load_errors(monkeypatch, tmp_path):
@@ -238,6 +253,67 @@ def test_cached_snapshot_does_not_retry_other_load_errors(monkeypatch, tmp_path)
         )
 
     assert len(calls) == 1
+
+
+def test_cached_snapshot_row_limit_retries_inference_with_the_selected_config(
+    monkeypatch, tmp_path
+):
+    repo_id = "Org/Data"
+    repo_root, snapshot = _dataset_repo(tmp_path, repo_id)
+    medium = snapshot / "data" / "Medium" / "train-00000-of-00001.parquet"
+    medium.parent.mkdir(parents = True)
+    medium.write_bytes(b"rows")
+    calls: list[dict] = []
+
+    class DownloadConfig:
+        def __init__(self, *, local_files_only):
+            self.local_files_only = local_files_only
+
+    class Stream:
+        features = None
+        info = None
+        split = None
+
+        def take(self, limit):
+            return iter([{"text": "one"}][:limit])
+
+    class Dataset:
+        @classmethod
+        def from_list(
+            cls,
+            rows,
+            *,
+            features = None,
+            info = None,
+            split = None,
+        ):
+            return {"rows": list(rows)}
+
+    def load_dataset(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise FileNotFoundError(f"No (supported) data files found in {snapshot.resolve()}")
+        return {"train": Stream()}
+
+    module = types.ModuleType("datasets")
+    module.DownloadConfig = DownloadConfig
+    module.Dataset = Dataset
+    module.load_dataset = load_dataset
+    monkeypatch.setitem(sys.modules, "datasets", module)
+
+    result = dataset_cache.load_cached_hf_dataset(
+        repo_id,
+        str(repo_root),
+        subset = "Medium",
+        split = "train",
+        row_limit = 1,
+    )
+
+    assert result == {"rows": [{"text": "one"}]}
+    assert len(calls) == 2
+    assert calls[1]["streaming"] is True
+    # Relative to the snapshot: a Hub card's own paths are relative, and an absolute one is refused.
+    assert calls[1]["data_files"] == {"train": ["data/Medium/train-00000-of-00001.parquet"]}
 
 
 def test_cached_snapshot_row_limit_streams_without_processed_cache(monkeypatch, tmp_path):
