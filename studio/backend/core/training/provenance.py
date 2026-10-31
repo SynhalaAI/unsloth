@@ -573,7 +573,14 @@ def _loaded_model_is_4bit(model: Any) -> bool:
     return False
 
 
-def _loaded_model_refs(model: Any) -> set[tuple[str, str]]:
+def _loaded_model_refs(model: Any, fallback_repo_id: Optional[str] = None) -> set[tuple[str, str]]:
+    """Commit/repo pairs the loaded object records.
+
+    Some configs ship no ``_name_or_path`` (Gemma 4), leaving Transformers to record only the
+    resolved ``_commit_hash``. Pairing that commit with the repo the run selected still pins an
+    exact snapshot, since the commit must exist in that repo's cache to resolve.
+    """
+    fallback = _normalized_repo_id(fallback_repo_id)
     refs: set[tuple[str, str]] = set()
     for current in _loaded_model_objects(model):
         candidates = (
@@ -587,7 +594,7 @@ def _loaded_model_refs(model: Any) -> set[tuple[str, str]]:
             ),
         )
         for repo_value, commit_value in candidates:
-            repo_id = _normalized_repo_id(repo_value)
+            repo_id = _normalized_repo_id(repo_value) or fallback
             commit = _normalized_commit(commit_value)
             if repo_id is not None and commit is not None:
                 refs.add((repo_id, commit))
@@ -624,7 +631,7 @@ def attest_loaded_model(
             return _normalized_repo_id(selected_repo), direct, load_mode, None
 
     resolved: set[tuple[str, str, str]] = set()
-    for repo_id, commit in _loaded_model_refs(model):
+    for repo_id, commit in _loaded_model_refs(model, selected_repo):
         snapshot = exact_model_snapshot_for_commit(
             repo_id,
             commit,

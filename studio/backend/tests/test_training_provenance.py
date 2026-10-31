@@ -421,6 +421,57 @@ def test_mlx_native_metadata_attests_unpinned_hub_load(tmp_path):
     assert resource_provenance_allows_resume({**config, **updates}) is True
 
 
+def test_commit_only_config_attests_the_selected_repo(tmp_path):
+    """Gemma 4 ships no _name_or_path, so Transformers records only _commit_hash on the config."""
+    model_snapshot = _model_snapshot(tmp_path, "org/model", "model-commit")
+    dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")
+    model = SimpleNamespace(config = SimpleNamespace(_commit_hash = "model-commit"))
+    config = {
+        "model_name": "org/model",
+        "hf_dataset": "org/dataset",
+        "dataset_snapshot_path": str(dataset),
+        "load_in_4bit": False,
+    }
+
+    event = build_worker_provenance_event(
+        config,
+        model,
+        model_load_target = "org/model",
+        model_load_in_4bit = False,
+        dataset_loaded_from_exact_snapshot = True,
+    )
+    updates = normalize_worker_provenance_event(event, config)
+
+    assert event["model"]["status"] == "attested"
+    assert event["model"]["repo_id"] == "org/model"
+    assert updates["model_snapshot_path"] == str(model_snapshot)
+    assert resource_provenance_allows_resume({**config, **updates}) is True
+
+
+def test_commit_only_config_does_not_borrow_another_repos_commit(tmp_path):
+    """The fallback repo must own the commit; otherwise the load stays honestly unattested."""
+    _model_snapshot(tmp_path, "org/other", "model-commit")
+    dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")
+    model = SimpleNamespace(config = SimpleNamespace(_commit_hash = "model-commit"))
+    config = {
+        "model_name": "org/model",
+        "hf_dataset": "org/dataset",
+        "dataset_snapshot_path": str(dataset),
+        "load_in_4bit": False,
+    }
+
+    event = build_worker_provenance_event(
+        config,
+        model,
+        model_load_target = "org/model",
+        model_load_in_4bit = False,
+        dataset_loaded_from_exact_snapshot = True,
+    )
+
+    assert event["model"]["status"] == "incomplete"
+    assert "model_snapshot_unattested" in event["reasons"]
+
+
 def test_mlx_runtime_4bit_metadata_attests_unpinned_hub_load(tmp_path):
     model_snapshot = _model_snapshot(tmp_path, "org/model", "model-commit")
     dataset = _dataset_snapshot(tmp_path, "org/dataset", "dataset-commit")
