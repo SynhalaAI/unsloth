@@ -31,6 +31,22 @@ logger = get_logger(__name__)
 
 TRAINING_DATA_EXTS = (".parquet", ".json", ".jsonl", ".csv")
 
+# Formats datasets' packaged builders can infer a module from; used as a builder-inference hint.
+SNAPSHOT_INFERENCE_EXTS = (
+    ".parquet",
+    ".json",
+    ".jsonl",
+    ".ndjson",
+    ".csv",
+    ".tsv",
+    ".txt",
+    ".arrow",
+    ".xml",
+    ".tar",
+    ".hdf5",
+    ".h5",
+)
+
 _RESERVED_SPLIT_TOKENS = frozenset({"train", "test", "validation", "valid", "val", "eval"})
 _BARE_SPLIT_RE = re.compile(r"^\w+(?:\.\w+)*$")
 _UNKNOWN_SPLIT_ERROR_RE = re.compile(
@@ -470,6 +486,48 @@ def dataset_cache_fallback_allowed(
     return is_cache_artifact_error(error) or _is_unknown_dataset_split_error(error)
 
 
+def _snapshot_inference_data_files(
+    snapshot: Path, subset: Optional[str], split: str
+) -> list[str]:
+    """Files the selected config reads, used only to tell datasets which builder module to use.
+
+    datasets infers the module from the dataset card's first config, so a snapshot that holds only
+    the selected config's files looks empty to it. The config named by ``subset`` still decides
+    which files the builder reads; these files only pick the module.
+    """
+    candidates = cached_dataset_candidates(
+        snapshot,
+        subset = subset,
+        train_split = split,
+        extensions = SNAPSHOT_INFERENCE_EXTS,
+    )
+    if subset:
+        labelled = [path for path in candidates if _matches_label(snapshot, path, subset)]
+        candidates = labelled or candidates
+    return [str(path) for path in candidates]
+
+
+def _load_snapshot_dataset_with_inference_hint(
+    load_dataset: Any,
+    kwargs: dict[str, Any],
+    *,
+    snapshot: Optional[Path],
+    subset: Optional[str],
+    split: str,
+) -> Any:
+    try:
+        return load_dataset(**kwargs)
+    except FileNotFoundError as error:
+        if snapshot is None or not subset:
+            raise
+        if "no (supported) data files" not in str(error).lower():
+            raise
+        data_files = _snapshot_inference_data_files(snapshot, subset, split)
+        if not data_files:
+            raise
+        return load_dataset(**{**kwargs, "data_files": {"train": data_files}})
+
+
 def load_cached_hf_dataset(
     repo_id: str,
     local_path: Optional[str],
@@ -562,7 +620,13 @@ def load_cached_hf_dataset(
             info = info,
             split = split_identity,
         )
-    dataset = load_dataset(**kwargs)
+    dataset = _load_snapshot_dataset_with_inference_hint(
+        load_dataset,
+        kwargs,
+        snapshot = snapshot,
+        subset = subset,
+        split = split,
+    )
     if app_cache is not None:
         # Advisory flag: a purged entry, read-only home or full disk must not discard a loaded dataset.
         try:

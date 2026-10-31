@@ -175,6 +175,71 @@ def test_cached_snapshot_load_preserves_hf_subset_and_split(monkeypatch, tmp_pat
     assert "data_files" not in calls[0]
 
 
+def test_cached_snapshot_retries_inference_with_the_selected_config_files(monkeypatch, tmp_path):
+    repo_id = "Org/Data"
+    repo_root, snapshot = _dataset_repo(tmp_path, repo_id)
+    (snapshot / "README.md").write_text(
+        "---\nconfigs:\n"
+        "  - config_name: Large\n"
+        "    data_files:\n"
+        "      - split: train\n"
+        "        path: data/Large/train-*\n"
+        "  - config_name: Medium\n"
+        "    data_files:\n"
+        "      - split: train\n"
+        "        path: data/Medium/train-*\n"
+        "---\n"
+    )
+    medium = snapshot / "data" / "Medium" / "train-00000-of-00001.parquet"
+    medium.parent.mkdir(parents = True)
+    medium.write_bytes(b"rows")
+    calls = _fake_datasets(monkeypatch)
+
+    def load_dataset(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise FileNotFoundError(f"No (supported) data files found in {snapshot.resolve()}")
+        return {"loaded": True}
+
+    sys.modules["datasets"].load_dataset = load_dataset
+
+    result = dataset_cache.load_cached_hf_dataset(
+        repo_id,
+        str(repo_root),
+        subset = "Medium",
+        split = "train",
+    )
+
+    assert result == {"loaded": True}
+    assert len(calls) == 2
+    assert calls[1]["data_files"] == {"train": [str(medium.resolve())]}
+    assert calls[1]["name"] == "Medium"
+    assert calls[1]["split"] == "train"
+
+
+def test_cached_snapshot_does_not_retry_other_load_errors(monkeypatch, tmp_path):
+    repo_id = "Org/Data"
+    repo_root, snapshot = _dataset_repo(tmp_path, repo_id)
+    (snapshot / "train.parquet").write_bytes(b"rows")
+    calls = _fake_datasets(monkeypatch)
+
+    def load_dataset(**kwargs):
+        calls.append(kwargs)
+        raise FileNotFoundError("dataset cache is unreadable")
+
+    sys.modules["datasets"].load_dataset = load_dataset
+
+    with pytest.raises(FileNotFoundError, match = "unreadable"):
+        dataset_cache.load_cached_hf_dataset(
+            repo_id,
+            str(repo_root),
+            subset = "Medium",
+            split = "train",
+        )
+
+    assert len(calls) == 1
+
+
 def test_cached_snapshot_row_limit_streams_without_processed_cache(monkeypatch, tmp_path):
     repo_id = "Org/Data"
     repo_root, snapshot = _dataset_repo(tmp_path, repo_id)
