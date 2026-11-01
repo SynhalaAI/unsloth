@@ -32,14 +32,13 @@ import {
 } from "@/features/training";
 import { ResumeCheckpointPicker } from "@/features/training/components/resume-checkpoint-picker";
 import { useT } from "@/i18n";
-import { ChipIcon } from "@/lib/hugeicons-derived";
+import { ChipIcon, Settings01Icon } from "@/lib/hugeicons-derived";
 import { cn } from "@/lib/utils";
 import type { TrainingMethod } from "@/types/training";
 import {
   Database02Icon,
   PencilEdit01Icon,
   Refresh01Icon,
-  Settings02Icon,
 } from "@hugeicons/core-free-icons";
 import type { ReactNode } from "react";
 import { DatasetPanel } from "../sections/dataset-section";
@@ -378,7 +377,7 @@ export function TrainingWizard({
       <SectionBox
         title={t("studio.wizard.paramsTitle")}
         description={t("studio.wizard.paramsDescription")}
-        icon={Settings02Icon}
+        icon={Settings01Icon}
         chipTint="var(--chart-1)"
         dataTour="studio-params"
         titleAction={
