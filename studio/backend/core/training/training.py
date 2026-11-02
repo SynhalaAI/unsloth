@@ -495,6 +495,29 @@ def _apply_model_cache_pin(config: dict[str, Any], warnings: list[str]) -> None:
         # Nothing is pinned, so an offline start's pin has nothing left to validate.
         config["require_validated_model_snapshot"] = False
         return
+    if resume and (
+        config.get("require_exact_resume_resources")
+        or config.get("require_exact_model_resource")
+    ):
+        from .provenance import resolve_resume_model_target
+
+        pin, revision = resolve_resume_model_target(config)
+        config["model_snapshot_path"] = pin
+        config["actual_model_repo_id"] = config.get(
+            "actual_model_repo_id"
+        ) or canonical_model_repo_id(model_name)
+        if pin is not None:
+            config["model_revision"] = Path(pin).name
+        else:
+            config["model_revision"] = revision
+            # The preflight pin is deliberately not local any more.
+            config["require_validated_model_snapshot"] = False
+            warnings.append(
+                f"The cached model snapshot this run was trained from is no longer on "
+                f"disk; resuming by downloading its recorded revision {revision} from "
+                f"Hugging Face."
+            )
+        return
     requested_pin = config.get("model_snapshot_path")
     require_validated_snapshot = bool(config.get("require_validated_model_snapshot"))
     if require_validated_snapshot and not (requested_pin and config.get("actual_model_repo_id")):
@@ -597,12 +620,16 @@ def _apply_cache_pins(config: dict[str, Any]) -> None:
     if resume:
         from .provenance import (
             resolve_resume_dataset_target,
-            validate_exact_model_pin,
+            resolve_resume_model_target,
         )
         if config.get("require_exact_resume_resources") or config.get(
             "require_exact_model_resource"
         ):
-            config["model_snapshot_path"] = validate_exact_model_pin(config)
+            config["model_snapshot_path"], pinned_model_revision = (
+                resolve_resume_model_target(config)
+            )
+            if pinned_model_revision is not None:
+                config["model_revision"] = pinned_model_revision
         if config.get("require_exact_resume_resources") or config.get(
             "require_exact_dataset_resource"
         ):

@@ -27,6 +27,7 @@ from core.training.provenance import (
     normalize_worker_provenance_event,
     repair_incomplete_model_provenance,
     resolve_resume_dataset_target,
+    resolve_resume_model_target,
     resource_provenance_allows_resume,
     validate_exact_dataset_pin,
     validate_exact_model_pin,
@@ -1253,6 +1254,68 @@ def test_resume_downloads_the_recorded_dataset_commit_when_nothing_is_cached(tmp
     assert resolve_resume_dataset_target(persisted) == (None, "dataset-commit")
     assert exact_resume_resource_requirements(persisted) == (True, True)
     assert resource_provenance_allows_resume(persisted) is True
+
+
+def test_resume_finds_the_recorded_model_commit_under_a_moved_cache_root(tmp_path, monkeypatch):
+    config, event, model, _ = _complete_event(tmp_path)
+    persisted = {**config, **normalize_worker_provenance_event(event, config)}
+    moved_root = tmp_path / "moved-cache"
+    moved_root.mkdir()
+    moved_repo = moved_root / model.parent.parent.name
+    model.parent.parent.rename(moved_repo)
+    monkeypatch.setattr(hf_cache_state, "hf_cache_roots", lambda **kwargs: [tmp_path, moved_root])
+
+    relocated = moved_repo / "snapshots" / model.name
+
+    assert validate_exact_model_pin(persisted) == str(relocated.resolve())
+    assert resource_provenance_allows_resume(persisted) is True
+
+
+def test_resume_downloads_the_recorded_model_commit_even_when_another_revision_is_cached(
+    tmp_path,
+):
+    config, event, model, _ = _complete_event(tmp_path)
+    persisted = {**config, **normalize_worker_provenance_event(event, config)}
+    shutil.rmtree(model.parent.parent)
+    _model_snapshot(tmp_path, "org/model", "new-commit")
+
+    assert resolve_resume_model_target(persisted) == (None, "model-commit")
+    assert resource_provenance_allows_resume(persisted) is True
+
+
+def test_resume_refuses_a_partial_model_snapshot_at_the_recorded_commit(tmp_path):
+    config, event, model, _ = _complete_event(tmp_path)
+    persisted = {**config, **normalize_worker_provenance_event(event, config)}
+    (model / "model.safetensors").unlink()
+
+    with pytest.raises(
+        ExactResumeResourcesUnavailable,
+        match = "exact model snapshot",
+    ):
+        validate_exact_model_pin(persisted)
+    assert resource_provenance_allows_resume(persisted) is False
+
+
+def test_resume_downloads_the_recorded_model_commit_when_nothing_is_cached(tmp_path):
+    config, event, model, _ = _complete_event(tmp_path)
+    persisted = {**config, **normalize_worker_provenance_event(event, config)}
+    shutil.rmtree(model.parent.parent)
+
+    assert resolve_resume_model_target(persisted) == (None, "model-commit")
+    assert exact_resume_resource_requirements(persisted) == (True, True)
+    assert resource_provenance_allows_resume(persisted) is True
+
+
+def test_resume_refuses_an_arbitrary_missing_model_path(tmp_path):
+    config, event, _, _ = _complete_event(tmp_path)
+    persisted = {**config, **normalize_worker_provenance_event(event, config)}
+    persisted["model_snapshot_path"] = str(tmp_path / "gone-model")
+
+    with pytest.raises(
+        ExactResumeResourcesUnavailable,
+        match = "exact model snapshot",
+    ):
+        validate_exact_model_pin(persisted)
 
 
 @pytest.mark.parametrize(

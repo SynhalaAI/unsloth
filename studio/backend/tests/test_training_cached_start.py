@@ -2881,6 +2881,51 @@ def test_apply_cache_pins_attested_resume_downloads_evicted_dataset_commit(tmp_p
     )
 
 
+def test_apply_cache_pins_attested_resume_downloads_evicted_model_commit(tmp_path):
+    import shutil
+
+    from core.training.training import _apply_cache_pins
+
+    model = _model_repo_with_ref(tmp_path, "unsloth/test", "model-commit")
+    (model / "model.safetensors").write_bytes(b"x")
+    config = {
+        "model_name": "unsloth/test",
+        "model_snapshot_path": str(model),
+        "actual_model_repo_id": "unsloth/test",
+        "resume_from_checkpoint": "/outputs/run/checkpoint-5",
+        "load_in_4bit": False,
+        "require_exact_model_resource": True,
+    }
+    shutil.rmtree(model.parent.parent)
+
+    _apply_cache_pins(config)
+
+    assert config["model_snapshot_path"] is None
+    assert config["model_revision"] == "model-commit"
+    assert config["require_validated_model_snapshot"] is False
+    assert any(
+        "recorded revision model-commit" in warning for warning in config["cache_pin_warnings"]
+    )
+
+
+def test_worker_allows_resume_to_download_a_missing_pinned_model():
+    from core.training import worker
+
+    config = {
+        "model_name": "unsloth/test",
+        "model_snapshot_path": None,
+        "model_revision": "model-commit",
+        "require_exact_model_resource": True,
+        "load_in_4bit": False,
+    }
+    events: list[dict] = []
+
+    assert worker._verify_config_pins(config, SimpleNamespace(put = events.append)) is True
+    assert events == []
+    assert config["model_snapshot_path"] is None
+    assert config["model_revision"] == "model-commit"
+
+
 def test_worker_allows_resume_to_download_a_missing_pinned_dataset(tmp_path):
     from core.training import worker
 

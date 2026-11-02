@@ -812,7 +812,9 @@ def resource_provenance_is_complete(config: dict[str, Any]) -> bool:
     )
 
 
-def validate_exact_model_pin(config: dict[str, Any]) -> str:
+def _resume_model_load_mode(
+    config: dict[str, Any],
+) -> tuple[Optional[str], Optional[frozenset[int]]]:
     marker = config.get(RESOURCE_PROVENANCE_KEY)
     stored_load_mode = config.get("resume_model_load_mode")
     if stored_load_mode is None and isinstance(marker, dict):
@@ -834,26 +836,97 @@ def validate_exact_model_pin(config: dict[str, Any]) -> str:
         model_load_mode = _MODEL_LOAD_UNQUANTIZED
     else:
         model_load_mode = None
+    return model_load_mode, expected_widths
 
+
+def _model_pin_commit(config: dict[str, Any]) -> Optional[str]:
+    """The revision a persisted model pin names.
+
+    Only a real Hub snapshot path names a commit: an arbitrary missing folder must keep
+    refusing instead of turning its own name into a revision to download. ``model_revision``
+    is the fallback for configs whose pin path was already cleared by a resume.
+    """
+    path_value = config.get("model_snapshot_path")
+    if isinstance(path_value, str) and path_value.strip():
+        path = Path(path_value)
+        if path.parent.name.lower() == "snapshots" and path.parent.parent.name.lower().startswith(
+            "models--"
+        ):
+            commit = _normalized_commit(path.name)
+            if commit is not None:
+                return commit
+    return _normalized_commit(config.get("model_revision"))
+
+
+def _model_commit_snapshot_dirs(repo_id: str, commit: str) -> list[Path]:
+    from hub.utils.hf_cache_state import iter_repo_cache_dirs
+
+    return [
+        repo_dir / "snapshots" / commit
+        for repo_dir in iter_repo_cache_dirs("model", repo_id)
+        if (repo_dir / "snapshots" / commit).is_dir()
+    ]
+
+
+def resolve_resume_model_target(
+    config: dict[str, Any],
+) -> tuple[Optional[str], Optional[str]]:
+    """Where a resumed run reads its pinned model from.
+
+    Returns ``(snapshot_path, None)`` when the exact revision is already on disk, and
+    ``(None, commit)`` when the pin names a commit that is not present at all: the loader
+    then downloads exactly that revision, so the run still trains from the same weights.
+    A snapshot that exists but is incomplete is refused rather than silently replaced.
+    """
+    model_load_mode, expected_widths = _resume_model_load_mode(config)
     if model_load_mode is None:
         raise ExactResumeResourcesUnavailable(
             "The exact model snapshot for this run is no longer available."
         )
+
     model_repo_id = config.get("actual_model_repo_id")
     if model_repo_id is None:
         from utils.utils import canonical_model_repo_id
         model_repo_id = canonical_model_repo_id(str(config.get("model_name") or ""))
+
+    def widths_match(model_snapshot: str) -> bool:
+        # Legacy `unquantized` markers never checked widths; keep them resumable.
+        return model_load_mode == _MODEL_LOAD_UNQUANTIZED or _snapshot_quantization_widths(
+            Path(model_snapshot)
+        ) == expected_widths
+
     model_snapshot = exact_model_snapshot_path(
         config.get("model_snapshot_path"),
         model_repo_id,
     )
-    # Legacy `unquantized` markers never checked widths; keep them resumable.
-    if (
-        model_snapshot is not None
-        and model_load_mode != _MODEL_LOAD_UNQUANTIZED
-        and _snapshot_quantization_widths(Path(model_snapshot)) != expected_widths
-    ):
-        model_snapshot = None
+    if model_snapshot is not None:
+        if widths_match(model_snapshot):
+            return model_snapshot, None
+        raise ExactResumeResourcesUnavailable(
+            "The exact model snapshot for this run is no longer available."
+        )
+
+    # The recorded snapshot left the cache; the same commit may still be on disk under a
+    # moved or re-selected cache root.
+    commit = _model_pin_commit(config)
+    if model_repo_id is not None and commit is not None:
+        model_snapshot = exact_model_snapshot_for_commit(model_repo_id, commit)
+        if model_snapshot is not None:
+            if widths_match(model_snapshot):
+                return model_snapshot, None
+            raise ExactResumeResourcesUnavailable(
+                "The exact model snapshot for this run is no longer available."
+            )
+        if not _model_commit_snapshot_dirs(model_repo_id, commit):
+            # The pinned commit is not present at all, so resuming can fetch exactly it.
+            return None, commit
+    raise ExactResumeResourcesUnavailable(
+        "The exact model snapshot for this run is no longer available."
+    )
+
+
+def validate_exact_model_pin(config: dict[str, Any]) -> str:
+    model_snapshot, _ = resolve_resume_model_target(config)
     if model_snapshot is None:
         raise ExactResumeResourcesUnavailable(
             "The exact model snapshot for this run is no longer available."
@@ -965,7 +1038,7 @@ def exact_resume_resource_requirements(config: dict[str, Any]) -> tuple[bool, bo
             raise ExactResumeResourcesUnavailable(
                 "The model revision used by this run was not attested."
             )
-        validate_exact_model_pin(config)
+        resolve_resume_model_target(config)
     if require_dataset:
         if marker.get("dataset_status") != _ATTESTED:
             raise ExactResumeResourcesUnavailable(

@@ -103,8 +103,9 @@ def test_the_start_route_prefers_the_provenance_reason():
     from routes import training as training_routes
 
     source = inspect.getsource(training_routes)
-    branch = source.split("if not resume_run or not await asyncio.to_thread(", 1)[1]
-    branch = branch.split("resume_checkpoint = await", 1)[0]
+    # The route has two can_resume_run guards; the second one is the branch that reports
+    # the precise provenance reason instead of the generic checkpoint text.
+    branch = source.split("if not resume_run or not await asyncio.to_thread(", 2)[2]
 
     assert "resource_provenance_resume_blocker" in branch
     assert branch.index("resource_provenance_resume_blocker") < branch.index(
