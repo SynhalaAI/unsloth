@@ -2481,6 +2481,10 @@ async def get_model_config(
                 )
                 is_lora = model_config.is_lora
                 base_model = model_config.base_model if is_lora else None
+                if is_lora and base_model and not is_vision:
+                    # An adapter repo carries no config.json of its own; its base decides
+                    # whether the checkpoint trains with images.
+                    is_vision = bool(model_config.is_vision)
                 max_position_embeddings = _get_max_position_embeddings(model_config)
             except Exception:
                 pass

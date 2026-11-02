@@ -316,6 +316,57 @@ def test_get_model_config_rejects_invalid_selected_cache_path(path_kind, tmp_pat
     assert exc_info.value.detail == "Selected cached model is no longer available."
 
 
+@pytest.mark.parametrize(
+    ("probe_is_vision", "base_is_vision", "expected_is_vision"),
+    [
+        # An adapter repo has no config.json, so its own probe reads text-only.
+        (False, True, True),
+        # An adapter that does declare vision itself is never downgraded by its base.
+        (True, False, True),
+    ],
+)
+def test_get_model_config_inherits_vision_from_lora_base(
+    monkeypatch, probe_is_vision, base_is_vision, expected_is_vision
+):
+    """An adapter's base decides vision, so a multimodal base unblocks image training."""
+
+    class _DummyModelConfig:
+        is_lora = True
+        base_model = "google/gemma-4-E2B-it"
+        is_vision = base_is_vision
+
+    monkeypatch.setattr(models_route, "is_local_path", lambda _: False)
+    monkeypatch.setattr(models_route, "resolve_cached_repo_id_case", lambda name: name)
+    monkeypatch.setattr(models_route, "load_model_defaults", lambda _: {})
+    monkeypatch.setattr(models_route, "is_vision_model", lambda *a, **kw: probe_is_vision)
+    monkeypatch.setattr(models_route, "is_embedding_model", lambda *a, **kw: False)
+    monkeypatch.setattr(
+        model_config_module,
+        "detect_audio_type_checked",
+        lambda *a, **kw: (None, True),
+    )
+    monkeypatch.setattr(
+        models_route.ModelConfig,
+        "from_identifier",
+        classmethod(lambda cls, *a, **kw: _DummyModelConfig()),
+    )
+    monkeypatch.setattr(models_route, "_get_max_position_embeddings", lambda _: 4096)
+    monkeypatch.setattr(models_route, "_get_model_size_bytes", lambda *a, **kw: 42)
+
+    result = asyncio.run(
+        models_route.get_model_config(
+            model_name = "org/vlm-adapter",
+            hf_token = None,
+            current_subject = "test-subject",
+        )
+    )
+
+    assert result.is_lora is True
+    assert result.base_model == "google/gemma-4-E2B-it"
+    assert result.is_vision is expected_is_vision
+    assert result.model_type == "vision"
+
+
 def test_repo_in_any_hf_cache_matches_case_variant_in_legacy_cache(tmp_path, monkeypatch):
     # Discard deletes case-insensitively across caches, so detection must too.
     import utils.paths as paths_pkg
