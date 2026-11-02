@@ -764,7 +764,7 @@ export function DatasetPreviewDialog({
                   </div>
                   {unselectedInstructionColumns.length > 0 && (
                     <p className="mt-2 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400">
-                      <HugeiconsIcon icon={AlertCircleIcon} className="size-3.5" />
+                      <HugeiconsIcon icon={Alert02Icon} className="size-3.5" />
                       {unselectedInstructionColumns.some(
                         ({ reason }) => reason === "unsupported_audio_mapping",
                       )
