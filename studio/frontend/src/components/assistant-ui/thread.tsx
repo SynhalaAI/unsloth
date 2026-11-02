@@ -144,10 +144,16 @@ import {
   stopRecoveredRun,
   pythonToolRunsInStudio,
   withAttachmentOriginal,
+  priorPassTiming,
 } from "@/features/chat";
 import { useModelAudioRecording } from "@/features/chat/model-audio-recording";
 import { modelAcceptsAudioInput } from "@/features/chat/types/runtime";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
+import {
+  BookmarkTurnButton,
+  BookmarkTurnMenuItem,
+  TurnNavigator,
+} from "@/components/assistant-ui/turn-navigation";
 import {
   IntentAwareScrollProvider,
   useDetachThreadFromBottom,
@@ -358,6 +364,7 @@ import {
   showForkFailedToast,
   type PlusMenuItemId,
   usePlusMenuPrefsStore,
+  useBookmarkedTurnsStore,
   writeComposerDraft,
   normalizeChatImage,
 } from "@/features/chat";
@@ -433,7 +440,8 @@ import {
   CodeIcon,
   Download01Icon,
   Edit03Icon,
-  Image03Icon,
+  ImageIcon,
+  LayoutTwoColumnIcon,
   McpServerIcon,
   Refresh01Icon,
   Scroll01Icon,
@@ -457,7 +465,6 @@ import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
-  Columns2Icon,
   Loader2Icon,
   TerminalIcon,
 } from "lucide-react";
@@ -2314,6 +2321,8 @@ export const Thread: FC<{
               <ThreadWelcome hideComposer={hideComposer} threadId={threadId} />
             </AuiIf>
           )}
+
+          <TurnNavigator viewportRef={viewportElRef} />
 
           {/* Drop-in for ThreadPrimitive.Messages that bounds a long thread's first commit to
           the tail and mounts the rest over the following frames. Nothing unmounts and the
@@ -6709,7 +6718,7 @@ const ImagesToggle: FC = () => {
       }
     >
       <PillGlyph>
-        <HugeiconsIcon icon={Image03Icon} className="size-3.5" strokeWidth={2} />
+        <HugeiconsIcon icon={ImageIcon} className="size-3.5" strokeWidth={2} />
       </PillGlyph>
       <span>Images</span>
     </button>
@@ -7152,7 +7161,7 @@ const ComposerToolsMenu: FC<{
     ),
     compareChat: (
       <DropdownMenuItem onSelect={() => startCompare()}>
-        <Columns2Icon />
+        <HugeiconsIcon icon={LayoutTwoColumnIcon} strokeWidth={2} />
         Compare chat
       </DropdownMenuItem>
     ),
@@ -7354,7 +7363,7 @@ const ComposerToolsMenu: FC<{
             }
             onSelect={() => setImageToolsEnabled(!imageToolsEnabled)}
           >
-            <HugeiconsIcon icon={Image03Icon} strokeWidth={2} />
+            <HugeiconsIcon icon={ImageIcon} strokeWidth={2} />
             Images
             {imageToolsEnabled && !imageDisabled ? (
               <HugeiconsIcon
@@ -7784,24 +7793,25 @@ const GeneratingStatus: FC = () => {
   );
   const showDetails = useChatPreferencesStore((s) => s.showGenerationDetails);
   const locale = useLocale();
+  const t = useT();
   const percent = prefill ? prefillPercent(prefill) : null;
   // Held at 100% until the first token: going back to Working... for that moment would flash too.
   if (prefill === null || !labelShown || percent === null || decoding) {
     return (
       <span className="generating-glint text-sm text-muted-foreground">
-        Working...
+        {t("generationStats.working")}
       </span>
     );
   }
-  const timeLeft = formatPrefillTimeLeft(prefill);
+  const timeLeft = formatPrefillTimeLeft(prefill, t);
   return (
     <span
       data-slot="prefill-progress"
       className="generating-glint text-sm text-muted-foreground tabular-nums whitespace-normal!"
     >
-      Processing prompt {percent}%
+      {t("generationStats.processingPrompt", { percent })}
       {timeLeft ? ` · ${timeLeft}` : null}
-      {showDetails ? ` · ${formatPrefillDetails(prefill, locale)}` : null}
+      {showDetails ? ` · ${formatPrefillDetails(prefill, t, locale)}` : null}
     </span>
   );
 };
@@ -7958,6 +7968,8 @@ function useContinuation() {
       ...(geminiReplayTurns.length > 0 ? { geminiReplayTurns } : {}),
       ...providerCompactionContinuationFields(metadata),
     };
+    const priorTiming = priorPassTiming(metadata);
+    if (priorTiming) request.priorTiming = priorTiming;
     return aui.thread().startRun({
       parentId: parent,
       runConfig: {
@@ -8368,9 +8380,9 @@ const AssistantMessage: FC = () => {
       <div className="aui-assistant-message-footer mt-1.5 -ml-[var(--icon-btn-inset)] flex min-h-8 min-w-0 flex-wrap items-center gap-y-1">
         {/* First, so the action bar mounting on hover never moves it. */}
         <AssistantMessageTime />
-        {/* Only while streaming, where the action bar is hidden; the timing badge takes over after. */}
+        {/* Match the row height so wrapping live text cannot move the picker. */}
+        <BranchPicker className="mr-0.5 h-8" />
         <LiveGenerationLine />
-        <BranchPicker className="mr-0.5" />
         <AssistantActionBar />
       </div>
       {/* Renders nothing. `If last` keeps the hook off the other N-1. */}
@@ -8609,6 +8621,9 @@ function useDeleteMessage() {
         messageId,
         remoteId,
       });
+      if (remoteId) {
+        useBookmarkedTurnsStore.getState().forgetTurns(remoteId, [messageId]);
+      }
     } catch (error) {
       console.error("Failed to delete message", error);
       toast.error("Failed to delete message");
@@ -8952,6 +8967,7 @@ const AssistantActionBar: FC = () => {
                   Save to project sources
                 </ActionBarMorePrimitive.Item>
               )}
+              <BookmarkTurnMenuItem className="aui-action-bar-more-item flex cursor-pointer select-none items-center gap-2 rounded-md px-3 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground" />
             </div>
           </ActionBarMorePrimitive.Content>
         </ActionBarMorePrimitive.Root>
@@ -9084,6 +9100,7 @@ const UserActionBar: FC = () => {
           </TooltipIconButton>
         </ActionBarPrimitive.Edit>
       )}
+      <BookmarkTurnButton />
       <RewindMessageButton />
       <ForkCountBadge />
       <ForkMessageButton />

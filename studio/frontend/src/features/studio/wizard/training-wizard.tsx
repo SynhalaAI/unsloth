@@ -37,7 +37,7 @@ import { cn } from "@/lib/utils";
 import type { TrainingMethod } from "@/types/training";
 import {
   Database02Icon,
-  PencilEdit01Icon,
+  Edit03Icon,
   Refresh01Icon,
 } from "@hugeicons/core-free-icons";
 import type { ReactNode } from "react";
@@ -399,7 +399,7 @@ export function TrainingWizard({
       <SectionBox
         title={t("studio.wizard.configTitle")}
         description={t("studio.wizard.configDescription")}
-        icon={PencilEdit01Icon}
+        icon={Edit03Icon}
         chipTint="var(--chart-1)"
       >
         <ConfigActions />
