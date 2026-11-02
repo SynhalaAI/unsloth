@@ -44,6 +44,7 @@ class _AudioDataset:
     def __init__(self, rows):
         self.rows = rows
         self.column_names = list(rows[0])
+        self.features = {}
         self.messages = None
 
     def cast_column(self, column, feature):
@@ -67,6 +68,7 @@ def _format(rows, mapping = None):
     dataset = _AudioDataset(rows)
     trainer = SimpleNamespace(_update_progress = lambda **kwargs: None)
     trainer._resolve_audio_columns = UnslothTrainer._resolve_audio_columns.__get__(trainer)
+    trainer._resolve_audio_vlm_image_column = UnslothTrainer._resolve_audio_vlm_image_column
     trainer._format_audio_vlm_dataset = UnslothTrainer._format_audio_vlm_dataset.__get__(trainer)
     return trainer._format_audio_vlm_dataset(dataset, mapping)
 
@@ -121,6 +123,18 @@ def test_audio_vlm_auto_resolves_detected_instruction_without_mapping():
     )
 
 
+def test_audio_vlm_keeps_instruction_with_a_mixed_image_turn():
+    image_module = importlib.import_module("PIL.Image")
+    dataset = _format(
+        [_row(task = "Describe the scene.", image = image_module.new("RGB", (8, 8)))],
+        {"audio": "audio", "task": "instruction", "text": "text"},
+    )
+
+    content = dataset.messages[0][1]["content"]
+    assert [part["type"] for part in content] == ["image", "audio", "text"]
+    assert content[2]["text"] == "Describe the scene."
+
+
 def test_audio_vlm_auto_splits_eval_dataset():
     class _SplitableAudioDataset(_AudioDataset):
         def train_test_split(self, test_size, seed = 3407):
@@ -145,6 +159,7 @@ def test_audio_vlm_auto_splits_eval_dataset():
     from unittest.mock import patch
 
     trainer._resolve_audio_columns = UnslothTrainer._resolve_audio_columns.__get__(trainer)
+    trainer._resolve_audio_vlm_image_column = UnslothTrainer._resolve_audio_vlm_image_column
     trainer._format_audio_vlm_dataset = UnslothTrainer._format_audio_vlm_dataset.__get__(trainer)
     trainer._format_audio_vlm_eval_split = UnslothTrainer._format_audio_vlm_eval_split.__get__(
         trainer
