@@ -24,7 +24,6 @@ export {
   getTrainingMethodLabel,
   isRawTextDatasetFormat,
   isTrainingLoraVariantSupportedOnDevice,
-  isTrainingMethodSupportedOnDevice,
   isTrainingModelTypeSupportedOnDevice,
   parseBackendPreferenceMethod,
   parseBackendTrainingMethod,

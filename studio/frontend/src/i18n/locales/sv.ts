@@ -196,6 +196,9 @@ export const sv = {
         history: "Läser din webbhistorik",
         move: "Flyttar musen",
         drag: "Drar",
+        tabs: "Tittar på flikarna",
+        readFile: "Läser filen",
+        editFile: "Redigerar filen",
       },
     },
     title: "Webbläsare",
@@ -338,18 +341,24 @@ export const sv = {
     downloadLocationReset: "Återställ",
     askBeforeDownloadingSetting: "Fråga innan hämtning",
     askBeforeDownloadingSettingDescription: "Bekräfta filer från webbplatser innan de sparas.",
+    askBeforeProgramDownloadsSetting: "Fråga innan program hämtas",
+    askBeforeProgramDownloadsSettingDescription: "Bekräfta filer som kan köra program, till exempel .exe eller .dmg, även när andra hämtningar inte frågar.",
     downloadSitesSetting: "Behörigheter för hämtning per webbplats",
     downloadSitesSettingDescription: "Webbplatser du har valt att alltid tillåta eller blockera hämtningar från.",
     downloadSitesNone: "Markera Kom ihåg till nästa gång när du tillfrågas, så visas webbplatsen här.",
     downloadSitesFor: "Hämtningar från {host}",
     downloadSitesRemove: "Glöm {host}",
     downloadSiteAllow: "Tillåt alltid",
+    downloadSiteAllowAll: "Tillåt även program",
     downloadSiteBlock: "Blockera alltid",
     downloadPrompt: {
       title: "Hämta den här filen?",
       description: "{host} vill spara {name} på din dator.",
       dangerous: "Filer som den här kan köra program på din dator. Ladda bara ned den om du litar på {host}.",
       remember: "Kom ihåg till nästa gång",
+      once: "Fråga nästa gång",
+      site: "Alltid för {host}",
+      all: "Hämta alltid, från alla webbplatser",
       cancel: "Avbryt",
       download: "Hämta",
       blocked: "En hämtning från {host} blockerades.",
@@ -3152,8 +3161,8 @@ export const sv = {
         "Visa Redigera svar på varje svar i stället för i menyn Mer.",
       turnNavigation: "Turnavigering",
       turnNavigationDescription: "Visar dina meddelanden som en list vid vänsterkanten i långa chattar. Hovra för att förhandsgranska en tur, klicka för att hoppa dit och bokmärk turer för att hitta dem igen.",
-      composerAtBottom: "Inmatningsfält längst ned",
-      composerAtBottomDescription: "Starta nya chattar med inmatningsfältet längst ned på sidan i stället för i mitten.",
+      composerPosition: "Inmatningsfältets placering",
+      composerPositionDescription: "Var inmatningsfältet hamnar när en ny chatt startar, från sidans överkant ända ned till botten.",
       projectAttachments: "Dela filer i ett projekt",
       projectAttachmentsDescription:
         "Gör nya chattbilagor tillgängliga för alla chattar i projektet.",
@@ -3646,6 +3655,9 @@ export const sv = {
         docsLabel: "Öppna dokumentationen för Decision API",
         description:
           "Besvara ja/nej-frågor, flervalsfrågor och poängfrågor om text med en modell på denna dator eller en beslutsmodell från Anslutningar. Fungerar med TypeSafe SDK.",
+        codeTitle: "Anropa från kod",
+        mcpUrl: "MCP URL",
+        mcpUrlDescription: "Andra MCP-klienter ansluter hit med samma token.",
         enable: "Hantera begäranden",
         enableDescription:
           "Hanterar /v1/systemone. När du aktiverar det hämtas modellen.",
@@ -3802,7 +3814,7 @@ export const sv = {
         desktopAvailableDescription:
           "Uppdatera nu så startar skrivbordsappen om när den är klar.",
         desktopExternalServer:
-          "Appen anslöt till en Unsloth-server som redan körs och kan inte uppdatera den. Stoppa servern, avsluta sedan skrivbordsappen och öppna den igen för att uppdatera.",
+          "Ansluten till en Unsloth-server på port {port} som den här appen inte har startat, till exempel `unsloth studio` i en terminal. Stoppa den där den startades, avsluta sedan appen och öppna den igen för att uppdatera.",
         desktopManualInstall:
           "Öppna utgåvesidan för att installera det senaste Linux-paketet.",
         desktopCheckFailed: "Det gick inte att kontrollera uppdateringar",
@@ -4133,7 +4145,6 @@ export const sv = {
             "Den här datauppsättningen verkar innehålla bilder, som inte kan strömmas.",
           audioDataset:
             "Den här datauppsättningen verkar innehålla ljud, som inte kan strömmas.",
-          appleSilicon: "Strömning stöds inte på Apple Silicon (MLX) ännu.",
         },
         options: {
           trainOnCompletions: "endast assistentslutföranden",
@@ -5361,6 +5372,8 @@ export const sv = {
     removeLevel: "Ta bort nivå {n}",
     addLevel: "Lägg till nivå",
     jsonHelp: "Begärans body. Kör skickar den precis som den är.",
+    copyBody: "Kopiera brödtext",
+    copyCurl: "Kopiera som cURL",
     examples: "Exempel",
     presetToolApproval: "Godkänna agentens verktygsanrop",
     presetPromptInjection: "Upptäcka promptinjektion",
@@ -5746,6 +5759,7 @@ export const sv = {
   generationStats: {
     working: "Arbetar...",
     processingPrompt: "Bearbetar prompt {percent}%",
+    compactingContext: "Komprimerar kontext...",
     timeLeft: "{eta} kvar",
     tokensOne: "{count} token",
     tokens: "{count} token",

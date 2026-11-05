@@ -81,6 +81,7 @@ import { useAnimatedThemeToggle } from "@/components/ui/animated-theme-toggler";
 import {
   DesktopTitlebarNavigation,
   shouldUseCustomWindowTitlebar,
+  usesWindowsTitlebar,
   shouldUseNativeMacWindowTitlebar,
 } from "@/components/tauri/window-titlebar";
 // deep imports avoid the Images index because its ImagesPage re-export would undo the code split.
@@ -5898,6 +5899,7 @@ export function AppSidebar() {
     <Sidebar
       collapsible="icon"
       collapseToZero={isTauri}
+      data-windows-glass-frame={(pinned && usesWindowsTitlebar()) || undefined}
       variant="sidebar"
       className={cn(
         "font-heading group-data-[collapsible=icon]:[&_[data-sidebar=sidebar]]:bg-[var(--sidebar-surface)]",
@@ -6634,6 +6636,7 @@ export function AppSidebar() {
             travel in this band and a full-width gradient washed it out. */}
         <div
           ref={attachFade}
+          data-slot="sidebar-footer-fade"
           aria-hidden="true"
           className={cn(
             // from-[8px] holds the fade opaque across the hard clip, matching the list's pb-2.

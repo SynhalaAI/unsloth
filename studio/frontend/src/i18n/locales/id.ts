@@ -206,6 +206,9 @@ export const id = {
         history: "Membaca riwayat penjelajahan Anda",
         move: "Menggerakkan mouse",
         drag: "Menyeret",
+        tabs: "Melihat tab",
+        readFile: "Membaca file",
+        editFile: "Mengedit file",
       },
     },
     title: "Browser",
@@ -361,6 +364,8 @@ export const id = {
     askBeforeDownloadingSetting: "Tanya sebelum mengunduh",
     askBeforeDownloadingSettingDescription:
       "Konfirmasi file dari situs web sebelum disimpan.",
+    askBeforeProgramDownloadsSetting: "Tanya sebelum mengunduh program",
+    askBeforeProgramDownloadsSettingDescription: "Konfirmasi file yang dapat menjalankan program, seperti .exe atau .dmg, meskipun unduhan lain tidak bertanya.",
     downloadSitesSetting: "Izin unduhan situs",
     downloadSitesSettingDescription:
       "Situs yang Anda pilih untuk selalu diizinkan atau diblokir unduhannya.",
@@ -369,6 +374,7 @@ export const id = {
     downloadSitesFor: "Unduhan dari {host}",
     downloadSitesRemove: "Lupakan {host}",
     downloadSiteAllow: "Selalu izinkan",
+    downloadSiteAllowAll: "Izinkan program juga",
     downloadSiteBlock: "Selalu blokir",
     downloadPrompt: {
       title: "Unduh file ini?",
@@ -376,6 +382,9 @@ export const id = {
       dangerous:
         "File seperti ini dapat menjalankan program di komputer Anda. Unduh hanya jika Anda memercayai {host}.",
       remember: "Ingat untuk lain kali",
+      once: "Tanya lain kali",
+      site: "Selalu untuk {host}",
+      all: "Selalu unduh, dari semua situs",
       cancel: "Batal",
       download: "Unduh",
       blocked: "Unduhan dari {host} diblokir.",
@@ -3238,9 +3247,8 @@ export const id = {
         "Tampilkan Edit respons di setiap respons, alih-alih di menu Lainnya.",
       turnNavigation: "Navigasi giliran",
       turnNavigationDescription: "Tampilkan prompt Anda sebagai bilah di tepi kiri chat panjang. Arahkan kursor untuk pratinjau giliran, klik untuk melompat ke sana, dan tandai giliran agar mudah ditemukan lagi.",
-      composerAtBottom: "Kolom pesan di bagian bawah",
-      composerAtBottomDescription:
-        "Mulai chat baru dengan kolom pesan di bagian bawah halaman, bukan di tengah.",
+      composerPosition: "Posisi kolom pesan",
+      composerPositionDescription: "Letak kolom pesan saat memulai chat baru, dari atas halaman hingga ke bawah.",
       projectAttachments: "Bagikan file di seluruh proyek",
       projectAttachmentsDescription:
         "Jadikan lampiran chat baru tersedia untuk setiap chat dalam proyek.",
@@ -3753,6 +3761,9 @@ export const id = {
         docsLabel: "Buka dokumentasi API Keputusan",
         description:
           "Jawab pertanyaan ya/tidak, pilihan ganda, dan skor tentang teks dengan model di mesin ini atau model keputusan dari Koneksi. Berfungsi dengan SDK TypeSafe.",
+        codeTitle: "Panggil dari kode",
+        mcpUrl: "MCP URL",
+        mcpUrlDescription: "Klien MCP lain terhubung ke sini dengan token yang sama.",
         enable: "Layani permintaan",
         enableDescription:
           "Melayani /v1/systemone. Mengaktifkannya akan mengunduh model.",
@@ -3913,7 +3924,7 @@ export const id = {
         desktopAvailableDescription:
           "Perbarui sekarang dan aplikasi desktop akan dimulai ulang setelah selesai.",
         desktopExternalServer:
-          "Aplikasi terhubung ke server Unsloth yang sudah berjalan dan tidak dapat memperbaruinya. Hentikan server tersebut, lalu tutup dan buka kembali aplikasi desktop untuk memperbarui.",
+          "Terhubung ke server Unsloth di port {port} yang tidak dijalankan oleh aplikasi ini, seperti `unsloth studio` di terminal. Hentikan server itu di tempat ia dijalankan, lalu tutup dan buka kembali aplikasi untuk memperbarui.",
         desktopManualInstall:
           "Buka halaman rilis untuk menginstal paket Linux terbaru.",
         desktopCheckFailed: "Tidak dapat memeriksa pembaruan",
@@ -4227,7 +4238,6 @@ export const id = {
             "Dataset ini tampaknya berupa gambar, yang tidak dapat di-streaming.",
           audioDataset:
             "Dataset ini tampaknya berupa audio, yang tidak dapat di-streaming.",
-          appleSilicon: "Streaming belum didukung di Apple Silicon (MLX).",
         },
         options: {
           trainOnCompletions: "hanya completion asisten",
@@ -5492,6 +5502,8 @@ export const id = {
     removeLevel: "Hapus tingkat {n}",
     addLevel: "Tambah tingkat",
     jsonHelp: "Isi permintaan. Jalankan akan mengirimnya apa adanya.",
+    copyBody: "Salin body",
+    copyCurl: "Salin sebagai cURL",
     examples: "Contoh",
     presetToolApproval: "Setujui panggilan alat agen",
     presetPromptInjection: "Deteksi injeksi prompt",
@@ -5893,6 +5905,7 @@ export const id = {
   generationStats: {
     working: "Memproses...",
     processingPrompt: "Memproses prompt {percent}%",
+    compactingContext: "Memadatkan konteks...",
     timeLeft: "{eta} lagi",
     tokensOne: "{count} token",
     tokens: "{count} token",

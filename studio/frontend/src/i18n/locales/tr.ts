@@ -206,6 +206,9 @@ export const tr = {
         history: "Tarama geçmişiniz okunuyor",
         move: "Fare hareket ettiriliyor",
         drag: "Sürükleniyor",
+        tabs: "Sekmelere bakılıyor",
+        readFile: "Dosya okunuyor",
+        editFile: "Dosya düzenleniyor",
       },
     },
     title: "Tarayıcı",
@@ -360,6 +363,8 @@ export const tr = {
     askBeforeDownloadingSetting: "İndirmeden önce sor",
     askBeforeDownloadingSettingDescription:
       "Web sitelerinden gelen dosyalar kaydedilmeden önce onayınız istenir.",
+    askBeforeProgramDownloadsSetting: "Program indirmeden önce sor",
+    askBeforeProgramDownloadsSettingDescription: ".exe veya .dmg gibi program çalıştırabilen dosyaları, diğer indirmeler sormasa bile onayla.",
     downloadSitesSetting: "Site indirme izinleri",
     downloadSitesSettingDescription:
       "İndirmelerine her zaman izin vermeyi veya engellemeyi seçtiğiniz siteler.",
@@ -368,6 +373,7 @@ export const tr = {
     downloadSitesFor: "İndirme kaynağı: {host}",
     downloadSitesRemove: "Unut: {host}",
     downloadSiteAllow: "Her zaman izin ver",
+    downloadSiteAllowAll: "Programlara da izin ver",
     downloadSiteBlock: "Her zaman engelle",
     downloadPrompt: {
       title: "Bu dosya indirilsin mi?",
@@ -376,6 +382,9 @@ export const tr = {
       dangerous:
         "Bu tür dosyalar bilgisayarınızda program çalıştırabilir. Yalnızca {host} kaynağına güveniyorsanız indirin.",
       remember: "Sonraki sefer için hatırla",
+      once: "Bir dahaki sefere sor",
+      site: "{host} için her zaman",
+      all: "Her siteden her zaman indir",
       cancel: "İptal",
       download: "İndir",
       blocked: "Şu kaynaktan gelen bir indirme engellendi: {host}",
@@ -3236,9 +3245,8 @@ export const tr = {
         "Yanıtı düzenle seçeneğini Diğer menüsü yerine her yanıtta tutun.",
       turnNavigation: "Tur gezinmesi",
       turnNavigationDescription: "Uzun sohbetlerin sol kenarında mesajlarınızı bir şerit olarak gösterir. Önizlemek için üzerine gelin, gitmek için tıklayın ve yeniden bulmak için yer imi ekleyin.",
-      composerAtBottom: "Yazma alanı altta",
-      composerAtBottomDescription:
-        "Yeni sohbetleri, yazma alanı sayfanın ortası yerine altında olacak şekilde başlatın.",
+      composerPosition: "Yazma alanının konumu",
+      composerPositionDescription: "Yeni bir sohbet başlarken yazma alanının nerede duracağı, sayfanın üstünden en altına kadar.",
       projectAttachments: "Dosyaları proje genelinde paylaş",
       projectAttachmentsDescription:
         "Yeni sohbet eklerini projedeki her sohbet için kullanılabilir yapın.",
@@ -3751,6 +3759,9 @@ export const tr = {
         docsLabel: "Karar API'si belgelerini aç",
         description:
           "Bu makinedeki bir modelle veya Bağlantılar'daki bir karar modeliyle metin hakkında evet/hayır, çoktan seçmeli ve puanlama sorularını yanıtlayın. TypeSafe SDK ile çalışır.",
+        codeTitle: "Koddan çağır",
+        mcpUrl: "MCP URL",
+        mcpUrlDescription: "Diğer MCP istemcileri buraya aynı belirteçle bağlanır.",
         enable: "İstekleri sun",
         enableDescription:
           "/v1/systemone uç noktasını sunar. Açıldığında model indirilir.",
@@ -3911,7 +3922,7 @@ export const tr = {
         desktopAvailableDescription:
           "Şimdi güncelleyin; işlem bittiğinde masaüstü uygulaması yeniden başlar.",
         desktopExternalServer:
-          "Uygulama zaten çalışan bir Unsloth sunucusuna bağlandı ve bu sunucuyu güncelleyemez. Güncellemek için o sunucuyu durdurun, ardından masaüstü uygulamasından çıkıp yeniden açın.",
+          "Bu uygulamanın başlatmadığı, {port} numaralı bağlantı noktasındaki bir Unsloth sunucusuna bağlı; örneğin bir terminaldeki `unsloth studio`. Güncellemek için sunucuyu başlatıldığı yerden durdurun, ardından uygulamadan çıkıp yeniden açın.",
         desktopManualInstall:
           "En son Linux paketini kurmak için sürüm sayfasını açın.",
         desktopCheckFailed: "Güncellemeler denetlenemedi",
@@ -4227,8 +4238,6 @@ export const tr = {
             "Bu veri kümesi görüntülerden oluşuyor gibi görünüyor; görüntüler akış olarak alınamaz.",
           audioDataset:
             "Bu veri kümesi seslerden oluşuyor gibi görünüyor; sesler akış olarak alınamaz.",
-          appleSilicon:
-            "Akış henüz Apple Silicon (MLX) üzerinde desteklenmiyor.",
         },
         options: {
           trainOnCompletions: "yalnızca asistan yanıtları",
@@ -5487,6 +5496,8 @@ export const tr = {
     removeLevel: "Düzey {n} öğesini kaldır",
     addLevel: "Düzey ekle",
     jsonHelp: "İstek gövdesi. Çalıştır, onu yazıldığı gibi gönderir.",
+    copyBody: "Gövdeyi kopyala",
+    copyCurl: "cURL olarak kopyala",
     examples: "Örnekler",
     presetToolApproval: "Ajan araç çağrılarını onayla",
     presetPromptInjection: "İstem enjeksiyonunu yakala",
@@ -5889,6 +5900,7 @@ export const tr = {
   generationStats: {
     working: "İşleniyor...",
     processingPrompt: "İstem işleniyor %{percent}",
+    compactingContext: "Bağlam sıkıştırılıyor...",
     timeLeft: "{eta} kaldı",
     tokensOne: "{count} token",
     tokens: "{count} token",
