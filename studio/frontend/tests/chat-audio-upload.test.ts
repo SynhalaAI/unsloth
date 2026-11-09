@@ -187,6 +187,8 @@ test("the main composer has one Dictate entry and does not gate it on draft text
   // One mic entry in the controls. Its label switches to "Record audio for
   // model" for a model that reads audio input, so count the entry, not the text.
   assert.equal((controls.match(/<MicIcon/g) ?? []).length, 1);
+  assert.equal((controls.match(/tooltip=\{micLabel\}/g) ?? []).length, 1);
+  assert.match(controls, /\? t\("settings\.voice\.dictation\.micRecordForModel"\)\s*: "Dictate";/);
   assert.doesNotMatch(controls, /Upload01Icon|DialogTrigger/);
 });
 

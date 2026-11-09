@@ -364,9 +364,8 @@ def _preview(tokenizer, config: dict, request: dict) -> dict:
         # Preview both sides the way a DPO/ORPO/CPO forward reads them instead.
         if not request.get("raw_text") and _preference_columns(request.get("rows")):
             return _preference_preview(tokenizer, model_name, request)
-        # Formatting may set a template on the tokenizer it is given; training formats with a throwaway
-        # tokenizer too, and masks with the one the model load returns. The whole pool is formatted so a
-        # raw-text column and the BOS rule are chosen from the dataset's head, as training does.
+        # Format a deep copy: templates mutate the tokenizer; the whole pool decides raw-text and
+        # BOS rules.
         texts, final_format = _format_rows(
             copy.deepcopy(tokenizer), {**config, **request}, request["rows"]
         )
