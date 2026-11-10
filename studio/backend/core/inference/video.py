@@ -188,6 +188,7 @@ from .diffusion_speed import (
     arm_graphs_after_placement,
     engage_pinned_denoisers,
     rocm_probe_load_scoped,
+    release_rocm_tunableop as _release_rocm_tunableop,
     resolve_speed_mode,
     restore_backend_flags,
     settle_compile_fallback,
@@ -14603,7 +14604,12 @@ class VideoBackend:
         it. Called inside the generation's managed-tree reader claim."""
         import base64
 
-        from .sd_cpp_args import build_vid_gen_request, h3_server_eligible
+        from .sd_cpp_args import (
+            build_vid_gen_request,
+            h3_reference_media_keys,
+            h3_server_refs_enabled,
+            sd_cli_frame_files,
+        )
         from .sd_cpp_engine import SdCppCancelled
         from .sd_cpp_server import SdCppServerUnsupported
         from .video_minimax_h3 import H3NativeMemoryRefusal
@@ -14615,7 +14621,8 @@ class VideoBackend:
         if not h3_native_server_enabled():
             slot.stop("UNSLOTH_H3_NATIVE_SERVER=0")
             return None
-        if not h3_server_eligible(params):
+        ref_media = h3_reference_media_keys(params)
+        if ref_media and (not h3_server_refs_enabled() or getattr(slot, "refs_unsupported", False)):
             # The sd-cli loads the whole model again; a resident copy beside it may not fit.
             slot.release("reference video / audio render runs on sd-cli")
             return None
@@ -14632,6 +14639,11 @@ class VideoBackend:
                 "end_image": b64_file(params.end_img),
             },
             ref_images_b64 = [b64_file(p) for p in params.ref_images] or None,
+            ref_videos_b64 = [
+                [b64_file(f) for f in sd_cli_frame_files(d)] for d in params.ref_videos
+            ],
+            ref_video_audios_b64 = [b64_file(p) for p in params.ref_video_audios],
+            ref_audios_b64 = [b64_file(p) for p in params.ref_audios],
         )
         render_flags = list(runtime.offload_flags) if flags is None else list(flags)
         render_env = dict(runtime.env) if env is None else dict(env)
@@ -14680,6 +14692,11 @@ class VideoBackend:
                         continue
                     logger.warning("video.h3_native_server_start_failed (using sd-cli): %s", exc)
                     slot.disable(f"start failed: {exc}")
+                    return None
+                if ref_media and not server.vid_gen_accepts(ref_media):
+                    # An older sd-server would drop the fields; end_render stops it before sd-cli loads.
+                    slot.refs_unsupported = True
+                    slot.release("this sd-server does not take reference video / audio")
                     return None
                 try:
                     data = server.vid_gen(payload, on_step = on_log, cancel_event = cancel)
@@ -15143,6 +15160,7 @@ class VideoBackend:
                 except Exception:  # noqa: BLE001 -- teardown is best effort
                     pass
             restore_backend_flags(state.backend_flags)
+            _release_rocm_tunableop(getattr(state, "pipe", None))
             # Restore stock GGUF kernels so a later speed=off load is bit-identical.
             from . import diffusion_gguf_compile
             from . import diffusion_cuda_graph
