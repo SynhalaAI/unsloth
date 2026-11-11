@@ -3293,6 +3293,15 @@ def _patch_trl_rl_trainers_impl(trainer_file = "grpo_trainer"):
         )
         RLTrainer_post += neftune_check
 
+    if "args" in call_args and "model" in call_args:
+        forced_float32_scaler_check = (
+            "if force_float32 and hasattr(self, 'accelerator'):\n"
+            "    from unsloth.models._forced_float32_scaler import maybe_install_forced_float32_scaler\n"
+            "    maybe_install_forced_float32_scaler(self, model, force_float32 = force_float32)\n"
+            "pass\n"
+        )
+        RLTrainer_post += forced_float32_scaler_check
+
     if "model" in call_args:
         accelerator_check = (
             "if hasattr(self, 'accelerator'):\n"

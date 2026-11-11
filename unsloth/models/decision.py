@@ -1116,43 +1116,21 @@ def _attach_gguf_saving(model) -> None:
 
 
 def _install_clef_loss_scaler(accelerator, scaler, get_optimizer):
-    accelerator.scaler = scaler
-    # Accelerate unscales before clipping only when it runs native fp16 itself (a prior fp16 Trainer in
-    # this process can leave that state); unscaling twice raises in GradScaler.
-    if getattr(accelerator, "native_amp", False) and accelerator.mixed_precision == "fp16":
-        return
-    clip = accelerator.clip_grad_norm_
+    from ._forced_float32_scaler import install_forced_float32_loss_scaler
 
-    def _clip_grad_norm(
-        parameters,
-        max_norm,
-        norm_type = 2,
-    ):
-        scaler.unscale_(get_optimizer())
-        return clip(parameters, max_norm, norm_type)
-
-    accelerator.clip_grad_norm_ = _clip_grad_norm
+    install_forced_float32_loss_scaler(accelerator, scaler, get_optimizer)
 
 
 def _clef_loss_scaler(model, args):
     """A GradScaler for the float32 path, whose float16 backward loses Gemma 3's gradients unscaled
     (#14439); not fp16 = True, which also means autocast, Apex and DeepSpeed / FSDP fp16 engines."""
-    from .loader_utils import deepspeed_zero_stage, fsdp_version_requested
+    from ._forced_float32_scaler import create_forced_float32_loss_scaler
 
-    device = next(model.parameters()).device
-    if (
-        not _clef_forced_float32(model)
-        or device.type not in ("cuda", "xpu")
-        or getattr(args, "deepspeed", None)
-        or getattr(args, "fsdp", None)
-        or deepspeed_zero_stage() is not None
-        or fsdp_version_requested()
-    ):
-        return None
-    if hasattr(torch.amp, "GradScaler"):
-        return torch.amp.GradScaler(device.type)
-    # torch < 2.3 has only the CUDA scaler.
-    return torch.cuda.amp.GradScaler() if device.type == "cuda" else None
+    return create_forced_float32_loss_scaler(
+        model,
+        args,
+        is_forced_float32 = _clef_forced_float32(model),
+    )
 
 
 def _clef_mixed_precision(model, args) -> None:
