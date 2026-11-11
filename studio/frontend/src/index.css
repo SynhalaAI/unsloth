@@ -1808,14 +1808,21 @@ html.pointer-cursors
 	cursor: pointer;
 }
 
-/* JS-driven springs are handled via MotionConfig in the provider. */
+/* JS-driven springs are handled via MotionConfig in the provider.
+   0s, not 0.01ms, on `*`: transition-property defaults to all, so a nonzero duration transitions
+   every property of every element (Chromium: thousands of no-op scrollbar-color transitions per
+   restyle in a long chat). Class-declared transitions and the overlays native-view.ts follows
+   keep 0.01ms so transitionend still fires. */
 html.force-reduced-motion *,
 html.force-reduced-motion *::before,
 html.force-reduced-motion *::after {
 	animation-duration: 0.01ms !important;
 	animation-iteration-count: 1 !important;
-	transition-duration: 0.01ms !important;
+	transition-duration: 0s !important;
 	scroll-behavior: auto !important;
+}
+html.force-reduced-motion :is([class*="transition"], [data-sonner-toast], .find-bar-surface, [data-native-clickable], [data-native-rail] > *) {
+	transition-duration: 0.01ms !important;
 }
 
 /* Same popup exemption as the OS-level media block below. */
@@ -4968,13 +4975,16 @@ html.force-reduced-motion .sidebar-section-drop-line {
 	}
 }
 
+/* scrollbar-color is set in legacy rgb(), never oklch(): Chromium reads an oklch scrollbar-color back
+   as oklab after a transition, so under Reduce motion's 0.01ms `all` transition every restyle starts a
+   new one on every element (about 10,000 at 40 turns in Glass). rgb() is the same grey. */
 * {
 	scrollbar-width: thin;
-	scrollbar-color: oklch(0.5 0 0 / 0.54) transparent;
+	scrollbar-color: rgb(99 99 99 / 0.54) transparent;
 }
 
 .dark * {
-	scrollbar-color: oklch(0.67 0 0 / 0.5) transparent;
+	scrollbar-color: rgb(149 149 149 / 0.5) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -5323,7 +5333,7 @@ html.force-reduced-motion .sidebar-section-drop-line {
 /* Faint until hovered, so a tall draft never shows a heavy dark rail. */
 .composer-input,
 .unsloth-composer-input {
-	scrollbar-color: oklch(0.5 0 0 / 0.16) transparent;
+	scrollbar-color: rgb(99 99 99 / 0.16) transparent;
 	/* At fractional zoom a 1px overflow otherwise shows a stray scrollbar. */
 	overflow-x: hidden;
 }
@@ -5342,7 +5352,7 @@ html.force-reduced-motion .sidebar-section-drop-line {
 
 .dark .composer-input,
 .dark .unsloth-composer-input {
-	scrollbar-color: oklch(0.72 0 0 / 0.18) transparent;
+	scrollbar-color: rgb(164 164 164 / 0.18) transparent;
 }
 
 .dark .composer-input::-webkit-scrollbar-thumb,
@@ -5375,7 +5385,7 @@ html.force-reduced-motion .sidebar-section-drop-line {
 .run-settings-scroll:hover,
 .aui-thread-viewport:hover,
 .hover-scrollbar:hover {
-	scrollbar-color: oklch(0.5 0 0 / 0.4) transparent;
+	scrollbar-color: rgb(99 99 99 / 0.4) transparent;
 }
 
 .sidebar-scroll-fade:hover::-webkit-scrollbar-thumb,
@@ -5389,7 +5399,7 @@ html.force-reduced-motion .sidebar-section-drop-line {
 .dark .run-settings-scroll:hover,
 .dark .aui-thread-viewport:hover,
 .dark .hover-scrollbar:hover {
-	scrollbar-color: oklch(0.72 0 0 / 0.4) transparent;
+	scrollbar-color: rgb(164 164 164 / 0.4) transparent;
 }
 
 .dark .sidebar-scroll-fade:hover::-webkit-scrollbar-thumb,
@@ -5459,12 +5469,12 @@ html.force-reduced-motion .sidebar-section-drop-line {
 	}
 
 	:root.client-windows .aui-thread-viewport:hover {
-		scrollbar-color: oklch(0.5 0 0 / 0.4) transparent !important;
+		scrollbar-color: rgb(99 99 99 / 0.4) transparent !important;
 	}
 
 	.dark:root.client-windows .aui-thread-viewport:hover,
 	:root.client-windows .dark .aui-thread-viewport:hover {
-		scrollbar-color: oklch(0.72 0 0 / 0.4) transparent !important;
+		scrollbar-color: rgb(164 164 164 / 0.4) transparent !important;
 	}
 
 	@media screen and (forced-colors: none) {
@@ -5647,8 +5657,12 @@ html.force-reduced-motion .sidebar-section-drop-line {
 	html:not(.force-motion) *::after {
 		animation-duration: 0.01ms !important;
 		animation-iteration-count: 1 !important;
-		transition-duration: 0.01ms !important;
+		transition-duration: 0s !important;
 		scroll-behavior: auto !important;
+	}
+	/* Same split as the html.force-reduced-motion block above. */
+	html:not(.force-motion) :is([class*="transition"], [data-sonner-toast], .find-bar-surface, [data-native-clickable], [data-native-rail] > *) {
+		transition-duration: 0.01ms !important;
 	}
 
 	/* The duration above turns on transitions everywhere (transition-property defaults to all), so
@@ -6268,15 +6282,20 @@ html[data-find-bar-open] [data-sonner-toaster][data-y-position="top"] {
 .dark .unsloth-files-panel-count {
 	background-color: color-mix(in oklab, var(--foreground) 10%, transparent);
 }
+/* The drop overlays blur only while they show: WebKitGTK stops drawing a Glass surface's own blur while
+   a hidden (opacity 0) child of it still carries a backdrop-filter. */
 .unsloth-files-panel-drop-overlay {
-	@apply pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-2 rounded-[inherit] bg-background/90 text-sm font-medium text-primary opacity-0 backdrop-blur-sm transition-opacity duration-150 dark:bg-card/90;
+	@apply pointer-events-none absolute inset-0 z-20 flex items-center justify-center gap-2 rounded-[inherit] bg-background/90 text-sm font-medium text-primary opacity-0 transition-opacity duration-150 dark:bg-card/90;
 }
 .unsloth-files-panel[data-dragging="true"] .unsloth-files-panel-drop-overlay {
+	@apply backdrop-blur-sm;
 	opacity: 1;
 }
 /* One target at a time: over the panel, the composer's "Drop files here" would mislead. */
 .aui-composer-root:has(.unsloth-files-panel[data-dragging="true"]) .aui-composer-drop-overlay {
 	opacity: 0 !important;
+	-webkit-backdrop-filter: none !important;
+	backdrop-filter: none !important;
 }
 .unsloth-files-panel-row {
 	@apply relative flex items-center;
@@ -6426,7 +6445,9 @@ html[data-chat-compare] :is([data-wallpaper-workspace], [data-chat-content-root]
   position: relative;
   isolation: isolate;
 }
-:is([data-wallpaper-workspace], [data-chat-content-root])[data-wallpaper-ready][data-wallpaper-ready] .unsloth-welcome-greeting::before {
+/* Only over an image (data-wallpaper-image): the plain Glass backdrop is the page colour itself, so the halo
+   changes nothing there, and blending it rounds a step dark in places, which draws rings around the greeting. */
+:is([data-wallpaper-workspace], [data-chat-content-root])[data-wallpaper-ready][data-wallpaper-image] .unsloth-welcome-greeting::before {
   content: "";
   position: absolute;
   inset: -48px -40px;
@@ -6725,6 +6746,21 @@ html.dark[data-glass="liquid-3d"] :is(.unsloth-composer-surface, .unsloth-files-
   --glass-sheen: linear-gradient(160deg, rgb(255 255 255 / .019), transparent 55%, transparent 75%, rgb(255 255 255 / .01));
   --glass-bead: radial-gradient(120% 120% at 30% 12%, rgb(255 255 255 / .11), rgb(255 255 255 / .022) 62%, rgb(255 255 255 / .044));
   --glass-bead-rim: inset 0 1px 0 rgb(255 255 255 / .154), inset 0 -1px 0 rgb(255 255 255 / .033), inset 0 0 0 1px rgb(255 255 255 / .039);
+}
+/* The sheen fades a few percent of white out across half the surface. Chromium dithers that gradient smooth;
+   WebKit and Firefox do not, so each 8-bit step shows as a wide diagonal stripe (five of them across a dark
+   Settings dialog). No sheen on either; the rims and glows carry the look. WebKit is data-glass-layers (the
+   macOS and Linux apps, Safari). After every sheen above: equal specificity, so order decides. */
+html[data-glass^="liquid"][data-glass-layers],
+html[data-glass^="liquid"][data-glass-layers] :is(.unsloth-composer-surface, .unsloth-files-panel, .wallpaper-preview-composer) {
+  --glass-sheen: none;
+}
+/* Firefox sets no flag: the repeated attribute matches the specificity of the dark sheens above. */
+@supports (-moz-appearance: none) {
+  html[data-glass^="liquid"][data-glass],
+  html[data-glass^="liquid"][data-glass] :is(.unsloth-composer-surface, .unsloth-files-panel, .wallpaper-preview-composer) {
+    --glass-sheen: none;
+  }
 }
 html[data-glass^="liquid"][data-chat-wallpaper-workspace-ready] [data-windows-glass-frame]::before,
 html[data-glass^="liquid"][data-chat-wallpaper-workspace-ready] [data-slot="sidebar-inner"] {
@@ -7745,79 +7781,15 @@ html[data-glass="liquid-3d"][data-glass-menus][data-glass-motion].dark :is([data
   --glass-lift: 0 0 8px 0 color-mix(in srgb, var(--background) 75%, transparent);
 }
 
-/* WebKitGTK only (data-glass-cpu, set by WindowMaterialMount): it runs every backdrop-filter again on
-   each composite, on the CPU, so a caret blink, a scrolled line or a menu frame re-blurred every glass
-   surface on screen and glass typing, scrolling and menus cost far more than solid. No Glass surface keeps
-   a live blur there, the sidebar included (its blur alone was most of a Glass scroll frame on a long chat):
-   the panes carry a denser fill, and dialogs and menus an opaque one, so nothing behind them ghosts through.
-   Blurs a component sets itself (Tailwind backdrop-* classes) are not Glass's and stay as they are with Glass off. */
-html[data-glass][data-glass-cpu] *:not([class*="backdrop-"]),
-html[data-glass][data-glass-cpu] *:not([data-windows-glass-frame], [class*="backdrop-"])::before,
-html[data-glass][data-glass-cpu] *:not([class*="backdrop-"])::after {
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
-}
+/* WebKitGTK only (data-glass-cpu, set by WindowMaterialMount): its CPU painter redraws these on every
+   paint of the surface. Glass keeps its live blur, its fills and its strength there; only the two paint
+   costs below are swapped out. */
 /* Frosted's grain is an SVG feTurbulence tile that WebKitGTK renders again on every paint of the surface
-   (the composer repaints with each scrolled frame): about as much as the rest of a frame. Plain there. */
-html[data-glass="frosted"][data-glass-cpu] :is([data-slot="sidebar-inner"], .unsloth-composer-surface, .unsloth-files-panel, .wallpaper-preview-composer) {
+   (the composer repaints with each scrolled frame): about as much as the rest of a frame. Plain there,
+   on every surface that takes the grain, the pinned sidebar's shared title bar frame included. */
+html[data-glass="frosted"][data-glass-cpu] :is([data-slot="sidebar-inner"], .unsloth-composer-surface, .unsloth-files-panel, .wallpaper-preview-composer),
+html[data-glass="frosted"][data-glass-cpu] [data-windows-glass-frame]::before {
   background-image: none !important;
-}
-/* The sidebar without its blur: the fill reaches the 96% cap, so the wallpaper does not show through sharp. */
-html[data-glass][data-glass-cpu] [data-slot="sidebar-inner"] {
-  --glass-pane-floor: 110%;
-}
-html[data-glass][data-glass-cpu] {
-  --glass-composer-floor: 110%;
-  --glass-menu-floor: 110%;
-  --glass-opacity-set: var(--glass-opacity, 1);
-}
-/* A low strength would otherwise read as clear plastic with no blur behind it; above the floor the slider still works. */
-html[data-glass][data-glass-cpu] body {
-  --glass-opacity: max(.9, var(--glass-opacity-set));
-  --glass-menu-fill: var(--popover);
-}
-html[data-glass][data-glass-menus][data-glass-cpu] [data-slot="dialog-content"] {
-  background-color: var(--glass-page-bg);
-}
-/* Sonner's rule above sets its blur !important at a higher specificity than the universal one. */
-html[data-glass][data-glass-menus][data-glass-cpu] :is([data-sonner-toast][data-styled="true"], .toast-surface) {
-  background-color: var(--popover) !important;
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
-}
-/* Every surface that loses its blur above takes an opaque fill, or one dense enough that nothing behind it
-   reads through: text scrolling under a header or a menu over a page would otherwise overlap sharply. */
-/* Plain light glass (no image) gives menus their own thin fill; on this path they keep the opaque one. */
-html[data-glass][data-glass-menus][data-glass-plain][data-glass-cpu]:not(.dark) :is([data-slot$="menu-content"], [data-slot$="menu-sub-content"], [data-slot="select-content"], [data-slot="combobox-content"], [data-slot="popover-content"], [data-slot="hover-card-content"], .menu-soft-surface, .menu-soft-surface-up, .dropdown-surface) {
-  --glass-menu-fill: var(--glass-page-popover);
-}
-html[data-glass][data-glass-menus][data-glass-cpu] :is(.tooltip-compact, .tooltip-rich) {
-  background-color: var(--tooltip-bg);
-}
-/* Stuck page headers (the Library tab row): content scrolls under them. At rest they stay clear. */
-html[data-glass][data-glass-cpu][data-chat-wallpaper-workspace-ready] [data-wallpaper-workspace][data-wallpaper-route="page"] > [data-slot="sidebar-inset"] .sticky:not(.library-header-row:not([data-stuck]), [data-page-model-header]) {
-  background-color: var(--glass-page-bg);
-}
-/* Sticky bars inside panels, dialogs, sheets and menus. */
-html[data-glass][data-glass-cpu] :is([data-slot="chat-settings-panel"], [data-slot="dialog-content"], [data-slot="sheet-content"]) .sticky {
-  background-color: var(--glass-page-bg);
-}
-html[data-glass][data-glass-cpu] :is([data-slot$="popover-content"], [data-slot$="menu-content"]) .sticky {
-  background-color: var(--glass-page-popover);
-}
-/* Side panes over the wallpaper: the chat settings panel and the browser panel. */
-html[data-glass][data-glass-cpu][data-chat-wallpaper-workspace-ready] [data-slot="chat-settings-panel"],
-html[data-glass][data-glass-cpu][data-chat-wallpaper-workspace-ready]:not([data-browser-overlay-open]) [data-slot="browser-panel"] > .browser-chrome,
-html[data-glass][data-glass-cpu][data-chat-wallpaper-workspace-ready]:not([data-browser-overlay-open]) [data-slot="browser-panel"]:not([data-browser-document]) > .browser-panel-body {
-  background-color: var(--glass-panel-fill);
-}
-/* Light page controls and cards are thin white washes over the image. */
-html[data-glass][data-glass-cpu]:not(.dark) {
-  --glass-control: rgb(255 255 255 / .8);
-}
-html[data-glass][data-glass-cpu]:not(.dark)[data-chat-wallpaper-workspace-ready] [data-wallpaper-route="page"] > [data-slot="sidebar-inset"],
-html[data-glass][data-glass-cpu]:not(.dark)[data-chat-wallpaper-workspace-ready] [data-wallpaper-route="page"] > [data-slot="sidebar-inset"] .api-monitor-page {
-  --page-glass-card-fill: rgb(255 255 255 / .85);
 }
 /* Liquid 3D's wide inner glows and lifts are blurred box-shadows, which WebKitGTK re-rasterises on the
    CPU whenever the surface repaints; there the glows are drawn as gradients and the lifts get a smaller blur. */

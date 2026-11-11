@@ -3255,6 +3255,38 @@ def _streamable_components(pipe: Any, torch: Any) -> dict[str, tuple[Any, str]]:
     return streamed
 
 
+# "0" keeps run-once companions resident under streaming offload.
+STREAM_RUN_ONCE_COMPANIONS_ENV = "UNSLOTH_VIDEO_STREAM_RUN_ONCE_COMPANIONS"
+# Run once per request before step 0 (LTX-2 text connectors).
+_RUN_ONCE_COMPANION_CLASSES = ("LTX2TextConnectors",)
+
+
+def run_once_companions(pipe: Any) -> dict[str, Any]:
+    """Run-once companions to stream leaf by leaf with the encoders, keeping them off the card for the denoise."""
+    if _env_off(STREAM_RUN_ONCE_COMPANIONS_ENV):
+        return {}
+    components = getattr(pipe, "components", None)
+    if not isinstance(components, dict):
+        return {}
+    return {
+        str(name): module
+        for name, module in components.items()
+        if type(module).__name__ in _RUN_ONCE_COMPANION_CLASSES
+        and callable(getattr(module, "parameters", None))
+    }
+
+
+def _run_once_companions_pin(dit_mib: int, leaf_mib: int, companion_mib: int, device: Any) -> bool:
+    """Pin budget fits the companions too; unpinned streaming is slower than resident."""
+    forced = str(os.environ.get(GROUP_OFFLOAD_PIN_ENV, "")).strip().lower()
+    if forced in ("0", "off", "false", "no") or not host_pinning_allowed(device):
+        return False
+    if forced in ("1", "on", "true", "yes"):
+        return True
+    budget = None if _pinned_memory_capped() else _pin_budget_mib()
+    return budget is not None and budget > 0 and dit_mib + leaf_mib + companion_mib <= budget
+
+
 def _module_storage_bytes(module: Any, seen: set[int]) -> int:
     storage_bytes = 0
     for tensor in list(module.parameters(recurse = True)) + list(module.buffers(recurse = True)):
@@ -4179,6 +4211,24 @@ def denoise_phase_residency_enabled() -> bool:
     return not _env_off(DENOISE_PHASE_RESIDENCY_ENV)
 
 
+# (denoise, tiled decode) MiB, streamed int8, default tier, 1024^2, window excluded, no margin; measured on an L4 at
+# 6 GiB. The resident table (901 / 2437) left ~2 GiB unused. "0" = the resident table.
+STREAMED_PHASE_SEED_ENV = "UNSLOTH_DIFFUSION_STREAMED_PHASE_SEED"
+_MEASURED_STREAMED_PHASE_MIB: dict[str, tuple[int, int]] = {
+    "flux.3-klein": (308, 904),
+}
+
+
+def _streamed_phase_seed(
+    family: Optional[str], speed_mode: Optional[str], quant: Optional[str], tiled: bool
+) -> Optional[tuple[int, int]]:
+    if _env_off(STREAMED_PHASE_SEED_ENV) or not tiled or str(speed_mode or "") != "default":
+        return None
+    if "int8" not in str(quant or "").split("|", 1)[0].lower():
+        return None
+    return _MEASURED_STREAMED_PHASE_MIB.get(str(family or "").lower())
+
+
 def _top_level_group_mib(pipe: Any) -> Optional[int]:
     """MiB of the largest denoiser's weights outside its block stacks (``ModuleList`` / ``Sequential`` children):
     block-level group offload keeps them in one top-level group that is onloaded for the whole forward when it is not
@@ -4247,6 +4297,9 @@ def _denoise_phase_reserve(
             and str(speed_mode or "") in _MEASURED_PEAK_SPEED_MODES
         ):
             row = phases[1 if speed_mode == "max" else 0]
+            streamed = _streamed_phase_seed(family, speed_mode, quant, tiled)
+            if streamed is not None:
+                row = (row[0], streamed[0], row[2], streamed[1], row[4])
             denoise = int(math.ceil(row[_PHASE_DENOISE_COLUMN] * _MEASURED_PEAK_MARGIN))
             decode = int(row[_PHASE_TILED_DECODE_COLUMN if tiled else _PHASE_UNTILED_DECODE_COLUMN])
         if quant is not None:
@@ -9469,9 +9522,10 @@ def _apply_streaming_offload(
             onload.type == "cuda" and "low_cpu_mem_usage" in params and host_pinning_allowed(onload)
         )
 
+        companions = run_once_companions(pipe)
         # Small companions (tiled VAE) stay resident; transformers and encoders stay on CPU behind hooks.
         for name, component in components.items():
-            if str(name) in streamed:
+            if str(name) in streamed or str(name) in companions:
                 continue
             if isinstance(component, torch.nn.Module):
                 component.to(onload)
@@ -9517,6 +9571,24 @@ def _apply_streaming_offload(
             leaf_mib = sum(
                 leaf_pin_mib(n, m, t) for n, (m, t) in streamed.items() if t != "block_level"
             )
+            companion_mib = sum(pin_mib(m) for m in companions.values())
+            if companions and _run_once_companions_pin(
+                dit_pin_mib, leaf_mib, companion_mib, onload
+            ):
+                for comp_name, module in companions.items():
+                    streamed[comp_name] = (module, "leaf_level")
+                leaf_mib += companion_mib
+                if logger is not None:
+                    logger.info(
+                        "diffusion.memory: streaming %s (%d MiB) leaf by leaf: run once before step 0, off the "
+                        "card for the denoise",
+                        ", ".join(type(m).__name__ for m in companions.values()),
+                        companion_mib,
+                    )
+        for comp_name, module in companions.items():
+            if comp_name not in streamed:
+                module.to(onload)
+        if prefetch:
             pin_dits, pin_encoders = _streamed_pin_plan(
                 dit_pin_mib, leaf_mib, logger, device = onload
             )

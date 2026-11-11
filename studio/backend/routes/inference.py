@@ -27607,7 +27607,8 @@ def _llama_passthrough_audio(raw: bytes) -> Optional[tuple[str, float]]:
 
 
 _VIDEO_INPUT_REFUSAL = (
-    "Video input is only supported on a local GGUF or MLX model with video support."
+    "Video input is only supported on a local GGUF or MLX model with video support, "
+    "or a custom OpenAI-compatible connection."
 )
 _VIDEO_NEEDS_FFMPEG_DETAIL = (
     "This model takes video, but ffmpeg and ffprobe were not found in llama-server's search path. "
@@ -27925,6 +27926,32 @@ async def _shrink_video_parts(messages: list[dict], llama_backend) -> None:
             if rejection is not None:
                 continue
             part["video_url"] = {"url": await _shrink_clip_for_llama(clip, llama_backend)}
+
+
+_VIDEO_URL_PROVIDER_TYPES = frozenset({"custom", "vllm", "llama_cpp", "ollama"})
+
+
+async def _external_video_url(clip: str) -> str:
+    bare = _video_b64_rejection(clip)[0]
+    shrunk = await _shrink_clip_for_llama(bare, None)
+    if shrunk != bare:
+        return f"data:video/x-matroska;base64,{shrunk}"
+    return clip if clip[:5].lower() == "data:" else f"data:video/mp4;base64,{bare}"
+
+
+async def _forward_external_video(messages: list[dict], legacy_clip: Optional[str]) -> None:
+    if legacy_clip:
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                content = msg.get("content")
+                if not isinstance(content, list):
+                    content = msg["content"] = [{"type": "text", "text": content or ""}]
+                content.append({"type": "video_url", "video_url": {"url": legacy_clip}})
+                break
+    for msg in messages:
+        for part in msg.get("content") if isinstance(msg.get("content"), list) else []:
+            if isinstance(part, dict) and part.get("type") == "video_url":
+                part["video_url"] = {"url": await _external_video_url(part["video_url"]["url"])}
 
 
 def _translate_video_parts(messages: list[dict]) -> None:
@@ -28587,6 +28614,10 @@ def _build_external_messages(
                                 "image_url": {"url": part.image_url.url},
                             }
                         )
+                    elif part.type == "video_url":
+                        parts.append(
+                            {"type": "video_url", "video_url": {"url": part.video_url.url}}
+                        )
                     elif (
                         responses_native_parts
                         and msg.role == "assistant"
@@ -29062,6 +29093,14 @@ async def _proxy_to_external_provider(
             detail = "Either provider_id or provider_type is required for external provider routing.",
         )
     _refuse_decision_connection(provider_type, api_type)
+    if _request_has_video(payload):
+        if provider_type not in _VIDEO_URL_PROVIDER_TYPES or (
+            provider_type == "custom" and api_type == "responses"
+        ):
+            raise HTTPException(status_code = 400, detail = _VIDEO_INPUT_REFUSAL)
+        rejection = _request_video_rejection(payload)
+        if rejection is not None:
+            raise HTTPException(status_code = rejection[0], detail = rejection[1])
     if provider_type == "custom":
         try:
             validate_provider_reasoning_contract(provider_type, api_type, reasoning_config)
@@ -29619,6 +29658,8 @@ async def _proxy_to_external_provider(
         model = model,
         preserve_thinking = payload.preserve_thinking,
     )
+    if _request_has_video(payload):
+        await _forward_external_video(chat_messages, payload.video_base64)
     monitor_id = None
     if not getattr(request.state, "skip_api_monitor", False):
         monitor_id = api_monitor.start(
@@ -31351,9 +31392,6 @@ async def produce_openai_chat_completions(
         untrack_current_request(request.scope)
         if _wants_multiple_choices(payload):
             _raise_unsupported_n("external provider chat completions")
-        # Refuse video here: the proxy cannot place a clip, and video_url is refused as the legacy field is.
-        if _request_has_video(payload):
-            raise HTTPException(status_code = 400, detail = _VIDEO_INPUT_REFUSAL)
         # _build_external_messages has no input_audio case; refuse rather than drop it.
         if _messages_have_input_audio(payload.messages):
             raise HTTPException(
@@ -42028,6 +42066,42 @@ def _llama_image_data_url(raw: bytes) -> str:
     return f"data:image/png;base64,{_image_bytes_to_png_b64(raw)}"
 
 
+# Chat history images are sent again on every turn and the result depends only on the payload.
+_LLAMA_IMAGE_MEMO: "collections.OrderedDict[bytes, str]" = collections.OrderedDict()
+_LLAMA_IMAGE_MEMO_MAX_CHARS = 64 * 1024 * 1024
+# Also bound the entry count: a pass-through entry stores only its short prefix.
+_LLAMA_IMAGE_MEMO_MAX_ENTRIES = 256
+_llama_image_memo_chars = 0
+_llama_image_memo_lock = threading.Lock()
+
+
+def _llama_image_data_url_from_b64(b64data: str) -> str:
+    """_llama_image_data_url(base64.b64decode(b64data)), remembering recent successful results; failures raise as before"""
+    global _llama_image_memo_chars
+    key = _hashlib.sha256(b64data.encode("utf-8", "surrogatepass")).digest()
+    with _llama_image_memo_lock:
+        kept = _LLAMA_IMAGE_MEMO.get(key)
+        if kept is not None:
+            _LLAMA_IMAGE_MEMO.move_to_end(key)
+    if kept is not None:
+        # A bare prefix means the payload passed through unchanged.
+        return kept + b64data if kept.endswith(",") else kept
+    data_url = _llama_image_data_url(base64.b64decode(b64data))
+    prefix = data_url[: len(data_url) - len(b64data)]
+    kept = prefix if data_url.endswith(b64data) and prefix.endswith(";base64,") else data_url
+    with _llama_image_memo_lock:
+        if key not in _LLAMA_IMAGE_MEMO and len(kept) <= _LLAMA_IMAGE_MEMO_MAX_CHARS:
+            _LLAMA_IMAGE_MEMO[key] = kept
+            _llama_image_memo_chars += len(kept)
+            while (
+                _llama_image_memo_chars > _LLAMA_IMAGE_MEMO_MAX_CHARS
+                or len(_LLAMA_IMAGE_MEMO) > _LLAMA_IMAGE_MEMO_MAX_ENTRIES
+            ):
+                _, dropped = _LLAMA_IMAGE_MEMO.popitem(last = False)
+                _llama_image_memo_chars -= len(dropped)
+    return data_url
+
+
 # Match llama-server's per-image limit and add a per-request budget.
 _REMOTE_IMAGE_MAX_BYTES = 10 * 1024 * 1024
 _REMOTE_IMAGE_REQUEST_BUDGET_BYTES = 32 * 1024 * 1024
@@ -42265,8 +42339,7 @@ def _normalize_openai_image_parts_for_llama(openai_messages: list[dict], on_imag
 
             try:
                 _, b64data = url.split(",", 1)
-                raw = base64.b64decode(b64data)
-                data_url = _llama_image_data_url(raw)
+                data_url = _llama_image_data_url_from_b64(b64data)
             except Exception:
                 raise HTTPException(
                     status_code = 400,
@@ -42503,6 +42576,7 @@ async def _mlx_count_chat_tokens(
                 payload.messages,
                 getattr(payload, "tool_choice", None),
                 getattr(payload, "mcp_image", None),
+                remember = False,
             )
 
             # A database read, so off the loop; guarded like the GGUF count, or an interleaving edit pairs a new row with a stale schema
@@ -42948,6 +43022,7 @@ async def chat_count_tokens(
             payload.messages,
             getattr(payload, "tool_choice", None),
             getattr(payload, "mcp_image", None),
+            remember = False,
         )
         from core.inference.mcp_client import mcp_server_snapshot_guard
 
@@ -46879,8 +46954,7 @@ def _openai_messages_for_passthrough(
 
     if normalize_images:
         try:
-            raw = base64.b64decode(payload.image_base64)
-            data_url = _llama_image_data_url(raw)
+            data_url = _llama_image_data_url_from_b64(payload.image_base64)
         except Exception:
             raise HTTPException(
                 status_code = 400,
