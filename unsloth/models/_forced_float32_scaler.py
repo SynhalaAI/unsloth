@@ -138,6 +138,22 @@ def install_forced_float32_loss_scaler(accelerator, scaler, get_optimizer) -> No
     accelerator.clip_grad_norm_ = _clip_grad_norm
 
 
+def _attach_scaler_to_optimizer(optimizer, scaler) -> None:
+    """Attach ``scaler`` to an already-prepared AcceleratedOptimizer, initializing step hooks."""
+    if optimizer is None or not hasattr(optimizer, "scaler") or optimizer.scaler is not None:
+        return
+    optimizer.scaler = scaler
+    inner = getattr(optimizer, "optimizer", None)
+    if inner is not None and not hasattr(optimizer, "_optimizer_patched_step_method"):
+        try:
+            from accelerate.optimizer import patch_optimizer_step
+        except ImportError:
+            return
+        optimizer._accelerate_step_called = False
+        optimizer._optimizer_original_step_method = inner.step
+        optimizer._optimizer_patched_step_method = patch_optimizer_step(optimizer, inner.step)
+
+
 def maybe_install_forced_float32_scaler(trainer, model = None, *, force_float32 = None) -> bool:
     """Create and install a standalone GradScaler on ``trainer.accelerator`` when needed."""
     accelerator = getattr(trainer, "accelerator", None)
@@ -161,7 +177,7 @@ def maybe_install_forced_float32_scaler(trainer, model = None, *, force_float32 
         scaler,
         lambda: getattr(trainer, "optimizer", None),
     )
-    opt = getattr(trainer, "optimizer", None)
-    if opt is not None and hasattr(opt, "scaler") and opt.scaler is None:
-        opt.scaler = scaler
+    _attach_scaler_to_optimizer(getattr(trainer, "optimizer", None), scaler)
+    for opt in getattr(accelerator, "_optimizers", ()) or ():
+        _attach_scaler_to_optimizer(opt, scaler)
     return True

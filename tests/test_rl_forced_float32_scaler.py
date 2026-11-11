@@ -402,3 +402,31 @@ def test_float16_frozen_chain_underflows_unscaled_but_converges_with_grad_scaler
     assert torch.isfinite(a_scaled.grad).all()
     assert a_scaled.grad.abs().max() > 0.0
     assert cos > 0.99, f"Expected scaled gradient cosine > 0.99, got {cos.item():.4f}"
+
+
+def test_attach_scaler_initializes_preprepared_accelerated_optimizer(scaler_env):
+    """If an AcceleratedOptimizer was created before RLTrainer_post, step hooks are initialized."""
+    accelerate = pytest.importorskip("accelerate")
+    mod, _ = scaler_env
+
+    param = torch.nn.Parameter(torch.tensor([1.0], dtype = torch.float32))
+    raw_opt = torch.optim.SGD([param], lr = 0.1)
+    # Build Accelerate's wrapper without a scaler (the pre-fix mixed_precision='no' state),
+    # stubbing internal state attrs instead of calling Accelerator() so CPU-only tests stay self-contained.
+    acc_opt = accelerate.optimizer.AcceleratedOptimizer.__new__(accelerate.optimizer.AcceleratedOptimizer)
+    acc_opt.optimizer = raw_opt
+    acc_opt.scaler = None
+    acc_opt.gradient_state = types.SimpleNamespace(sync_gradients = True, is_xla_gradients_synced = True)
+    acc_opt.accelerator_state = types.SimpleNamespace(distributed_type = accelerate.utils.DistributedType.NO)
+    acc_opt._is_overflow = False
+
+    scaler = torch.amp.GradScaler("cpu", init_scale = 8.0)
+    mod._attach_scaler_to_optimizer(acc_opt, scaler)
+    assert acc_opt.scaler is scaler
+    assert hasattr(acc_opt, "_optimizer_patched_step_method")
+
+    loss = (param * 2.0).sum()
+    scaler.scale(loss).backward()
+    acc_opt.step()
+    assert not acc_opt.step_was_skipped
+    assert param.item() < 1.0
