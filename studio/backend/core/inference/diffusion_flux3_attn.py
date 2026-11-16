@@ -10,6 +10,7 @@ import os
 from functools import lru_cache
 from typing import Any, Optional
 
+from . import diffusion_int8_attention as _i8
 from .rocm_bf16 import is_rocm_torch
 
 STRIDED_ATTN_ENV = "UNSLOTH_DIFFUSION_FLUX3_STRIDED_ATTN"
@@ -84,7 +85,7 @@ def strided_processor_class() -> Any:
                     and (query.requires_grad or key.requires_grad or value.requires_grad)
                 )
             ):
-                out = torch.ops.unsloth_studio.int8_attention_nhd(query, key, value)
+                out = _i8.int8_attention_call(query, key, value)
                 hidden_states = out.flatten(2, 3)
             else:
                 if cudnn:
@@ -302,7 +303,8 @@ def verify_cards(
     cards: Any,
     logger: Any = None,
 ) -> int:
-    """Probe each split card (install probed the primary only); any failure restores stock processors. Never raises."""
+    """Probe each split card (install probed the primary only); a failure restores stock on the cuDNN-backed strided
+    processors only, since native-backed ones (INT8 carriers) never make the cuDNN call. Never raises."""
     try:
         import torch
         from diffusers.models.transformers import transformer_flux3 as tf3
@@ -312,7 +314,10 @@ def verify_cards(
             return 0
         cls = strided_processor_class()
         swapped = [
-            m for m in _attention_modules(transformer) if type(getattr(m, "processor", None)) is cls
+            m
+            for m in _attention_modules(transformer)
+            if type(getattr(m, "processor", None)) is cls
+            and _backend_value(getattr(m.processor, "_attention_backend", None)) == _CUDNN
         ]
         if not swapped:
             return 0

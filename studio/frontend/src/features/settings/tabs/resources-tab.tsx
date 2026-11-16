@@ -605,13 +605,15 @@ export function ResourcesTab() {
   const diskBytes = (entry: (typeof cache.entries)[number]) =>
     entry.systemDiskBytes ??
     (systemEntries.includes(entry) ? entry.sizeBytes : 0);
+  const isModels = (entry: (typeof cache.entries)[number]) =>
+    entry.key === "hf_hub" || entry.key === "npu_models";
   const modelsDiskGb =
     cache.entries
-      .filter((entry) => entry.key === "hf_hub")
+      .filter(isModels)
       .reduce((sum, entry) => sum + diskBytes(entry), 0) / 1e9;
   const cachesDiskGb =
     cache.entries
-      .filter((entry) => entry.key !== "hf_hub")
+      .filter((entry) => !isModels(entry))
       .reduce((sum, entry) => sum + diskBytes(entry), 0) / 1e9;
   const otherDiskGb = Math.max(
     0,
@@ -735,7 +737,7 @@ export function ResourcesTab() {
         </div>
         {/* Top edge on the h1's cap top (text-xl at leading 1.4; Hellix: 0.322em). */}
         <div className="mt-[calc(var(--text-xl)*0.322)] flex min-w-0 flex-wrap items-center gap-2">
-          <label className="flex h-9 shrink-0 items-center gap-2 rounded-full border border-border/60 px-3.5 text-xs font-medium text-foreground">
+          <label className="flex h-9 shrink-0 items-center gap-4 rounded-full border border-border/60 px-3.5 text-xs font-medium text-foreground">
             <span>{t("settings.resources.liveUpdates")}</span>
             <Switch
               className="scale-[0.88]"

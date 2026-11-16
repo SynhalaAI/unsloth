@@ -26,6 +26,7 @@ import os
 import re
 import struct
 from core.inference.inference_gate import holds_inference
+from core.inference.http_stream import SSE_LINE_END
 from loggers import get_logger
 from utils.gpu_memory_events import invalidate_gpu_memory as _invalidate_gpu_memory
 from utils import host_memory as _host_memory
@@ -500,9 +501,8 @@ from core.inference.mcp_images import (
     is_image_tool as mcp_is_image_tool,
     mentions_images as mcp_images_mentioned_in,
 )
-from core.inference.tool_facts import repeatable
+from core.inference.tool_facts import STEPWISE, repeatable
 from core.inference.tool_loop_controller import (
-    BROWSER_TOOL_NAMES,
     TRUNCATED_TOOL_TURN_MESSAGE,
     ToolLoopController,
     _reruns_after_new_work,
@@ -11783,7 +11783,7 @@ class LlamaCppBackend:
         except OSError:
             return frozenset()
         backends = set()
-        for backend in ("base", "cpu", "cuda", "hip", "vulkan"):
+        for backend in ("base", "cpu", "cuda", "hip", "sycl", "vulkan"):
             stem = f"ggml-{backend}.dll" if sys.platform == "win32" else f"libggml-{backend}.so"
             if any(name == stem or name.startswith(stem + ".") for name in files):
                 backends.add(backend)
@@ -12127,6 +12127,12 @@ class LlamaCppBackend:
         backend."""
         backends = LlamaCppBackend._installed_ggml_backends(binary)
         return "vulkan" in backends and not backends.intersection({"cuda", "hip"})
+
+    @staticmethod
+    def _is_sycl_only_backend(binary: Optional[str] = None) -> bool:
+        """A split-library SYCL build with no CUDA, HIP or Vulkan lib beside it."""
+        backends = LlamaCppBackend._installed_ggml_backends(binary)
+        return "sycl" in backends and not backends.intersection({"cuda", "hip", "vulkan"})
 
     _SYSMEM_FALLBACK_RISK: dict[Optional[str], bool] = {}
 
@@ -15063,6 +15069,9 @@ class LlamaCppBackend:
         binary = binary or LlamaCppBackend._find_llama_server_binary()
         if LlamaCppBackend._is_vulkan_backend(binary):
             return LlamaCppBackend._get_gpu_free_memory_vulkan(binary)
+        if LlamaCppBackend._is_sycl_only_backend(binary):
+            # The probes below size NVIDIA / AMD cards a SYCL build never runs on (#17787); unsized, --fit on sizes the SYCL device itself.
+            return []
         from utils.hardware import mig
 
         mig_rows = mig.visible_devices(fresh = True, listing = True)
@@ -37432,7 +37441,7 @@ class LlamaCppBackend:
     def _sse_event_payload(event: str) -> Optional[dict]:
         """Decode one complete SSE event's ``data:`` payload, or None."""
         payload_lines = [
-            line[5:].lstrip() for line in event.splitlines() if line.startswith("data:")
+            line[5:].lstrip() for line in SSE_LINE_END.split(event) if line.startswith("data:")
         ]
         if not payload_lines:
             return None
@@ -39056,8 +39065,7 @@ class LlamaCppBackend:
         # A browser task is many steps, each a chance to announce the next one and stop: there the
         # budget is one nudge per tool turn, as in the external loop, not one per request.
         _browser_turns = any(
-            ((tool.get("function") or {}).get("name") in BROWSER_TOOL_NAMES)
-            for tool in (tools or [])
+            ((tool.get("function") or {}).get("name") in STEPWISE) for tool in (tools or [])
         )
         # Text that triggered the last nudge; if the retry restates it, stop.
         _last_reprompt_text = ""
@@ -40845,6 +40853,7 @@ class LlamaCppBackend:
                             never_needs = never_needs_approval,
                             sandbox_level = sandbox_level,
                             session_id = session_id,
+                            thread_id = thread_id,
                         ) or requires_os_isolation(
                             confirm_tool_calls = bool(confirm_tool_calls),
                             bypass_permissions = _bypass,
@@ -40956,6 +40965,7 @@ class LlamaCppBackend:
                         never_needs = never_needs_approval,
                         sandbox_level = sandbox_level,
                         session_id = session_id,
+                        thread_id = thread_id,
                     )
                     # Sending the user's image always asks, whatever the permission mode.
                     needs_confirm = needs_confirm or image_share is not None
@@ -42671,8 +42681,10 @@ class LlamaCppBackend:
         should_abort = None,
         prefer_native: bool = False,
         template_options = None,
+        on_prompt = None,
     ) -> int:
-        """Strict callers raise: the text-only fallback is an approximation, not a count; others get 0."""
+        """Strict callers raise: the text-only fallback is an approximation, not a count; others get 0.
+        ``on_prompt`` receives the rendered prompt the count priced."""
         if not self.is_loaded:
             if strict:
                 raise RuntimeError("llama-server is not loaded")
@@ -42727,9 +42739,10 @@ class LlamaCppBackend:
             if system_text:
                 template_messages = [{"role": "system", "content": system_text}] + template_messages
             # Tool rounds recount the same prompt; admission (prefer_native) counts once and keeps its own failover.
+            # A memo hit has no text for on_prompt.
             memo_key = (
                 None
-                if prefer_native
+                if prefer_native or on_prompt is not None
                 else _count_memo_key(
                     self,
                     template_messages,
@@ -42789,7 +42802,7 @@ class LlamaCppBackend:
                         if continue_final_message:
                             template_body["continue_final_message"] = True
                             template_body["add_generation_prompt"] = False
-                        if prefer_native:
+                        if prefer_native and on_prompt is None:
                             if should_abort is not None and should_abort():
                                 raise CountAborted()
                             try:
@@ -42815,7 +42828,10 @@ class LlamaCppBackend:
                         if isinstance(prompt, str):
                             if should_abort is not None and should_abort():
                                 raise CountAborted()
-                            return _tokenize(prompt), False
+                            count = _tokenize(prompt)
+                            if on_prompt is not None:
+                                on_prompt(prompt)
+                            return count, False
                     except CountAborted:
                         # Not a template failure. Must precede the generic except.
                         raise

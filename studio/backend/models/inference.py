@@ -266,6 +266,28 @@ class LoadRequest(BaseModel):
     _mlx_offload_amounts = field_validator("mlx_ple_offload", "mlx_expert_offload", mode = "before")(
         _mlx_offload_amount
     )
+    # Untyped so pydantic can't coerce JSON true to 1; npu_flm_args.py validates (400).
+    npu_power_mode: Optional[str] = Field(
+        None,
+        description = (
+            "AMD NPU only: FastFlowLM power mode, one of default, powersaver, balanced, "
+            "performance or turbo. Null or default leaves FastFlowLM's own. Changing it reloads."
+        ),
+    )
+    npu_prefill_chunk_len: Optional[Any] = Field(
+        None,
+        description = (
+            "AMD NPU only: tokens FastFlowLM reads per prefill step, capped at the context length. "
+            "Null leaves FastFlowLM's default. Changing it reloads."
+        ),
+    )
+    npu_img_pre_resize: Optional[Any] = Field(
+        None,
+        description = (
+            "AMD NPU vision models only: FastFlowLM image pre-resize level, 0 (original size) to 4. "
+            "Null leaves FastFlowLM's default. Changing it reloads."
+        ),
+    )
 
     gpu_ids: Optional[List[int]] = Field(
         None,
@@ -1890,6 +1912,16 @@ class _InferenceRuntimeFields(BaseModel):
         False,
         description = "Whether the active model runs on the AMD Ryzen AI NPU (FastFlowLM through Lemonade)",
     )
+    npu_power_mode: Optional[str] = Field(
+        None,
+        description = "FastFlowLM power mode the NPU load asked for; null is FastFlowLM's default",
+    )
+    npu_prefill_chunk_len: Optional[int] = Field(
+        None, description = "FastFlowLM prefill chunk length the NPU load used"
+    )
+    npu_img_pre_resize: Optional[int] = Field(
+        None, description = "FastFlowLM image pre-resize level the NPU load asked for"
+    )
     mlx_kv_quant: Optional[str] = Field(
         None, description = "MLX KV cache quantization actually applied, in mlx_kv_quant's vocabulary"
     )
@@ -3239,7 +3271,10 @@ class ChatCompletionRequest(BaseModel):
             "a checkpoint on this request even when it still fits: older turns are "
             "archived and searchable, and the model keeps the newest turn plus standing "
             "instructions until the chat outgrows the window again. Needs "
-            "context_overflow=truncate_oldest and a saved thread; otherwise ignored."
+            "context_overflow=truncate_oldest and a saved thread; otherwise ignored. "
+            "On a cloud connection the turns before the newest one are summarised: "
+            "by the provider where it compacts server-side (Anthropic, OpenAI "
+            "Responses), otherwise by a summary call to the same model."
         ),
     )
     studio_tool_history: Optional[bool] = Field(
@@ -3412,11 +3447,23 @@ class ChatCompletionRequest(BaseModel):
             "`context_management:[{type:'compaction', compact_threshold:N}]` "
             "to /v1/responses. A deployment that answers `compact_threshold "
             "is not enabled` is retried without it.\n"
-            "Both cap the trigger at 200k.\n"
+            "Both cap the trigger at 200k unless compaction_uncapped is set.\n"
             "Every other provider and model ignores it unless context_overflow "
-            "is truncate_oldest, in which case Unsloth drops the oldest turns "
-            "so the prompt and the reply fit within it before forwarding. "
+            "is truncate_oldest, in which case Unsloth asks the same model to "
+            "summarise the oldest turns, keeps the recent ones verbatim and "
+            "reuses the summary on later turns of a saved thread, so the prompt "
+            "and the reply fit within it before forwarding. If the summary call "
+            "fails the oldest turns are dropped instead. "
             "Per-provider floors are enforced in the corresponding stream helpers."
+        ),
+    )
+    compaction_uncapped: Optional[bool] = Field(
+        None,
+        description = (
+            "[x-unsloth] compaction_threshold is the connection's own \"Auto-compact "
+            'after" setting rather than the default. Anthropic and OpenAI server-side '
+            "compaction then use it as given instead of capping it at 200k: it is still "
+            "raised to the provider's floor and never exceeds context_window."
         ),
     )
     context_window: Optional[int] = Field(
@@ -3728,6 +3775,12 @@ class ChatCountTokensRequest(ReasoningControlsRequest):
         ge = 0,
         description = "[x-unsloth] Tool-call budget the completion would send. Zero suppresses the "
         "tool loop, so a count that never sees it prices a catalog the relay does not render.",
+    )
+    breakdown: bool = Field(
+        False,
+        description = "[x-unsloth] Also split the total into system, tools (schemas and the tool "
+        "nudge) and messages, and return the rendered prompt (GGUF only; null elsewhere). Studio's "
+        "/context. Costs two more renders.",
     )
 
     @field_validator("sandbox_level", mode = "before")
@@ -6061,6 +6114,11 @@ class PromptUpsamplerPreviewRequest(BaseModel):
         None,
         description = "Sampling variant; null = the loaded FLUX.3 family's (distilled when none is loaded)",
     )
+    family: Optional[str] = Field(
+        None,
+        description = "Image family whose enhancer runs (minimax-h3-image: its Qwen3.5-9B enhancer); null = the "
+        "loaded family's, FLUX.3's upsampler for every other family",
+    )
 
     @field_validator("reference_images")
     @classmethod
@@ -6369,7 +6427,8 @@ class DiffusionStatusResponse(BaseModel):
         None,
         description = "Image-conditioning limits of the loaded model on the active engine: "
         "max_condition_images (total, including the source), alpha, dimension_multiple, "
-        "max_output_side, max_output_pixels, reference_resolutions and localized_edit_modes. "
+        "max_output_side, max_output_pixels, reference_resolutions, edit_output_resolution (the output "
+        "size an edit should default to, or null) and localized_edit_modes. "
         "Null when nothing is loaded.",
     )
     engine: Optional[str] = Field(
@@ -6616,6 +6675,14 @@ class ImageGenerationRequest(BaseModel):
     negative_prompt: Optional[str] = Field(
         None, description = "[x-unsloth] What to avoid, on models that take a negative prompt."
     )
+    loras: Optional[list[LoraSpec]] = Field(
+        None,
+        max_length = 8,
+        description = "[x-unsloth] LoRA adapters for this generation (discovery id + weight), as on "
+        "/images/generate. Omitted: the adapters a diffusers load was loaded with (baked in, or applied "
+        "per generation on a dense build), at their load weights; none for a load that named none, and "
+        "none on the native sd.cpp and MLX engines. An empty list renders without any.",
+    )
 
     @field_validator("n", "size", "response_format", mode = "before")
     @classmethod
@@ -6630,6 +6697,20 @@ class ImageGenerationRequest(BaseModel):
     def _minus_one_seed_means_random(cls, value):
         # -1 = random (A1111, sd.cpp); seed was ignored here before, so -1 must not start 400ing.
         return None if value == -1 else value
+
+    @field_validator("loras")
+    @classmethod
+    def _unique_lora_ids(cls, value: Optional[list[LoraSpec]]) -> Optional[list[LoraSpec]]:
+        # Repeated ids would stack the same adapter past the weight bound.
+        if value:
+            seen: set[str] = set()
+            for spec in value:
+                if spec.id in seen:
+                    raise ValueError(
+                        f"duplicate LoRA id '{spec.id}'; list each adapter at most once"
+                    )
+                seen.add(spec.id)
+        return value
 
 
 class ImageGenerationData(BaseModel):
@@ -7676,8 +7757,8 @@ class VideoGenerateRequest(BaseModel):
         None,
         max_length = 32 * 1024 * 1024,
         description = "Base64/data-URL image the clip starts from (image-to-video). With width "
-        "and height omitted it picks the canvas: MiniMax-H3 matches its aspect and stretches it "
-        "on; Wan2.2-TI2V-5B and LTX-2 take the resolution preset nearest its aspect and "
+        "and height omitted it picks the canvas: MiniMax-H3 keeps its default 1344x768 (as the "
+        "reference workflow does) and stretches the frame on; Wan2.2-TI2V-5B and LTX-2 take the resolution preset nearest its aspect and "
         "centre-crop it on. Omit for text-to-video. Rejected by a family that takes no first "
         "frame (status supports_first_frame).",
     )
@@ -7789,7 +7870,7 @@ class VideoGenerateRequest(BaseModel):
 
     @model_validator(mode = "after")
     def _keyframe_canvas_needs_both_axes(self) -> "VideoGenerateRequest":
-        # Keyframe only: a half-specified canvas is silently replaced by the source aspect; other families resolve the missing axis from a preset.
+        # Keyframe only: a half-specified canvas would silently drop the sent axis for the default canvas; other families resolve the missing axis from a preset.
         if not (self.first_frame or self.last_frame):
             return self
         if (self.width is None) != (self.height is None):
@@ -7990,6 +8071,18 @@ class VideoGenerationDefaults(BaseModel):
         description = "True when a first frame without width/height takes the resolution preset "
         "nearest its aspect ratio (a declared image-to-video pipeline), instead of the "
         "canvas_short_edge rule",
+    )
+    keyframe_keeps_canvas: bool = Field(
+        False,
+        description = "True when a keyframe without width/height renders at the family default "
+        "canvas (stretched / centre-cropped on, as MiniMax-H3's reference workflow does) rather "
+        "than a canvas matched to its aspect",
+    )
+    default_resolution: Optional[list[int]] = Field(
+        None,
+        description = "(width, height) of the page's Default preset when it differs from resolution_presets[0] "
+        "(MiniMax-H3: the reference templates' 864x480); a request without a size still takes "
+        "resolution_presets[0]",
     )
     flow_shift: Optional[float] = Field(
         None,
