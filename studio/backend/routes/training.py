@@ -2319,6 +2319,8 @@ async def _admit_training_request(
         "training_method": request.training_method,
         "dpo_beta": request.dpo_beta,
         "cpo_alpha": request.cpo_alpha,
+        "dpo_loss_type": request.dpo_loss_type,
+        "rpo_alpha": request.rpo_alpha,
         "max_prompt_length": request.max_prompt_length,
         "subset": request.subset,
         "train_split": request.train_split,
@@ -3139,6 +3141,20 @@ def _build_training_status(
             "rewards_rejected_steps": list(
                 getattr(backend, "rewards_rejected_step_history", [])
             ),
+            "logps_chosen": list(getattr(backend, "logps_chosen_history", [])),
+            "logps_chosen_steps": list(
+                getattr(backend, "logps_chosen_step_history", [])
+            ),
+            "logps_rejected": list(getattr(backend, "logps_rejected_history", [])),
+            "logps_rejected_steps": list(
+                getattr(backend, "logps_rejected_step_history", [])
+            ),
+            "mean_token_accuracy": list(
+                getattr(backend, "mean_token_accuracy_history", [])
+            ),
+            "mean_token_accuracy_steps": list(
+                getattr(backend, "mean_token_accuracy_step_history", [])
+            ),
         }
 
     return TrainingStatus(
@@ -3376,6 +3392,11 @@ async def stream_training_progress(
                 ),
                 nll_loss = getattr(progress, "nll_loss", None) if progress else None,
                 log_odds_ratio = getattr(progress, "log_odds_ratio", None) if progress else None,
+                logps_chosen = getattr(progress, "logps_chosen", None) if progress else None,
+                logps_rejected = getattr(progress, "logps_rejected", None) if progress else None,
+                mean_token_accuracy = (
+                    getattr(progress, "mean_token_accuracy", None) if progress else None
+                ),
             )
 
         def format_sse(

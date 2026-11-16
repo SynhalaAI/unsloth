@@ -95,6 +95,9 @@ const initialState: TrainingRuntimeState = {
   logOddsRatioHistory: [],
   rewardsChosenHistory: [],
   rewardsRejectedHistory: [],
+  logpsChosenHistory: [],
+  logpsRejectedHistory: [],
+  meanTokenAccuracyHistory: [],
   resetGeneration: 0,
   stopRequested: false,
   configureRequest: 0,
@@ -223,6 +226,9 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
   logOddsRatioHistory: TrainingSeriesPoint[] | null;
   rewardsChosenHistory: TrainingSeriesPoint[] | null;
   rewardsRejectedHistory: TrainingSeriesPoint[] | null;
+  logpsChosenHistory: TrainingSeriesPoint[] | null;
+  logpsRejectedHistory: TrainingSeriesPoint[] | null;
+  meanTokenAccuracyHistory: TrainingSeriesPoint[] | null;
 } {
   const history = payload.metric_history;
   if (!history || !history.steps?.length) {
@@ -239,6 +245,9 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
       logOddsRatioHistory: null,
       rewardsChosenHistory: null,
       rewardsRejectedHistory: null,
+      logpsChosenHistory: null,
+      logpsRejectedHistory: null,
+      meanTokenAccuracyHistory: null,
     };
   }
 
@@ -288,6 +297,18 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
     history.rewards_rejected && history.rewards_rejected_steps
       ? toSeries(history.rewards_rejected_steps, history.rewards_rejected)
       : null;
+  const logpsChosenHistory =
+    history.logps_chosen && history.logps_chosen_steps
+      ? toSeries(history.logps_chosen_steps, history.logps_chosen)
+      : null;
+  const logpsRejectedHistory =
+    history.logps_rejected && history.logps_rejected_steps
+      ? toSeries(history.logps_rejected_steps, history.logps_rejected)
+      : null;
+  const meanTokenAccuracyHistory =
+    history.mean_token_accuracy && history.mean_token_accuracy_steps
+      ? toSeries(history.mean_token_accuracy_steps, history.mean_token_accuracy)
+      : null;
   return {
     lossHistory,
     lrHistory,
@@ -301,6 +322,9 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
     logOddsRatioHistory,
     rewardsChosenHistory,
     rewardsRejectedHistory,
+    logpsChosenHistory,
+    logpsRejectedHistory,
+    meanTokenAccuracyHistory,
   };
 }
 
@@ -370,6 +394,9 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
         logOddsRatioHistory: [],
         rewardsChosenHistory: [],
         rewardsRejectedHistory: [],
+        logpsChosenHistory: [],
+        logpsRejectedHistory: [],
+        meanTokenAccuracyHistory: [],
         resetGeneration: state.resetGeneration + 1,
       })),
 
@@ -420,6 +447,9 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
           logOddsRatioHistory: [],
           rewardsChosenHistory: [],
           rewardsRejectedHistory: [],
+          logpsChosenHistory: [],
+          logpsRejectedHistory: [],
+          meanTokenAccuracyHistory: [],
           resetGeneration: state.resetGeneration + 1,
         };
       }),
@@ -508,6 +538,9 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
               logOddsRatioHistory: [],
               rewardsChosenHistory: [],
               rewardsRejectedHistory: [],
+              logpsChosenHistory: [],
+              logpsRejectedHistory: [],
+              meanTokenAccuracyHistory: [],
               resetGeneration: state.resetGeneration + 1,
               stopRequested: false,
             }
@@ -630,6 +663,24 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
                 metricHistory.rewardsRejectedHistory,
               )
             : runtimeState.rewardsRejectedHistory,
+          logpsChosenHistory: metricHistory.logpsChosenHistory
+            ? mergeSeries(
+                runtimeState.logpsChosenHistory,
+                metricHistory.logpsChosenHistory,
+              )
+            : runtimeState.logpsChosenHistory,
+          logpsRejectedHistory: metricHistory.logpsRejectedHistory
+            ? mergeSeries(
+                runtimeState.logpsRejectedHistory,
+                metricHistory.logpsRejectedHistory,
+              )
+            : runtimeState.logpsRejectedHistory,
+          meanTokenAccuracyHistory: metricHistory.meanTokenAccuracyHistory
+            ? mergeSeries(
+                runtimeState.meanTokenAccuracyHistory,
+                metricHistory.meanTokenAccuracyHistory,
+              )
+            : runtimeState.meanTokenAccuracyHistory,
         };
       }),
 
@@ -708,6 +759,9 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
         const logOddsRatio = toFiniteNumber(payload.log_odds_ratio);
         const rewardsChosen = toFiniteNumber(payload.rewards_chosen);
         const rewardsRejected = toFiniteNumber(payload.rewards_rejected);
+        const logpsChosen = toFiniteNumber(payload.logps_chosen);
+        const logpsRejected = toFiniteNumber(payload.logps_rejected);
+        const meanTokenAccuracy = toFiniteNumber(payload.mean_token_accuracy);
         const totalSteps = toFiniteNumber(payload.total_steps);
         const progressPercent = toFiniteNumber(payload.progress_percent);
         const currentEpoch = toFiniteNumber(payload.epoch);
@@ -799,6 +853,22 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
             step > 0 && rewardsRejected !== null
               ? upsertPoint(state.rewardsRejectedHistory, step, rewardsRejected)
               : state.rewardsRejectedHistory,
+          logpsChosenHistory:
+            step > 0 && logpsChosen !== null
+              ? upsertPoint(state.logpsChosenHistory, step, logpsChosen)
+              : state.logpsChosenHistory,
+          logpsRejectedHistory:
+            step > 0 && logpsRejected !== null
+              ? upsertPoint(state.logpsRejectedHistory, step, logpsRejected)
+              : state.logpsRejectedHistory,
+          meanTokenAccuracyHistory:
+            step > 0 && meanTokenAccuracy !== null
+              ? upsertPoint(
+                  state.meanTokenAccuracyHistory,
+                  step,
+                  meanTokenAccuracy,
+                )
+              : state.meanTokenAccuracyHistory,
         };
       }),
   }),

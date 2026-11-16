@@ -52,7 +52,12 @@ export type ModelDefaultsPatch = Partial<
   Partial<
     Pick<
       TrainingConfigState,
-      "preferenceTrainingMethod" | "dpoBeta" | "cpoAlpha" | "maxPromptLength"
+      | "preferenceTrainingMethod"
+      | "dpoBeta"
+      | "cpoAlpha"
+      | "dpoLossType"
+      | "rpoAlpha"
+      | "maxPromptLength"
     >
   >;
 

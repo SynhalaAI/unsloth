@@ -572,6 +572,7 @@ class UnslothTrainer:
         self.load_in_4bit = True
 
         self.is_cpt = False
+        self._is_preference_run = False
         self.is_vlm = False
         self.is_audio = False
         self.is_audio_vlm = False
@@ -1077,6 +1078,13 @@ class UnslothTrainer:
                     # ORPO's own components (TRL logs these alongside rewards/*).
                     nll_loss = logs.get("nll_loss"),
                     log_odds_ratio = logs.get("log_odds_ratio"),
+                    logps_chosen = logs.get("logps/chosen", logs.get("logps_chosen")),
+                    logps_rejected = logs.get("logps/rejected", logs.get("logps_rejected")),
+                    mean_token_accuracy = (
+                        logs.get("mean_token_accuracy")
+                        if getattr(trainer_ref, "_is_preference_run", False)
+                        else None
+                    ),
                     is_run_summary = is_run_summary,
                     offload = trainer_ref._offload_snapshot(),
                     status_message = "" if trainer_ref.should_stop else startup.log(logs) or "",
@@ -4736,6 +4744,7 @@ class UnslothTrainer:
                 "ORPO",
                 "CPO",
             )
+            self._is_preference_run = is_preference_run
             if dataset_final_format in ("preference_dpo", "preference_cpo") and not is_preference_run:
                 # The SFT path has no "text" column to train on, and silently dropping
                 # chosen/rejected would train on nothing: say what to change instead.
@@ -5294,6 +5303,8 @@ class UnslothTrainer:
                         config_args = config_args,
                         beta = float(training_args.get("dpo_beta", 0.1) or 0.1),
                         cpo_alpha = float(training_args.get("cpo_alpha", 1.0) or 1.0),
+                        dpo_loss_type = training_args.get("dpo_loss_type", "sigmoid"),
+                        rpo_alpha = float(training_args.get("rpo_alpha", 0.0) or 0.0),
                         max_prompt_length = training_args.get("max_prompt_length", 512),
                         max_length = training_args.get("max_seq_length", 2048),
                     )

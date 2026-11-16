@@ -23,6 +23,7 @@ from loggers import get_logger
 logger = get_logger(__name__)
 
 PREFERENCE_METHODS = ("DPO", "ORPO", "CPO")
+DPO_LOSS_TYPES = ("sigmoid", "ipo", "hinge")
 
 # SFTConfig takes these; the preference configs do not. Anything else is filtered against the
 # target config's own dataclass fields, because TRL keeps moving knobs between releases.
@@ -45,6 +46,74 @@ def normalize_preference_method(method: Any) -> Optional[str]:
     """Return the canonical method name, or None when this is not a preference method."""
     normalized = str(method or "").strip().upper()
     return normalized if normalized in PREFERENCE_METHODS else None
+
+
+def normalize_dpo_loss_type(loss_type: Any) -> str:
+    """Return the canonical DPO loss type, defaulting blank values to 'sigmoid'."""
+    normalized = str(loss_type or "").strip().lower() or "sigmoid"
+    if normalized not in DPO_LOSS_TYPES:
+        raise ValueError(
+            f"Unknown DPO loss type {loss_type!r}; expected one of {', '.join(DPO_LOSS_TYPES)}."
+        )
+    return normalized
+
+
+def _loss_type_expects_list(config_cls: Any) -> bool:
+    """TRL >= 0.29 types `DPOConfig.loss_type` as `list[str]`; older releases use `str`."""
+    fields = getattr(config_cls, "__dataclass_fields__", None) or {}
+    field = fields.get("loss_type")
+    if field is None:
+        return "loss_weights" in fields
+    default_factory = getattr(field, "default_factory", None)
+    if callable(default_factory):
+        try:
+            return isinstance(default_factory(), (list, tuple))
+        except Exception:  # noqa: BLE001
+            pass
+    return "loss_weights" in fields and not isinstance(getattr(field, "default", None), str)
+
+
+def _resolve_dpo_loss_config(
+    config_cls: Any,
+    dpo_loss_type: Any = "sigmoid",
+    rpo_alpha: Any = 0.0,
+) -> Dict[str, Any]:
+    """Map Studio's `dpo_loss_type` + `rpo_alpha` onto the installed TRL `DPOConfig`."""
+    normalized_loss = normalize_dpo_loss_type(dpo_loss_type)
+    alpha = float(rpo_alpha or 0.0)
+    if alpha < 0.0:
+        raise ValueError(f"rpo_alpha must be >= 0, got {alpha}.")
+
+    fields = getattr(config_cls, "__dataclass_fields__", None) or {}
+    if alpha > 0.0:
+        if "loss_weights" in fields:
+            # TRL 0.29+ replaced rpo_alpha with multi-loss composition: [base_loss, "sft"].
+            return {
+                "loss_type": [normalized_loss, "sft"],
+                "loss_weights": [1.0, alpha],
+            }
+        if "rpo_alpha" in fields:
+            resolved: Dict[str, Any] = {"rpo_alpha": alpha}
+            if normalized_loss != "sigmoid" or "loss_type" in fields:
+                resolved["loss_type"] = normalized_loss
+            return resolved
+        raise ValueError(
+            "RPO alpha requires TRL >= 0.29 (`loss_weights`) or `DPOConfig.rpo_alpha`, "
+            "which is unavailable in the installed trainer config."
+        )
+
+    if normalized_loss != "sigmoid":
+        if fields and "loss_type" not in fields:
+            raise ValueError(
+                f"DPO loss_type={normalized_loss!r} is not supported by the installed DPOConfig."
+            )
+        return {
+            "loss_type": [normalized_loss]
+            if _loss_type_expects_list(config_cls)
+            else normalized_loss
+        }
+
+    return {}
 
 
 def preference_dataset_mismatch(method: Any, dataset: Any) -> Optional[str]:
@@ -309,6 +378,8 @@ def setup_preference_trainer(
     config_args: Optional[Dict[str, Any]] = None,
     beta: float = 0.1,
     cpo_alpha: float = 1.0,
+    dpo_loss_type: Any = "sigmoid",
+    rpo_alpha: float = 0.0,
     max_prompt_length: Optional[int] = 512,
     max_length: Optional[int] = 2048,
 ) -> Any:
@@ -335,6 +406,9 @@ def setup_preference_trainer(
 
     _apply_unsloth_patch(normalized)
     trainer_cls, config_cls = _import_trainer_classes(normalized)
+    dpo_loss_overrides: Dict[str, Any] = {}
+    if normalized == "DPO":
+        dpo_loss_overrides = _resolve_dpo_loss_config(config_cls, dpo_loss_type, rpo_alpha)
 
     processing_class = _ensure_pad_token(processing_class)
     num_proc = (config_args or {}).get("dataset_num_proc")
@@ -356,6 +430,8 @@ def setup_preference_trainer(
     )
     if normalized == "CPO":
         config_kwargs["cpo_alpha"] = float(cpo_alpha)
+    if dpo_loss_overrides:
+        config_kwargs.update(dpo_loss_overrides)
     if normalized in ("ORPO", "CPO"):
         # Their default DPODataCollatorWithPadding reads the prompt/chosen/rejected columns, so
         # TRL sets this itself and warns on every run. DPO keeps Trainer's signature columns.
@@ -380,10 +456,18 @@ def setup_preference_trainer(
         )
     config = config_cls(**config_kwargs)
 
+    dpo_log_parts = ""
+    if normalized == "DPO":
+        dpo_log_parts = f", loss_type={dpo_loss_overrides.get('loss_type', normalize_dpo_loss_type(dpo_loss_type))}"
+        if "loss_weights" in dpo_loss_overrides:
+            dpo_log_parts += f", loss_weights={dpo_loss_overrides['loss_weights']}"
+        elif "rpo_alpha" in dpo_loss_overrides:
+            dpo_log_parts += f", rpo_alpha={dpo_loss_overrides['rpo_alpha']}"
     logger.info(
         f"Initializing {normalized}Trainer with beta={float(beta)}, "
         f"max_length={max_length}, max_prompt_length={prompt_length}"
         + (f", cpo_alpha={float(cpo_alpha)}" if normalized == "CPO" else "")
+        + dpo_log_parts
         + "\n"
     )
 

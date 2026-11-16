@@ -5,6 +5,7 @@ import type { ModelInventoryFormat } from "@/features/hub";
 import type {
   DatasetFormat,
   DatasetSource,
+  DpoLossType,
   GradientCheckpointing,
   ModelType,
   PreferenceTrainingMethod,
@@ -139,6 +140,8 @@ export interface TrainingConfigState {
   preferenceTrainingMethod: PreferenceTrainingMethod;
   dpoBeta: number;
   cpoAlpha: number;
+  dpoLossType: DpoLossType;
+  rpoAlpha: number;
   maxPromptLength: number;
   optimizerType: string;
   lrSchedulerType: string;
@@ -307,6 +310,8 @@ export interface TrainingConfigActions {
   setPreferenceTrainingMethod: (value: PreferenceTrainingMethod) => void;
   setDpoBeta: (value: number) => void;
   setCpoAlpha: (value: number) => void;
+  setDpoLossType: (value: DpoLossType) => void;
+  setRpoAlpha: (value: number) => void;
   setMaxPromptLength: (value: number) => void;
   setOptimizerType: (value: string) => void;
   setWhisperLanguage: (value: string | null) => void;

@@ -177,3 +177,53 @@ def test_reward_level_chart_is_wired_end_to_end():
         assert "state.%s," % field in live, (
             "live-training-view.tsx must select state.%s" % field
         )
+
+
+def test_dpo_only_options_and_hints_are_gated_to_dpo():
+    section = _read(_STUDIO / "sections" / "training-hyperparameters-section.tsx")
+    assert 'store.preferenceTrainingMethod === "dpo"' in section
+    assert "<DpoPreferenceParams" in section
+
+    dpo_params = _read(_STUDIO / "sections" / "dpo-preference-params.tsx")
+    for text in ('label="Loss type"', 'label="RPO α"', '"Sigmoid (Standard)"', '"IPO"', '"Hinge"'):
+        assert text in dpo_params
+    assert "tooltip=" in dpo_params
+
+
+def test_dpo_config_popover_shows_loss_type_and_rpo_alpha():
+    override = _read(_STUDIO / "sections" / "run-config-override.ts")
+    for key in ("config.dpo_loss_type", "config.rpo_alpha"):
+        assert key in override
+    progress = _read(_STUDIO / "sections" / "progress-section.tsx")
+    assert 'cfgPreferenceMethod === "dpo"' in progress
+    assert 'configRow("RPO alpha", cfgRpoAlpha)' in progress
+
+
+def test_dpo_diagnostic_charts_are_wired_end_to_end():
+    for filename, fn_name in (
+        ("logps-chart-card.tsx", "export function LogpsChartCard"),
+        ("nll-loss-chart-card.tsx", "export function NllLossChartCard"),
+        ("token-accuracy-chart-card.tsx", "export function TokenAccuracyChartCard"),
+    ):
+        src = _read(_STUDIO / "sections" / "charts" / filename)
+        assert fn_name in src
+
+    content = _read(_STUDIO / "sections" / "charts-content.tsx")
+    assert "<LogpsChartCard data={reducedLogpsData} />" in content
+    assert "<NllLossChartCard data={reducedNllLossData} />" in content
+    assert "<TokenAccuracyChartCard data={reducedTokenAccuracyData} />" in content
+
+    section = _read(_STUDIO / "sections" / "charts-section.tsx")
+    for prop in ("logpsChosenHistory", "logpsRejectedHistory", "meanTokenAccuracyHistory"):
+        assert prop in section
+
+    store = _read(
+        _FRONTEND / "features" / "training" / "stores" / "training-runtime-store.ts"
+    )
+    for field in ("logps_chosen", "logps_rejected", "mean_token_accuracy"):
+        assert "history.%s && history.%s_steps" % (field, field) in store
+
+    for name in ("live-training-view.tsx", "historical-training-view.tsx"):
+        view = _read(_STUDIO / name)
+        for prop in ("logpsChosenHistory", "logpsRejectedHistory", "meanTokenAccuracyHistory"):
+            assert f"{prop}={{viewData.{prop}}}" in view

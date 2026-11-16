@@ -133,6 +133,8 @@ test("every extra setting the form changes reaches the example, and nothing host
     training_method: "CPO",
     dpo_beta: 0.2,
     cpo_alpha: 0.5,
+    dpo_loss_type: "ipo",
+    rpo_alpha: 0.5,
     max_prompt_length: 1024,
     load_in_4bit: true,
     max_seq_length: 8192,

@@ -34,6 +34,12 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { type ReactElement, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ParamsRow, ParamsSliderRow } from "./params-section-controls";
+import {
+  DpoPreferenceParams,
+  cpoAlphaTooltip,
+  preferenceBetaTooltip,
+  preferenceModeTooltip,
+} from "./dpo-preference-params";
 import { TrainingMemoryParams } from "./training-memory-params";
 
 type HyperparameterTab = "optimization" | "schedule" | "memory" | "preference";
@@ -179,6 +185,8 @@ export function TrainingHyperparametersSection({
       preferenceTrainingMethod: state.preferenceTrainingMethod,
       dpoBeta: state.dpoBeta,
       cpoAlpha: state.cpoAlpha,
+      dpoLossType: state.dpoLossType,
+      rpoAlpha: state.rpoAlpha,
       maxPromptLength: state.maxPromptLength,
       isDecision: state.modelType === "decision",
       isCpt: state.trainingMethod === "cpt",
@@ -197,6 +205,8 @@ export function TrainingHyperparametersSection({
       setPreferenceTrainingMethod: state.setPreferenceTrainingMethod,
       setDpoBeta: state.setDpoBeta,
       setCpoAlpha: state.setCpoAlpha,
+      setDpoLossType: state.setDpoLossType,
+      setRpoAlpha: state.setRpoAlpha,
       setMaxPromptLength: state.setMaxPromptLength,
       setOptimizerType: state.setOptimizerType,
       setLrSchedulerType: state.setLrSchedulerType,
@@ -423,7 +433,10 @@ export function TrainingHyperparametersSection({
               value="preference"
               className="mt-3 flex flex-col gap-3"
             >
-              <ParamsRow label="Preference mode">
+              <ParamsRow
+                label="Preference mode"
+                tooltip={preferenceModeTooltip()}
+              >
                 <Select
                   value={store.preferenceTrainingMethod}
                   onValueChange={(value) =>
@@ -464,15 +477,27 @@ export function TrainingHyperparametersSection({
                           ? "CPO β"
                           : "DPO β"
                     }
+                    tooltip={preferenceBetaTooltip(
+                      store.preferenceTrainingMethod,
+                    )}
                     value={store.dpoBeta}
                     onChange={store.setDpoBeta}
                     min={0.001}
                     max={2}
                     step={0.001}
                   />
+                  {store.preferenceTrainingMethod === "dpo" && (
+                    <DpoPreferenceParams
+                      dpoLossType={store.dpoLossType}
+                      rpoAlpha={store.rpoAlpha}
+                      onDpoLossTypeChange={store.setDpoLossType}
+                      onRpoAlphaChange={store.setRpoAlpha}
+                    />
+                  )}
                   {store.preferenceTrainingMethod === "cpo" && (
                     <ParamsSliderRow
                       label="CPO α"
+                      tooltip={cpoAlphaTooltip()}
                       value={store.cpoAlpha}
                       onChange={store.setCpoAlpha}
                       min={0}

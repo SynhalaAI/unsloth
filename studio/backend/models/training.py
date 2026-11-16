@@ -247,6 +247,16 @@ class TrainingStartRequest(BaseModel):
         le = 10.0,
         description = "Weight factor for CPO loss",
     )
+    dpo_loss_type: Literal["sigmoid", "ipo", "hinge"] = Field(
+        "sigmoid",
+        description = "DPO loss objective: 'sigmoid' (standard DPO), 'ipo', or 'hinge'",
+    )
+    rpo_alpha: float = Field(
+        0.0,
+        ge = 0.0,
+        le = 10.0,
+        description = "Weight for auxiliary SFT (NLL) loss on chosen responses in DPO (0 disables; uses loss_type=[..., 'sft'] + loss_weights on TRL >= 0.29)",
+    )
     max_prompt_length: Optional[int] = Field(
         512,
         ge = 1,
@@ -358,6 +368,25 @@ class TrainingStartRequest(BaseModel):
     @classmethod
     def _normalize_project_name(cls, value: Optional[str]) -> Optional[str]:
         return normalize_project_name(value)
+
+    @field_validator("dpo_loss_type", mode = "before")
+    @classmethod
+    def _normalize_dpo_loss_type(cls, value: Any) -> Any:
+        if value is None:
+            return "sigmoid"
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            return normalized or "sigmoid"
+        return value
+
+    @field_validator("rpo_alpha", mode = "before")
+    @classmethod
+    def _normalize_rpo_alpha(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            raise ValueError("rpo_alpha must be a number, not a boolean")
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return 0.0
+        return value
 
     @field_validator("early_stopping_patience", mode = "before")
     @classmethod
@@ -1078,10 +1107,19 @@ class TrainingProgress(BaseModel):
         None, description = "Evaluation reward margin"
     )
     nll_loss: Optional[float] = Field(
-        None, description = "ORPO SFT cross-entropy on chosen responses"
+        None, description = "SFT / NLL cross-entropy loss on chosen responses (ORPO/CPO/RPO)"
     )
     log_odds_ratio: Optional[float] = Field(
         None, description = "ORPO log-odds ratio term"
+    )
+    logps_chosen: Optional[float] = Field(
+        None, description = "Mean policy log-probability for chosen responses"
+    )
+    logps_rejected: Optional[float] = Field(
+        None, description = "Mean policy log-probability for rejected responses"
+    )
+    mean_token_accuracy: Optional[float] = Field(
+        None, description = "Next-token accuracy on chosen responses during preference training"
     )
     checkpoint_backup: Optional[dict] = Field(
         None, description = "Current asynchronous checkpoint backup snapshot"
@@ -1161,6 +1199,12 @@ class TrainingRunMetrics(BaseModel):
     nll_loss_step_history: List[int] = Field(default_factory = list)
     log_odds_ratio_history: List[float] = Field(default_factory = list)
     log_odds_ratio_step_history: List[int] = Field(default_factory = list)
+    logps_chosen_history: List[float] = Field(default_factory = list)
+    logps_chosen_step_history: List[int] = Field(default_factory = list)
+    logps_rejected_history: List[float] = Field(default_factory = list)
+    logps_rejected_step_history: List[int] = Field(default_factory = list)
+    mean_token_accuracy_history: List[float] = Field(default_factory = list)
+    mean_token_accuracy_step_history: List[int] = Field(default_factory = list)
     final_epoch: Optional[float] = None
     final_num_tokens: Optional[int] = None
 

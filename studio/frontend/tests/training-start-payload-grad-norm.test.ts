@@ -110,11 +110,20 @@ test("the sibling clip knobs keep their existing wire contract", () => {
 
 test("DPO and CPO preference settings are serialized on the training payload", () => {
   const dpoPayload = buildTrainingStartPayload(
-    { ...CONFIG, preferenceTrainingMethod: "dpo", dpoBeta: 0.25, maxPromptLength: 512 },
+    {
+      ...CONFIG,
+      preferenceTrainingMethod: "dpo",
+      dpoBeta: 0.25,
+      dpoLossType: "ipo",
+      rpoAlpha: 0.5,
+      maxPromptLength: 512,
+    },
     null,
   );
   assert.equal(dpoPayload.training_method, "DPO");
   assert.equal(dpoPayload.dpo_beta, 0.25);
+  assert.equal(dpoPayload.dpo_loss_type, "ipo");
+  assert.equal(dpoPayload.rpo_alpha, 0.5);
   assert.equal(dpoPayload.max_prompt_length, 512);
 
   const cpoPayload = buildTrainingStartPayload(
@@ -123,6 +132,8 @@ test("DPO and CPO preference settings are serialized on the training payload", (
       preferenceTrainingMethod: "cpo",
       dpoBeta: 0.1,
       cpoAlpha: 1.5,
+      dpoLossType: "hinge",
+      rpoAlpha: 0.8,
       maxPromptLength: 1024,
     },
     null,
@@ -130,6 +141,8 @@ test("DPO and CPO preference settings are serialized on the training payload", (
   assert.equal(cpoPayload.training_method, "CPO");
   assert.equal(cpoPayload.dpo_beta, 0.1);
   assert.equal(cpoPayload.cpo_alpha, 1.5);
+  assert.equal(cpoPayload.dpo_loss_type, "sigmoid");
+  assert.equal(cpoPayload.rpo_alpha, 0.0);
   assert.equal(cpoPayload.max_prompt_length, 1024);
 });
 

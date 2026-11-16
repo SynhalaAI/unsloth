@@ -33,6 +33,9 @@ interface ChartsSectionProps {
   logOddsRatioHistory?: TrainingSeriesPoint[];
   rewardsChosenHistory?: TrainingSeriesPoint[];
   rewardsRejectedHistory?: TrainingSeriesPoint[];
+  logpsChosenHistory?: TrainingSeriesPoint[];
+  logpsRejectedHistory?: TrainingSeriesPoint[];
+  meanTokenAccuracyHistory?: TrainingSeriesPoint[];
   preferenceMethod?: PreferenceTrainingMethod | null;
 }
 
@@ -52,6 +55,9 @@ export function ChartsSection({
   logOddsRatioHistory = [],
   rewardsChosenHistory = [],
   rewardsRejectedHistory = [],
+  logpsChosenHistory = [],
+  logpsRejectedHistory = [],
+  meanTokenAccuracyHistory = [],
   preferenceMethod,
 }: ChartsSectionProps): ReactElement | null {
   const series = useMemo(
@@ -106,8 +112,20 @@ export function ChartsSection({
         step: point.step,
         rejected: point.value,
       })),
+      logpsChosenHistory: logpsChosenHistory.map((point) => ({
+        step: point.step,
+        chosen: point.value,
+      })),
+      logpsRejectedHistory: logpsRejectedHistory.map((point) => ({
+        step: point.step,
+        rejected: point.value,
+      })),
+      meanTokenAccuracyHistory: meanTokenAccuracyHistory.map((point) => ({
+        step: point.step,
+        accuracy: point.value,
+      })),
     }),
-    [currentStep, evalLossHistory, evalRewardAccuracyHistory, evalRewardMarginHistory, gradNormHistory, logOddsRatioHistory, lossHistory, lrHistory, nllLossHistory, rewardAccuracyHistory, rewardMarginHistory, rewardsChosenHistory, rewardsRejectedHistory, totalSteps],
+    [currentStep, evalLossHistory, evalRewardAccuracyHistory, evalRewardMarginHistory, gradNormHistory, logOddsRatioHistory, logpsChosenHistory, logpsRejectedHistory, lossHistory, lrHistory, meanTokenAccuracyHistory, nllLossHistory, rewardAccuracyHistory, rewardMarginHistory, rewardsChosenHistory, rewardsRejectedHistory, totalSteps],
   );
 
   if (
@@ -122,7 +140,10 @@ export function ChartsSection({
     series.nllLossHistory.length === 0 &&
     series.logOddsRatioHistory.length === 0 &&
     series.rewardsChosenHistory.length === 0 &&
-    series.rewardsRejectedHistory.length === 0
+    series.rewardsRejectedHistory.length === 0 &&
+    series.logpsChosenHistory.length === 0 &&
+    series.logpsRejectedHistory.length === 0 &&
+    series.meanTokenAccuracyHistory.length === 0
   ) {
     return null;
   }

@@ -732,3 +732,61 @@ test("reward levels reach the chart series from progress and status", () => {
   assert.deepEqual(current.rewardsChosenHistory, []);
   assert.deepEqual(current.rewardsRejectedHistory, []);
 });
+
+test("DPO logps and chosen token accuracy reach chart series from progress and status", () => {
+  useTrainingRuntimeStore.getState().resetRuntime();
+  useTrainingRuntimeStore.getState().setStartPending("job-dpo", "Starting");
+
+  useTrainingRuntimeStore.getState().applyProgress(
+    {
+      ...progressPayload("job-dpo", 2),
+      logps_chosen: -11.4,
+      logps_rejected: -18.2,
+      mean_token_accuracy: 0.81,
+    },
+    2,
+  );
+
+  let current = useTrainingRuntimeStore.getState();
+  assert.deepEqual(current.logpsChosenHistory, [{ step: 2, value: -11.4 }]);
+  assert.deepEqual(current.logpsRejectedHistory, [{ step: 2, value: -18.2 }]);
+  assert.deepEqual(current.meanTokenAccuracyHistory, [{ step: 2, value: 0.81 }]);
+
+  current.applyStatus({
+    job_id: "job-dpo",
+    phase: "training",
+    is_training_running: true,
+    eval_enabled: false,
+    message: "Training",
+    error: null,
+    metric_history: {
+      steps: [1, 2],
+      logps_chosen: [-12.0, -11.4],
+      logps_chosen_steps: [1, 2],
+      logps_rejected: [-17.5, -18.2],
+      logps_rejected_steps: [1, 2],
+      mean_token_accuracy: [0.76, 0.81],
+      mean_token_accuracy_steps: [1, 2],
+    },
+  });
+
+  current = useTrainingRuntimeStore.getState();
+  assert.deepEqual(current.logpsChosenHistory, [
+    { step: 1, value: -12.0 },
+    { step: 2, value: -11.4 },
+  ]);
+  assert.deepEqual(current.logpsRejectedHistory, [
+    { step: 1, value: -17.5 },
+    { step: 2, value: -18.2 },
+  ]);
+  assert.deepEqual(current.meanTokenAccuracyHistory, [
+    { step: 1, value: 0.76 },
+    { step: 2, value: 0.81 },
+  ]);
+
+  current.resetRuntime();
+  current = useTrainingRuntimeStore.getState();
+  assert.deepEqual(current.logpsChosenHistory, []);
+  assert.deepEqual(current.logpsRejectedHistory, []);
+  assert.deepEqual(current.meanTokenAccuracyHistory, []);
+});

@@ -148,6 +148,12 @@ export function serializeConfigToYaml(
     ...(state.preferenceTrainingMethod === "cpo"
       ? { cpo_alpha: state.cpoAlpha }
       : {}),
+    ...(state.preferenceTrainingMethod === "dpo"
+      ? {
+          dpo_loss_type: state.dpoLossType,
+          rpo_alpha: state.rpoAlpha,
+        }
+      : {}),
   };
   // Only when on, so a file exported without the feature reads exactly as before.
   if (state.drafterEnabled) {

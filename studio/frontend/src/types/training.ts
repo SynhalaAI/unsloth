@@ -4,6 +4,7 @@
 export type ModelType = "vision" | "audio" | "embeddings" | "text" | "decision";
 export type TrainingMethod = "qlora" | "lora" | "full" | "cpt";
 export type PreferenceTrainingMethod = "sft" | "dpo" | "orpo" | "cpo";
+export type DpoLossType = "sigmoid" | "ipo" | "hinge";
 
 export function isTrainingMethod(value: unknown): value is TrainingMethod {
   return (

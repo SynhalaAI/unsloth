@@ -49,6 +49,8 @@ interface BackendTrainingDefaults {
   training_method?: string;
   dpo_beta?: number;
   cpo_alpha?: number;
+  dpo_loss_type?: string;
+  rpo_alpha?: number;
   max_prompt_length?: number | null;
 }
 

@@ -113,6 +113,21 @@ test("a saved preference config keeps the objective and its hyperparameters", ()
   assert.equal(training.dpo_beta, 0.35);
   assert.equal(training.cpo_alpha, 0.4);
   assert.equal(training.max_prompt_length, 1024);
+  assert.equal("dpo_loss_type" in training, false);
+  assert.equal("rpo_alpha" in training, false);
+
+  const dpo = savedTrainingSection({
+    ...CONFIG,
+    preferenceTrainingMethod: "dpo",
+    dpoBeta: 0.25,
+    dpoLossType: "hinge",
+    rpoAlpha: 0.5,
+    maxPromptLength: 512,
+  });
+  assert.equal(dpo.training_method, "DPO");
+  assert.equal(dpo.dpo_loss_type, "hinge");
+  assert.equal(dpo.rpo_alpha, 0.5);
+  assert.equal("cpo_alpha" in dpo, false);
 
   // An SFT run still records its objective, so importing it back clears a stale preference
   // choice; the preference-only knobs stay out of its file.
@@ -123,6 +138,8 @@ test("a saved preference config keeps the objective and its hyperparameters", ()
   assert.equal(sft.training_method, "SFT");
   assert.equal("dpo_beta" in sft, false);
   assert.equal("cpo_alpha" in sft, false);
+  assert.equal("dpo_loss_type" in sft, false);
+  assert.equal("rpo_alpha" in sft, false);
   assert.equal("max_prompt_length" in sft, false);
 });
 

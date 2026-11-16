@@ -239,6 +239,10 @@ export function buildTrainingStartPayload(
       config.preferenceTrainingMethod !== "sft" ? config.dpoBeta : 0.1,
     cpo_alpha:
       config.preferenceTrainingMethod === "cpo" ? config.cpoAlpha : 1.0,
+    dpo_loss_type:
+      config.preferenceTrainingMethod === "dpo" ? config.dpoLossType : "sigmoid",
+    rpo_alpha:
+      config.preferenceTrainingMethod === "dpo" ? config.rpoAlpha : 0.0,
     max_prompt_length:
       config.preferenceTrainingMethod !== "sft" ? config.maxPromptLength : 512,
     hf_token: hfToken,

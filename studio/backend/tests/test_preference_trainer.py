@@ -685,3 +685,134 @@ def test_worker_config_forwards_the_preference_settings():
     assert config["cpo_alpha"] == 0.9
     assert config["max_prompt_length"] == 128
     assert config["format_type"] == ""
+
+
+def test_worker_config_forwards_dpo_loss_and_rpo_alpha():
+    training = pytest.importorskip("core.training.training")
+
+    config = training._build_training_worker_config(
+        {
+            "model_name": "unsloth/Qwen3-4B",
+            "training_method": "DPO",
+            "dpo_beta": 0.2,
+            "dpo_loss_type": "ipo",
+            "rpo_alpha": 0.5,
+            "max_prompt_length": 256,
+        }
+    )
+
+    assert config["dpo_loss_type"] == "ipo"
+    assert config["rpo_alpha"] == 0.5
+
+
+def test_dpo_config_maps_loss_type_and_rpo_alpha_on_legacy_trl(monkeypatch):
+    from typing import Optional
+
+    @dataclass
+    class LegacyDPOConfig:
+        output_dir: str = "."
+        per_device_train_batch_size: int = 1
+        learning_rate: float = 5e-6
+        beta: float = 0.1
+        max_length: int = 1024
+        max_prompt_length: int = 512
+        loss_type: str = "sigmoid"
+        rpo_alpha: Optional[float] = None
+        precompute_ref_log_probs: bool = False
+        remove_unused_columns: bool = True
+        include_num_input_tokens_seen: bool = True
+
+    events = []
+    _install_fake_unsloth(monkeypatch, events)
+    classes = _install_fake_trl(monkeypatch, events)
+    classes["DPOConfig"] = LegacyDPOConfig
+
+    trainer = pt.setup_preference_trainer(
+        "DPO",
+        model = FakeModel(max_seq_length = 2048),
+        processing_class = FakeTokenizer(),
+        train_dataset = FakeDataset(PREFERENCE_ROWS),
+        dpo_loss_type = "ipo",
+        rpo_alpha = 0.5,
+    )
+    assert trainer.args.loss_type == "ipo"
+    assert trainer.args.rpo_alpha == 0.5
+
+    trainer_no_rpo = pt.setup_preference_trainer(
+        "DPO",
+        model = FakeModel(max_seq_length = 2048),
+        processing_class = FakeTokenizer(),
+        train_dataset = FakeDataset(PREFERENCE_ROWS),
+        dpo_loss_type = "hinge",
+        rpo_alpha = 0.0,
+    )
+    assert trainer_no_rpo.args.loss_type == "hinge"
+    assert trainer_no_rpo.args.rpo_alpha is None
+
+
+def test_dpo_config_maps_loss_type_and_rpo_alpha_on_modern_trl(monkeypatch):
+    from dataclasses import field as dc_field
+    from typing import List, Optional
+
+    @dataclass
+    class ModernDPOConfig:
+        output_dir: str = "."
+        per_device_train_batch_size: int = 1
+        learning_rate: float = 5e-6
+        beta: float = 0.1
+        max_length: int = 1024
+        max_prompt_length: int = 512
+        loss_type: List[str] = dc_field(default_factory = lambda: ["sigmoid"])
+        loss_weights: Optional[List[float]] = None
+        precompute_ref_log_probs: bool = False
+        remove_unused_columns: bool = True
+        include_num_input_tokens_seen: bool = True
+
+    events = []
+    _install_fake_unsloth(monkeypatch, events)
+    classes = _install_fake_trl(monkeypatch, events)
+    classes["DPOConfig"] = ModernDPOConfig
+
+    rpo_trainer = pt.setup_preference_trainer(
+        "DPO",
+        model = FakeModel(max_seq_length = 2048),
+        processing_class = FakeTokenizer(),
+        train_dataset = FakeDataset(PREFERENCE_ROWS),
+        dpo_loss_type = "sigmoid",
+        rpo_alpha = 0.5,
+    )
+    assert rpo_trainer.args.loss_type == ["sigmoid", "sft"]
+    assert rpo_trainer.args.loss_weights == [1.0, 0.5]
+
+    ipo_rpo_trainer = pt.setup_preference_trainer(
+        "DPO",
+        model = FakeModel(max_seq_length = 2048),
+        processing_class = FakeTokenizer(),
+        train_dataset = FakeDataset(PREFERENCE_ROWS),
+        dpo_loss_type = "ipo",
+        rpo_alpha = 0.7,
+    )
+    assert ipo_rpo_trainer.args.loss_type == ["ipo", "sft"]
+    assert ipo_rpo_trainer.args.loss_weights == [1.0, 0.7]
+
+    hinge_only_trainer = pt.setup_preference_trainer(
+        "DPO",
+        model = FakeModel(max_seq_length = 2048),
+        processing_class = FakeTokenizer(),
+        train_dataset = FakeDataset(PREFERENCE_ROWS),
+        dpo_loss_type = "hinge",
+        rpo_alpha = 0.0,
+    )
+    assert hinge_only_trainer.args.loss_type == ["hinge"]
+    assert hinge_only_trainer.args.loss_weights is None
+
+
+def test_dpo_config_rejects_invalid_loss_type_or_unsupported_rpo_alpha(monkeypatch):
+    with pytest.raises(ValueError, match = "Unknown DPO loss type"):
+        _setup(monkeypatch, "dpo", dpo_loss_type = "unknown")
+
+    with pytest.raises(ValueError, match = "rpo_alpha must be >= 0"):
+        _setup(monkeypatch, "dpo", rpo_alpha = -0.1)
+
+    with pytest.raises(ValueError, match = "RPO alpha requires"):
+        _setup(monkeypatch, "dpo", rpo_alpha = 0.5)

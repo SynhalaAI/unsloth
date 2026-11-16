@@ -55,6 +55,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactElement, type ReactNode, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ChartSettingsSheet } from "./charts/chart-settings-sheet";
+import { formatDpoLossTypeLabel } from "./dpo-preference-params";
 import {
   formatDuration,
   formatNumber,
@@ -129,6 +130,8 @@ export function ProgressSection({
       preferenceMethod: state.preferenceTrainingMethod,
       dpoBeta: state.dpoBeta,
       cpoAlpha: state.cpoAlpha,
+      dpoLossType: state.dpoLossType,
+      rpoAlpha: state.rpoAlpha,
       maxPromptLength: state.maxPromptLength,
     })),
   );
@@ -242,6 +245,8 @@ export function ProgressSection({
     cfg?.preferenceMethod ?? data.preferenceMethod ?? null;
   const cfgDpoBeta = cfg?.dpoBeta;
   const cfgCpoAlpha = cfg?.cpoAlpha;
+  const cfgDpoLossType = cfg?.dpoLossType;
+  const cfgRpoAlpha = cfg?.rpoAlpha;
   const cfgMaxPromptLength = cfg?.maxPromptLength;
 
   // On Mac the MLX backend runs CUDA optimizers as AdamW.
@@ -278,6 +283,17 @@ export function ProgressSection({
           section: t("studio.progress.preference"),
           rows: [
             configRow(t("studio.progress.preferenceBeta"), cfgDpoBeta),
+            ...(cfgPreferenceMethod === "dpo"
+              ? [
+                  configRow(
+                    "Loss type",
+                    cfgDpoLossType !== undefined
+                      ? formatDpoLossTypeLabel(cfgDpoLossType)
+                      : undefined,
+                  ),
+                  configRow("RPO alpha", cfgRpoAlpha),
+                ]
+              : []),
             ...(cfgPreferenceMethod === "cpo"
               ? [configRow(t("studio.progress.preferenceAlpha"), cfgCpoAlpha)]
               : []),

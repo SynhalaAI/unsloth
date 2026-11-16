@@ -21,6 +21,8 @@ export interface TrainingStartRequest {
   training_method?: "SFT" | "DPO" | "ORPO" | "CPO";
   dpo_beta?: number;
   cpo_alpha?: number;
+  dpo_loss_type?: "sigmoid" | "ipo" | "hinge";
+  rpo_alpha?: number;
   max_prompt_length?: number | null;
   hf_token: string | null;
   model_known_cached?: boolean;

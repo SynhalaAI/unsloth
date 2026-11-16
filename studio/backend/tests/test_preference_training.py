@@ -205,3 +205,27 @@ def test_sft_requests_still_accept_the_preference_settings():
 def test_resolve_training_format_type_uses_detected_preference_format():
     assert resolve_training_format_type({"format_type": "auto"}, {"final_format": "preference_dpo"}, "") == "preference_dpo"
     assert resolve_training_format_type({"format_type": "chatml"}, None, "") == "chatml"
+
+
+@pytest.mark.parametrize("loss_type", ["sigmoid", "ipo", "hinge", "IPO"])
+def test_dpo_loss_type_and_rpo_alpha_are_validated(loss_type):
+    request = _start_request(
+        training_method = "DPO",
+        dpo_loss_type = loss_type,
+        rpo_alpha = 0.5,
+    )
+    assert request.dpo_loss_type == loss_type.lower()
+    assert request.rpo_alpha == 0.5
+
+    defaulted = _start_request(training_method = "DPO", rpo_alpha = None)
+    assert defaulted.dpo_loss_type == "sigmoid"
+    assert defaulted.rpo_alpha == 0.0
+
+    with pytest.raises(ValueError):
+        _start_request(training_method = "DPO", dpo_loss_type = "invalid")
+
+    with pytest.raises(ValueError):
+        _start_request(training_method = "DPO", rpo_alpha = -0.5)
+
+    with pytest.raises(ValueError):
+        _start_request(training_method = "DPO", rpo_alpha = True)

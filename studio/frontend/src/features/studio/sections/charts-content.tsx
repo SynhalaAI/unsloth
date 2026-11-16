@@ -9,9 +9,12 @@ import { useChartPreferencesStore } from "./charts/chart-preferences-store";
 import { EvalLossChartCard } from "./charts/eval-loss-chart-card";
 import { GradNormChartCard } from "./charts/grad-norm-chart-card";
 import { LearningRateChartCard } from "./charts/learning-rate-chart-card";
+import { LogpsChartCard } from "./charts/logps-chart-card";
+import { NllLossChartCard } from "./charts/nll-loss-chart-card";
 import { OrpoComponentsChartCard } from "./charts/orpo-components-chart-card";
 import { PreferenceMetricsChartCard } from "./charts/preference-metrics-chart-card";
 import { RewardChartCard } from "./charts/reward-chart-card";
+import { TokenAccuracyChartCard } from "./charts/token-accuracy-chart-card";
 import { TrainingLossChartCard } from "./charts/training-loss-chart-card";
 import type { TrainingChartSeries } from "./charts/types";
 import {
@@ -192,6 +195,42 @@ export function ChartsContent({
     }
     return compressSeries(Array.from(points.values()), MAX_RENDER_POINTS);
   }, [metrics.rewardsChosenHistory, metrics.rewardsRejectedHistory]);
+  const reducedLogpsData = useMemo(() => {
+    const points = new Map<
+      number,
+      { step: number; chosen: number; rejected: number }
+    >();
+    for (const point of metrics.logpsChosenHistory) {
+      points.set(point.step, {
+        step: point.step,
+        chosen: point.chosen,
+        rejected: Number.NaN,
+      });
+    }
+    for (const point of metrics.logpsRejectedHistory) {
+      const existing = points.get(point.step) ?? {
+        step: point.step,
+        chosen: Number.NaN,
+        rejected: Number.NaN,
+      };
+      points.set(point.step, { ...existing, rejected: point.rejected });
+    }
+    return compressSeries(Array.from(points.values()), MAX_RENDER_POINTS);
+  }, [metrics.logpsChosenHistory, metrics.logpsRejectedHistory]);
+  const reducedNllLossData = useMemo(
+    () => compressSeries(metrics.nllLossHistory, MAX_RENDER_POINTS),
+    [metrics.nllLossHistory],
+  );
+  const hasStandaloneNllLoss = useMemo(
+    () =>
+      !hasOrpoComponents &&
+      reducedNllLossData.some((point) => Number.isFinite(point.nllLoss)),
+    [hasOrpoComponents, reducedNllLossData],
+  );
+  const reducedTokenAccuracyData = useMemo(
+    () => compressSeries(metrics.meanTokenAccuracyHistory, MAX_RENDER_POINTS),
+    [metrics.meanTokenAccuracyHistory],
+  );
   const allSteps = useMemo(() => {
     const set = new Set<number>();
     for (const point of metrics.lossHistory) {
@@ -398,9 +437,19 @@ export function ChartsContent({
       {reducedRewardData.length > 0 && (
         <RewardChartCard data={reducedRewardData} />
       )}
+      {reducedLogpsData.length > 0 && (
+        <LogpsChartCard data={reducedLogpsData} />
+      )}
       {hasOrpoComponents && (
         <OrpoComponentsChartCard data={reducedOrpoData} />
       )}
+      {hasStandaloneNllLoss && (
+        <NllLossChartCard data={reducedNllLossData} />
+      )}
+      {reducedTokenAccuracyData.length > 0 &&
+        (preferenceMethod == null || preferenceMethod !== "sft") && (
+          <TokenAccuracyChartCard data={reducedTokenAccuracyData} />
+        )}
     </div>
   );
 }

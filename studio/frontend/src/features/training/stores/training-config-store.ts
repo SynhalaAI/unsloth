@@ -1597,6 +1597,8 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
           setUserEdit({ preferenceTrainingMethod }),
         setDpoBeta: (dpoBeta) => setUserEdit({ dpoBeta }),
         setCpoAlpha: (cpoAlpha) => setUserEdit({ cpoAlpha }),
+        setDpoLossType: (dpoLossType) => setUserEdit({ dpoLossType }),
+        setRpoAlpha: (rpoAlpha) => setUserEdit({ rpoAlpha }),
         setMaxPromptLength: (maxPromptLength) =>
           setUserEdit({ maxPromptLength }),
         setOptimizerType: (optimizerType) => setUserEdit({ optimizerType }),

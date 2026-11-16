@@ -294,6 +294,8 @@ def _build_training_worker_config(values: dict[str, Any]) -> dict[str, Any]:
         "training_method": values.get("training_method", "SFT"),
         "dpo_beta": values.get("dpo_beta", 0.1),
         "cpo_alpha": values.get("cpo_alpha", 1.0),
+        "dpo_loss_type": values.get("dpo_loss_type", "sigmoid"),
+        "rpo_alpha": values.get("rpo_alpha", 0.0),
         "max_prompt_length": values.get("max_prompt_length", 512),
         "subset": values.get("subset"),
         "train_split": values.get("train_split", "train"),
@@ -830,6 +832,9 @@ class TrainingProgress:
     # log-odds ratio the odds-ratio term optimizes (None for SFT/DPO/CPO).
     nll_loss: Optional[float] = None
     log_odds_ratio: Optional[float] = None
+    logps_chosen: Optional[float] = None
+    logps_rejected: Optional[float] = None
+    mean_token_accuracy: Optional[float] = None
     peak_memory_gb: Optional[float] = None
     # BlockSwap.stats() from the last logged step, for the live offload panel.
     offload: Optional[dict] = None
@@ -1365,6 +1370,12 @@ class TrainingBackend:
         self.rewards_chosen_step_history: list = []
         self.rewards_rejected_history: list = []
         self.rewards_rejected_step_history: list = []
+        self.logps_chosen_history: list = []
+        self.logps_chosen_step_history: list = []
+        self.logps_rejected_history: list = []
+        self.logps_rejected_step_history: list = []
+        self.mean_token_accuracy_history: list = []
+        self.mean_token_accuracy_step_history: list = []
         # OCR transcription metrics (CER/WER), keyed by the eval step (None for non-OCR runs).
         self.cer_history: list = []
         self.wer_history: list = []
@@ -1431,6 +1442,12 @@ class TrainingBackend:
             "rewards_chosen_step_history",
             "rewards_rejected_history",
             "rewards_rejected_step_history",
+            "logps_chosen_history",
+            "logps_chosen_step_history",
+            "logps_rejected_history",
+            "logps_rejected_step_history",
+            "mean_token_accuracy_history",
+            "mean_token_accuracy_step_history",
         ):
             getattr(self, name).clear()
         self.current_job_id = self.current_start_request_id = None
@@ -2173,6 +2190,12 @@ class TrainingBackend:
             self.rewards_chosen_step_history.clear()
             self.rewards_rejected_history.clear()
             self.rewards_rejected_step_history.clear()
+            self.logps_chosen_history.clear()
+            self.logps_chosen_step_history.clear()
+            self.logps_rejected_history.clear()
+            self.logps_rejected_step_history.clear()
+            self.mean_token_accuracy_history.clear()
+            self.mean_token_accuracy_step_history.clear()
             self.eval_enabled = False
             self._output_dir = config.get("output_dir") if resume_source_run_id else None
             self._progress.output_dir = self._output_dir
@@ -2387,6 +2410,12 @@ class TrainingBackend:
                 self.rewards_chosen_step_history.clear()
                 self.rewards_rejected_history.clear()
                 self.rewards_rejected_step_history.clear()
+                self.logps_chosen_history.clear()
+                self.logps_chosen_step_history.clear()
+                self.logps_rejected_history.clear()
+                self.logps_rejected_step_history.clear()
+                self.mean_token_accuracy_history.clear()
+                self.mean_token_accuracy_step_history.clear()
                 self._needs_xet_respawn = False
                 self._status_start_request_id = None
             return "reset"
@@ -3471,6 +3500,9 @@ class TrainingBackend:
                 log_odds_ratio = _finite_metric(event.get("log_odds_ratio"))
                 rewards_chosen = _finite_metric(event.get("rewards_chosen"))
                 rewards_rejected = _finite_metric(event.get("rewards_rejected"))
+                logps_chosen = _finite_metric(event.get("logps_chosen"))
+                logps_rejected = _finite_metric(event.get("logps_rejected"))
+                mean_token_accuracy = _finite_metric(event.get("mean_token_accuracy"))
 
                 self._progress.rewards_chosen = rewards_chosen
                 self._progress.rewards_rejected = rewards_rejected
@@ -3480,6 +3512,9 @@ class TrainingBackend:
                 self._progress.eval_rewards_margins = eval_reward_margin
                 self._progress.nll_loss = nll_loss
                 self._progress.log_odds_ratio = log_odds_ratio
+                self._progress.logps_chosen = logps_chosen
+                self._progress.logps_rejected = logps_rejected
+                self._progress.mean_token_accuracy = mean_token_accuracy
 
                 if step > 0:
                     # An eval log repeats the last train values; only the eval_* fields are new,
@@ -3517,6 +3552,21 @@ class TrainingBackend:
                                 self.rewards_rejected_history,
                                 self.rewards_rejected_step_history,
                                 rewards_rejected,
+                            ),
+                            (
+                                self.logps_chosen_history,
+                                self.logps_chosen_step_history,
+                                logps_chosen,
+                            ),
+                            (
+                                self.logps_rejected_history,
+                                self.logps_rejected_step_history,
+                                logps_rejected,
+                            ),
+                            (
+                                self.mean_token_accuracy_history,
+                                self.mean_token_accuracy_step_history,
+                                mean_token_accuracy,
                             ),
                         )
                     )
@@ -3557,6 +3607,9 @@ class TrainingBackend:
                         "log_odds_ratio": log_odds_ratio,
                         "rewards_chosen": rewards_chosen,
                         "rewards_rejected": rewards_rejected,
+                        "logps_chosen": logps_chosen,
+                        "logps_rejected": logps_rejected,
+                        "mean_token_accuracy": mean_token_accuracy,
                     }
                 )
 

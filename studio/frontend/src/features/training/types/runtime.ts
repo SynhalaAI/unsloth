@@ -63,6 +63,12 @@ export interface TrainingStatusResponse {
     rewards_chosen_steps?: number[];
     rewards_rejected?: number[];
     rewards_rejected_steps?: number[];
+    logps_chosen?: number[];
+    logps_chosen_steps?: number[];
+    logps_rejected?: number[];
+    logps_rejected_steps?: number[];
+    mean_token_accuracy?: number[];
+    mean_token_accuracy_steps?: number[];
   } | null;
 }
 
@@ -100,6 +106,9 @@ export interface TrainingProgressPayload {
   eval_rewards_margins: number | null;
   nll_loss: number | null;
   log_odds_ratio: number | null;
+  logps_chosen?: number | null;
+  logps_rejected?: number | null;
+  mean_token_accuracy?: number | null;
 }
 
 export interface TrainingSeriesPoint {
@@ -154,6 +163,9 @@ export interface TrainingRuntimeState {
   logOddsRatioHistory: TrainingSeriesPoint[];
   rewardsChosenHistory: TrainingSeriesPoint[];
   rewardsRejectedHistory: TrainingSeriesPoint[];
+  logpsChosenHistory: TrainingSeriesPoint[];
+  logpsRejectedHistory: TrainingSeriesPoint[];
+  meanTokenAccuracyHistory: TrainingSeriesPoint[];
   resetGeneration: number;
   stopRequested: boolean;
   configureRequest: number;
@@ -235,4 +247,7 @@ export interface TrainingViewData {
   logOddsRatioHistory: TrainingSeriesPoint[];
   rewardsChosenHistory: TrainingSeriesPoint[];
   rewardsRejectedHistory: TrainingSeriesPoint[];
+  logpsChosenHistory: TrainingSeriesPoint[];
+  logpsRejectedHistory: TrainingSeriesPoint[];
+  meanTokenAccuracyHistory: TrainingSeriesPoint[];
 }

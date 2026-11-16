@@ -20,4 +20,7 @@ export interface TrainingChartSeries {
   logOddsRatioHistory: { step: number; logOddsRatio: number }[];
   rewardsChosenHistory: { step: number; chosen: number }[];
   rewardsRejectedHistory: { step: number; rejected: number }[];
+  logpsChosenHistory: { step: number; chosen: number }[];
+  logpsRejectedHistory: { step: number; rejected: number }[];
+  meanTokenAccuracyHistory: { step: number; accuracy: number }[];
 }

@@ -289,6 +289,47 @@ test("preference reward metrics are accepted from backend progress events", asyn
   assert.equal(body.locked, false);
 });
 
+test("DPO logps, nll_loss, and chosen token accuracy are accepted from backend progress events", async () => {
+  const body = new ReadableStream<Uint8Array>({
+    start(streamController) {
+      streamController.enqueue(
+        new TextEncoder().encode(
+          rawEvent(
+            JSON.stringify({
+              job_id: "job-dpo",
+              step: 3,
+              total_steps: 10,
+              progress_percent: 30,
+              nll_loss: 0.55,
+              logps_chosen: -11.8,
+              logps_rejected: -19.2,
+              mean_token_accuracy: 0.83,
+            }),
+            { event: "progress", id: 3 },
+          ),
+        ),
+      );
+      streamController.close();
+    },
+  });
+
+  const received: number[] = [];
+
+  await consumeTrainingProgressStream({
+    body,
+    signal: new AbortController().signal,
+    onEvent: ({ payload }) => {
+      received.push(payload.nll_loss ?? -1);
+      received.push(payload.logps_chosen ?? 0);
+      received.push(payload.logps_rejected ?? 0);
+      received.push(payload.mean_token_accuracy ?? -1);
+    },
+  });
+
+  assert.deepEqual(received, [0.55, -11.8, -19.2, 0.83]);
+  assert.equal(body.locked, false);
+});
+
 test("callback exceptions propagate after the reader is cancelled and released", async () => {
   const callbackError = new Error("callback failed");
   let cancellations = 0;

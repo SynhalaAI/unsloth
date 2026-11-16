@@ -373,3 +373,67 @@ def test_status_surface_reports_reward_levels(monkeypatch):
     assert status.metric_history["rewards_chosen_steps"] == [1, 2]
     assert status.metric_history["rewards_rejected"] == [-0.2, 0.2]
     assert status.metric_history["rewards_rejected_steps"] == [1, 2]
+
+
+def test_dpo_logps_and_token_accuracy_pipeline_roundtrip(backend):
+    b = backend
+    b._handle_event(
+        _orpo_event(
+            1,
+            logps_chosen = -12.4,
+            logps_rejected = -18.9,
+            mean_token_accuracy = 0.78,
+        )
+    )
+    assert b.logps_chosen_history == [-12.4]
+    assert b.logps_rejected_history == [-18.9]
+    assert b.mean_token_accuracy_history == [0.78]
+    assert b._metric_buffer[-1]["logps_chosen"] == -12.4
+    assert b._metric_buffer[-1]["logps_rejected"] == -18.9
+    assert b._metric_buffer[-1]["mean_token_accuracy"] == 0.78
+
+    queue = _EventQueue()
+    callback = _create_trainer_progress_callback(queue)
+    progress = TrainingProgress(step = 2, total_steps = 4, loss = 0.9)
+    progress.logps_chosen = -11.2
+    progress.logps_rejected = -19.5
+    progress.mean_token_accuracy = 0.84
+    callback(progress)
+    payload = next(event for event in queue.events if event.get("type") == "progress")
+    assert payload["logps_chosen"] == -11.2
+    assert payload["logps_rejected"] == -19.5
+    assert payload["mean_token_accuracy"] == 0.84
+
+
+def test_dpo_logps_and_token_accuracy_survive_db_roundtrip(monkeypatch, tmp_path):
+    from models.training import TrainingRunMetrics
+    from storage import studio_db
+
+    monkeypatch.setenv("UNSLOTH_STUDIO_HOME", str(tmp_path))
+    monkeypatch.setattr(studio_db, "_schema_ready", set())
+    studio_db.create_run(
+        id = "run-dpo",
+        model_name = "unsloth/test-model",
+        dataset_name = "test-preference",
+        config_json = "{}",
+        started_at = "2026-01-01T00:00:00Z",
+        total_steps = 2,
+    )
+    studio_db.insert_metrics_batch(
+        "run-dpo",
+        [
+            {
+                "step": 1,
+                "loss": 0.8,
+                "nll_loss": 0.65,
+                "logps_chosen": -12.4,
+                "logps_rejected": -18.9,
+                "mean_token_accuracy": 0.78,
+            }
+        ],
+    )
+    metrics = TrainingRunMetrics(**studio_db.get_run_metrics("run-dpo"))
+    assert metrics.nll_loss_history == [0.65]
+    assert metrics.logps_chosen_history == [-12.4]
+    assert metrics.logps_rejected_history == [-18.9]
+    assert metrics.mean_token_accuracy_history == [0.78]

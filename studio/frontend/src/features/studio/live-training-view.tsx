@@ -72,6 +72,9 @@ export function LiveTrainingView(): ReactElement {
       logOddsRatioHistory: state.logOddsRatioHistory,
       rewardsChosenHistory: state.rewardsChosenHistory,
       rewardsRejectedHistory: state.rewardsRejectedHistory,
+      logpsChosenHistory: state.logpsChosenHistory,
+      logpsRejectedHistory: state.logpsRejectedHistory,
+      meanTokenAccuracyHistory: state.meanTokenAccuracyHistory,
       firstStepReceived: state.firstStepReceived,
       isStarting: state.isStarting,
     })),
@@ -186,6 +189,9 @@ export function LiveTrainingView(): ReactElement {
     logOddsRatioHistory: runtime.logOddsRatioHistory,
     rewardsChosenHistory: runtime.rewardsChosenHistory,
     rewardsRejectedHistory: runtime.rewardsRejectedHistory,
+    logpsChosenHistory: runtime.logpsChosenHistory,
+    logpsRejectedHistory: runtime.logpsRejectedHistory,
+    meanTokenAccuracyHistory: runtime.meanTokenAccuracyHistory,
   };
 
   const isPreparingPhase =
@@ -234,6 +240,9 @@ export function LiveTrainingView(): ReactElement {
           logOddsRatioHistory={viewData.logOddsRatioHistory}
           rewardsChosenHistory={viewData.rewardsChosenHistory}
           rewardsRejectedHistory={viewData.rewardsRejectedHistory}
+          logpsChosenHistory={viewData.logpsChosenHistory}
+          logpsRejectedHistory={viewData.logpsRejectedHistory}
+          meanTokenAccuracyHistory={viewData.meanTokenAccuracyHistory}
           preferenceMethod={viewData.preferenceMethod}
         />
       </div>

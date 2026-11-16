@@ -5630,6 +5630,8 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
             training_method = config.get("training_method", "SFT"),
             dpo_beta = config.get("dpo_beta", 0.1),
             cpo_alpha = config.get("cpo_alpha", 1.0),
+            dpo_loss_type = config.get("dpo_loss_type", "sigmoid"),
+            rpo_alpha = config.get("rpo_alpha", 0.0),
             max_prompt_length = config.get("max_prompt_length", 512),
             is_ocr_training = config.get("is_ocr_training", False),
             resume_from_checkpoint = resume_from_checkpoint,
@@ -5842,6 +5844,9 @@ def _create_trainer_progress_callback(event_queue: Any) -> Callable[[TrainingPro
             getattr(progress, "eval_rewards_margins", None),
             getattr(progress, "nll_loss", None),
             getattr(progress, "log_odds_ratio", None),
+            getattr(progress, "logps_chosen", None),
+            getattr(progress, "logps_rejected", None),
+            getattr(progress, "mean_token_accuracy", None),
         )
         is_repeat = metrics == last_metrics[0]
         if (
@@ -5877,6 +5882,9 @@ def _create_trainer_progress_callback(event_queue: Any) -> Callable[[TrainingPro
                     "eval_rewards_margins": getattr(progress, "eval_rewards_margins", None),
                     "nll_loss": getattr(progress, "nll_loss", None),
                     "log_odds_ratio": getattr(progress, "log_odds_ratio", None),
+                    "logps_chosen": getattr(progress, "logps_chosen", None),
+                    "logps_rejected": getattr(progress, "logps_rejected", None),
+                    "mean_token_accuracy": getattr(progress, "mean_token_accuracy", None),
                     "status_message": progress.status_message,
                     "offload": getattr(progress, "offload", None),
                     "ts": time.time(),

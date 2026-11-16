@@ -239,6 +239,21 @@ export function mapBackendModelConfigToTrainingPatch(
   if (cpoAlpha !== undefined) {
     patch.cpoAlpha = Math.min(10, Math.max(0, cpoAlpha));
   }
+  const rawDpoLossType =
+    typeof training?.dpo_loss_type === "string"
+      ? training.dpo_loss_type.trim().toLowerCase()
+      : "";
+  if (
+    rawDpoLossType === "sigmoid" ||
+    rawDpoLossType === "ipo" ||
+    rawDpoLossType === "hinge"
+  ) {
+    patch.dpoLossType = rawDpoLossType;
+  }
+  const rpoAlpha = toNumber(training?.rpo_alpha);
+  if (rpoAlpha !== undefined) {
+    patch.rpoAlpha = Math.min(10, Math.max(0, rpoAlpha));
+  }
   const maxPromptLength = toNumber(training?.max_prompt_length);
   if (maxPromptLength !== undefined) {
     patch.maxPromptLength = Math.min(

@@ -11,6 +11,8 @@ export interface RunConfigOverride {
   preferenceMethod?: ReturnType<typeof parseBackendPreferenceMethod>;
   dpoBeta?: number;
   cpoAlpha?: number;
+  dpoLossType?: string;
+  rpoAlpha?: number;
   maxPromptLength?: number;
   isDecision?: boolean;
   epochs?: number;
@@ -42,6 +44,8 @@ export function mapRunConfigToOverride(
     preferenceMethod: parseBackendPreferenceMethod(config.training_method),
     dpoBeta: config.dpo_beta as number | undefined,
     cpoAlpha: config.cpo_alpha as number | undefined,
+    dpoLossType: config.dpo_loss_type as string | undefined,
+    rpoAlpha: config.rpo_alpha as number | undefined,
     maxPromptLength: config.max_prompt_length as number | undefined,
     isDecision: config.is_decision === true,
     epochs: config.num_epochs as number | undefined,

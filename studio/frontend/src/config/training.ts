@@ -159,6 +159,8 @@ export const DEFAULT_HYPERPARAMS = {
   preferenceTrainingMethod: "sft" as const,
   dpoBeta: 0.1,
   cpoAlpha: 1.0,
+  dpoLossType: "sigmoid" as const,
+  rpoAlpha: 0.0,
   maxPromptLength: 512,
   batchSize: 4,
   gradientAccumulation: 8,

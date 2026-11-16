@@ -97,13 +97,22 @@ test("a saved DPO/ORPO/CPO config restores the objective and its knobs", () => {
 test("an imported preference config is clamped to the request bounds", () => {
   const clamped = mapBackendModelConfigToTrainingPatch(
     parseYamlConfig(
-      "training:\n  training_method: dpo\n  dpo_beta: 9\n  cpo_alpha: -1\n  max_prompt_length: 0\n",
+      "training:\n  training_method: dpo\n  dpo_beta: 9\n  cpo_alpha: -1\n  dpo_loss_type: IPO\n  rpo_alpha: 25\n  max_prompt_length: 0\n",
     ),
   );
   assert.equal(clamped.preferenceTrainingMethod, "dpo");
   assert.equal(clamped.dpoBeta, 2);
   assert.equal(clamped.cpoAlpha, 0);
+  assert.equal(clamped.dpoLossType, "ipo");
+  assert.equal(clamped.rpoAlpha, 10);
   assert.equal(clamped.maxPromptLength, 1);
+
+  // Unknown loss types are ignored rather than corrupting state.
+  const unknownLoss = mapBackendModelConfigToTrainingPatch(
+    parseYamlConfig("training:\n  dpo_loss_type: ktd\n  rpo_alpha: -2\n"),
+  );
+  assert.equal("dpoLossType" in unknownLoss, false);
+  assert.equal(unknownLoss.rpoAlpha, 0);
 
   // The API also caps the prompt length, so a wildly large value is pulled back to the bound.
   const huge = mapBackendModelConfigToTrainingPatch(

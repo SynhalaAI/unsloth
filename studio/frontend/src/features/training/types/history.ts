@@ -58,6 +58,12 @@ export interface TrainingRunMetrics {
   rewards_chosen_step_history: number[];
   rewards_rejected_history: number[];
   rewards_rejected_step_history: number[];
+  logps_chosen_history: number[];
+  logps_chosen_step_history: number[];
+  logps_rejected_history: number[];
+  logps_rejected_step_history: number[];
+  mean_token_accuracy_history: number[];
+  mean_token_accuracy_step_history: number[];
   final_epoch: number | null;
   final_num_tokens: number | null;
 }
