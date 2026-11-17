@@ -213,6 +213,7 @@ import {
 import {
   loadedContextForParams,
   mergeBackendRecommendedInference,
+  recommendedValuesForPick,
   resolveExplicitCtxPin,
   resolveFitMaxSeqLength,
   retainedContextPin,
@@ -230,6 +231,10 @@ import {
 import { compareModelDisplayName } from "./lib/external-model-label";
 import { useExternalProvidersStore } from "./stores/external-providers-store";
 import { useComposerPillFit } from "@/hooks/use-composer-pill-fit";
+import {
+  COMPOSER_MIN_ROWS,
+  useComposerMaxRows,
+} from "@/hooks/use-composer-rows";
 import { useUiSpaceScale } from "@/hooks/use-ui-space-scale";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useT } from "@/i18n";
@@ -1276,9 +1281,15 @@ export function SharedComposer({
     advanceQueue();
   }, [running, comparing]);
 
-  // The single composer's editor frame (12 rows, animated height), measured by hand: no autosize here.
+  // The single composer's editor frame (animated height), measured by hand: no autosize here.
   const inputId = useId();
-  const oneRowHeight = Math.round(40 * useUiSpaceScale());
+  const uiSpaceScale = useUiSpaceScale();
+  const minEditorHeight = Math.round(
+    (16 + 24 * COMPOSER_MIN_ROWS) * uiSpaceScale,
+  );
+  const maxRows = useComposerMaxRows(24 * uiSpaceScale);
+  const maxRowsRef = useRef(maxRows);
+  maxRowsRef.current = maxRows;
   const [editorHeight, setEditorHeight] = useState(40);
   const [editorRows, setEditorRows] = useState(1);
   const [isWritingExpanded, setIsWritingExpanded] = useState(false);
@@ -1294,7 +1305,7 @@ export function SharedComposer({
     const lineHeight = parseFloat(styles.lineHeight) || 24;
     const paddingY =
       parseFloat(styles.paddingTop) + parseFloat(styles.paddingBottom);
-    const maxHeight = lineHeight * 12 + paddingY;
+    const maxHeight = lineHeight * maxRowsRef.current + paddingY;
     const content = ta.scrollHeight;
     const next = Math.min(content, maxHeight);
     ta.style.height = "";
@@ -1304,7 +1315,7 @@ export function SharedComposer({
     setEditorHeight(next);
     setEditorRows(Math.round((next - paddingY) / lineHeight));
   }, []);
-  useEffect(measureEditor, [text]);
+  useEffect(measureEditor, [text, maxRows]);
   // Width only: wrapping follows it, while the height is the frame's own animation.
   useEffect(() => {
     const editor = editorRef.current;
@@ -2095,14 +2106,16 @@ export function SharedComposer({
         );
         const paneState = useChatRuntimeStore.getState();
         const paneParams = paneState.params;
-        const paneQwenParams =
-          resp.supports_reasoning &&
-          paneState.activePresetSource === "builtin-default"
-            ? resolveQwenThinkingParams(
+        const paneQwenParams = resp.supports_reasoning
+          ? recommendedValuesForPick(
+              resolveQwenThinkingParams(
                 resp.model,
                 (resp.reasoning_always_on ?? false) || paneState.reasoningEnabled,
-              )
-            : null;
+              ),
+              paneState.activePresetSource,
+              paneState.presetEditedKeys,
+            )
+          : null;
         store.setParams(
           {
             ...mergeBackendRecommendedInference({
@@ -2110,6 +2123,7 @@ export function SharedComposer({
               response: resp,
               modelId: resp.model,
               presetSource: paneState.activePresetSource,
+              presetEditedKeys: paneState.presetEditedKeys,
               loadedContextLength: loadedContextFields(resp).loadedContextLength,
             }),
             ...paneQwenParams,
@@ -3175,7 +3189,7 @@ export function SharedComposer({
             className="unsloth-composer-editor"
             style={
               {
-                "--composer-editor-height": `${text.length === 0 ? oneRowHeight : Math.max(oneRowHeight, editorHeight)}px`,
+                "--composer-editor-height": `${text.length === 0 ? minEditorHeight : Math.max(minEditorHeight, editorHeight)}px`,
               } as CSSProperties
             }
           >

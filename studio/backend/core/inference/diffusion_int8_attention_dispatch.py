@@ -46,6 +46,7 @@ AUTO_DITS = frozenset(
     {
         "Flux2Transformer2DModel",
         "Flux3Transformer2DModel",
+        "MOSSImageTransformer",
         "FluxTransformer2DModel",
         "HunyuanVideo15Transformer3DModel",
         "QwenImage21Transformer2DModel",
@@ -53,6 +54,9 @@ AUTO_DITS = frozenset(
         "ZImageTransformer2DModel",
     }
 )
+# AUTO_DITS members raced only when their own weights are quantized (an INT8 / FP8 checkpoint): measured against its
+# INT8-ConvRot default only, so a bf16 load (the accuracy reference) keeps its attention.
+AUTO_QUANTIZED_ONLY = frozenset({"MOSSImageTransformer"})
 # Also race with speed unset and no profile (e.g. offloaded INT8 DiT on T4): only the families measured that way.
 SPEED_UNSET_DITS = frozenset(
     {
@@ -105,6 +109,12 @@ def _backend_name(backend: Any) -> str:
     return str(getattr(backend, "value", backend))
 
 
+def _race_name(incumbent: Any) -> str:
+    """Verdict-cache name; a strided cuDNN pin runs a different call, so it is cached apart."""
+    name = f"dispatch:{_backend_name(incumbent)}"
+    return name + ":strided" if isinstance(incumbent, _Q21.StridedCudnn) else name
+
+
 class Int8Route(str):
     """Routing backend equal to the incumbent's name. ``cards`` maps each passing CUDA index to its token floor (a
     layer split or CFG replica runs the processor on a second card); ``min_tokens`` is the lowest, ``index`` the
@@ -144,6 +154,7 @@ class Int8Route(str):
         return str(getattr(self.incumbent, "name", None) or self.value).upper()
 
     def __reduce__(self) -> tuple:
+        # the state dict carries what the constructor does not take: a CFG replica (deepcopy) keeps the sink mode
         return (
             Int8Route,
             (
@@ -155,6 +166,7 @@ class Int8Route(str):
                 self.impl,
                 self.cards,
             ),
+            {"sinks": self.sinks},
         )
 
     def __repr__(self) -> str:
@@ -386,7 +398,10 @@ def install_dispatch_route() -> int:
 
 def _calls_dispatch(proc: Any) -> bool:
     """Whether the processor's ``__call__`` calls ``dispatch_attention_fn`` (directly, or through a module attribute
-    or a function-level import of it)."""
+    or a function-level import of it), or its class declares that its blocks do (``_calls_dispatch_attention_fn``:
+    MOSS-Image's in-tree blocks call their module's ``dispatch_attention_fn`` with the processor's backend)."""
+    if getattr(type(proc), "_calls_dispatch_attention_fn", False) is True:
+        return True
     call = getattr(type(proc), "__call__", None)
     code = getattr(call, "__code__", None)
     if code is None:
@@ -417,6 +432,30 @@ def routable_modules(dit: Any) -> list:
             continue
         out.append(m)
     return out
+
+
+def quantized_weights(dit: Any) -> bool:
+    """Whether a Linear of ``dit`` holds a quantized weight: a tensor subclass (torchao INT8 / FP8) or 8-bit storage."""
+    import torch
+
+    modules = getattr(dit, "modules", None)
+    if not callable(modules):
+        return False
+    low = {
+        torch.int8,
+        torch.uint8,
+        getattr(torch, "float8_e4m3fn", None),
+        getattr(torch, "float8_e5m2", None),
+    }
+    for m in modules():
+        if not isinstance(m, torch.nn.Linear):
+            continue
+        w = getattr(m, "weight", None)
+        if w is None:
+            continue
+        if type(w) not in (torch.nn.Parameter, torch.Tensor) or w.dtype in low:
+            return True
+    return False
 
 
 def _dits(pipe: Any) -> list:
@@ -495,16 +534,34 @@ def _race_wins(
     device: Any, dtype: Any, heads: int, head_dim: int, incumbent: Any, name: str, tokens: int
 ) -> bool:
     """Whether the kernel beats the incumbent by more than ``RACE_MARGIN`` at ``tokens`` tokens on this card. Timed
-    like the card race (interleaved, median); cached per card, dtype, geometry, incumbent and size; an out-of-memory
+    like the card race (interleaved, median); cached per card, dtype, geometry, incumbent, size and serving implementation; an out-of-memory
     probe counts as a loss."""
     import torch
 
     from . import diffusion_int8_attention as I8
 
-    key = (str(device), str(dtype), int(heads), int(head_dim), name, int(tokens))
+    index = I8._device_index(torch.device(device))
+    # keyed by the serving implementation (a failed CUDA kernel falls back to Triton)
+    try:
+        impl = I8.implementation(index, int(head_dim))
+    except Exception:  # noqa: BLE001
+        impl = None
+    key = (str(device), str(dtype), int(heads), int(head_dim), name, int(tokens), impl)
     if key in _LONG_VERDICTS:
         return _LONG_VERDICTS[key]
+    card = I8.card_name(index)
+    stored_key = repr(("race", *key[1:]))
+    stored = None
+    if impl is not None:
+        try:
+            stored = I8.persisted().get(card, stored_key)
+        except Exception:  # noqa: BLE001
+            stored = None
+    if isinstance(stored, bool):
+        _LONG_VERDICTS[key] = stored
+        return stored
     q = k = v = None
+    timed = False
     try:
         # The timing events record on the current device's stream, so a secondary card must be current here.
         with torch.no_grad(), torch.cuda.device(device):
@@ -516,12 +573,18 @@ def _race_wins(
                 }
             )
         won = ms["int8"] < I8.RACE_MARGIN * ms["incumbent"]
+        timed = True
     except torch.OutOfMemoryError:
         won = False
     finally:
         q = k = v = None
         torch.cuda.empty_cache()
     _LONG_VERDICTS[key] = won
+    if timed and impl is not None:  # an out-of-memory loss is this moment's, not the card's
+        try:
+            I8.persisted().put(card, stored_key, won)
+        except Exception:  # noqa: BLE001
+            pass
     return won
 
 
@@ -672,6 +735,7 @@ def _install(
         if not forced and (
             type(dit).__name__ not in AUTO_DITS
             or (speed_unset_only and type(dit).__name__ not in SPEED_UNSET_DITS)
+            or (type(dit).__name__ in AUTO_QUANTIZED_ONLY and not quantized_weights(dit))
         ):
             continue
         mods = [
@@ -698,7 +762,7 @@ def _install(
         if head_dim is None:
             continue
         incumbent = proc._attention_backend
-        name = f"dispatch:{_backend_name(incumbent)}"
+        name = _race_name(incumbent)
 
         def run(
             q: Any,
