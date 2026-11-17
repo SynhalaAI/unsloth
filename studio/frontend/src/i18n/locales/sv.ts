@@ -5713,6 +5713,12 @@ export const sv = {
       openFileFailed: "Det gick inte att öppna filen",
     },
   },
+  exportTabs: {
+    ariaLabel: "Exporttyp",
+    llm: "LLM",
+    diffusionLora: "Diffusion LoRA",
+    q4nx: "Konvertera till Q4NX",
+  },
   exportDecision: {
     title: "Beslutsmodell",
     description:
