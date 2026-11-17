@@ -6241,9 +6241,10 @@ def _run_embedding_training(event_queue: Any, stop_queue: Any, config: dict) -> 
         local_datasets = config.get("local_datasets") or []
         csv_text_columns: list[str] = []
 
-        def _load_local_embedding_dataset(dataset_paths: list[str]):
+        def _load_local_embedding_dataset(dataset_paths: list[str], splits = ("train",)):
             from utils.paths import dataset_files_in_dir
 
+            csv_text_columns.clear()
             all_files: list[str] = []
             for dataset_file in dataset_paths:
                 file_path = (
@@ -6256,7 +6257,7 @@ def _run_embedding_training(event_queue: Any, stop_queue: Any, config: dict) -> 
                 )
                 if os.path.isdir(file_path):
                     file_path_obj = Path(file_path)
-                    all_files.extend(str(p) for p in dataset_files_in_dir(file_path_obj))
+                    all_files.extend(str(p) for p in dataset_files_in_dir(file_path_obj, splits))
                 else:
                     all_files.append(file_path)
 
@@ -6366,6 +6367,53 @@ def _run_embedding_training(event_queue: Any, stop_queue: Any, config: dict) -> 
                 )
             dataset = kept
 
+        from core.training.eval_dataset import (
+            MIN_TOTAL_ROWS_FOR_EVAL,
+            evaluation_enabled,
+            split_dataset_for_evaluation,
+        )
+        from utils.paths import EVAL_SPLITS
+
+        eval_dataset = None
+        if evaluation_enabled(config.get("eval_steps")):
+            eval_split = config.get("eval_split")
+            if hf_dataset and eval_split and eval_split != (config.get("train_split") or "train"):
+                eval_dataset = _load_embedding_hf_dataset(
+                    {
+                        **config,
+                        "train_split": eval_split,
+                        "dataset_slice_start": None,
+                        "dataset_slice_end": None,
+                    },
+                    load_dataset,
+                    lambda message: _send_status(event_queue, message),
+                )
+            elif not hf_dataset and config.get("local_eval_datasets"):
+                eval_dataset = _load_local_embedding_dataset(
+                    config["local_eval_datasets"], EVAL_SPLITS
+                )
+                if csv_text_columns:
+                    eval_dataset = eval_dataset.filter(
+                        lambda *columns: [None not in cells for cells in zip(*columns)],
+                        input_columns = csv_text_columns,
+                        batched = True,
+                    )
+            else:
+                split_result = split_dataset_for_evaluation(dataset)
+                if split_result is None:
+                    event_queue.put(
+                        {
+                            "type": "warning",
+                            "message": "Evaluation is enabled, but the training dataset has only "
+                            f"{len(dataset)} rows; at least {MIN_TOTAL_ROWS_FOR_EVAL} are required "
+                            "to create a held-out eval split. Training will continue without "
+                            "evaluation.",
+                            "ts": time.time(),
+                        }
+                    )
+                else:
+                    dataset, eval_dataset = split_result
+
         logger.info(f"Embedding dataset loaded: {len(dataset)} samples")
     except Exception as e:
         event_queue.put(
@@ -6463,6 +6511,11 @@ def _run_embedding_training(event_queue: Any, stop_queue: Any, config: dict) -> 
 
     apply_save_strategy(training_args_kwargs, save_steps_val)
 
+    if eval_dataset is not None:
+        training_args_kwargs["eval_strategy"] = "steps"
+        training_args_kwargs["eval_steps"] = float(config["eval_steps"])
+        training_args_kwargs["per_device_eval_batch_size"] = batch_size
+
     args = SentenceTransformerTrainingArguments(**training_args_kwargs)
 
     if max_steps_val and max_steps_val > 0:
@@ -6485,6 +6538,7 @@ def _run_embedding_training(event_queue: Any, stop_queue: Any, config: dict) -> 
         trainer = SentenceTransformerTrainer(
             model = model,
             train_dataset = dataset,
+            eval_dataset = eval_dataset,
             loss = loss,
             args = args,
             callbacks = [progress_callback],
