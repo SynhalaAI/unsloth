@@ -352,7 +352,8 @@ _LOST_CONNECTION_MSG = (
 _OVERSIZE_TOKENS_RE = _re.compile(
     r"request \((\d+) tokens?\) exceeds the available context size \((\d+) tokens?\)"
 )
-_LLAMA_CLIENT_ERROR_RE = _re.compile(r"llama-server returned 4\d\d: (.*)", _re.DOTALL)
+# 501 is llama-server's not_supported_error (e.g. chat on a decision-only model).
+_LLAMA_CLIENT_ERROR_RE = _re.compile(r"llama-server returned (?:4\d\d|501): (.*)", _re.DOTALL)
 
 
 def _friendly_error(exc: Exception) -> str:
@@ -51244,6 +51245,8 @@ async def load_diffusion_model_gated(
                 transformer_quant_fast_accum = request.transformer_quant_fast_accum,
                 transformer_prequant_path = request.transformer_prequant_path,
                 attention_backend = request.attention_backend,
+                # Only when set: older engines and test doubles take no such argument.
+                **({"int8_attention": request.int8_attention} if request.int8_attention else {}),
                 transformer_cache = request.transformer_cache,
                 transformer_cache_threshold = request.transformer_cache_threshold,
                 model_kind = kind,
