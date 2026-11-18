@@ -880,6 +880,7 @@ export const ja = {
   chatMenu: {
     more: "チャットのオプション",
     copy: "コピー",
+    addScheduledTask: "スケジュールタスクを追加…",
     compact: "会話を圧縮",
     compactQueued: "次のメッセージで会話を圧縮するようリクエストしました",
     compactEmpty: "まだ圧縮する内容がありません",
@@ -1732,7 +1733,7 @@ export const ja = {
       modeInterval: "3 秒ごと",
       modeManual: "手動",
       refreshNow: "今すぐ更新",
-      privacyNote: "この表示では認証情報をマスクしています。ディスク上のファイルはマスクされません。",
+      privacyNote: "この表示では既知の形式の認証情報をマスクします。共有する前に、ログに機密情報、ファイルパス、個人的な文章が含まれていないか確認してください。ディスク上のファイルには元のログが保存されています。",
       copyVisible: "表示中のログをコピー",
       empty: "まだ何も記録されていません。",
       disabled: "ファイルへのログ出力は無効です (UNSLOTH_STUDIO_NO_FILE_LOG=1)。",
@@ -2106,8 +2107,7 @@ export const ja = {
       },
       modelAliases: {
         sectionTitle: "モデルエイリアス (OpenAI API)",
-        description:
-          "fast-chat や code のような、API クライアント向けの固定名です。エイリアスを指定したリクエストは、そのエイリアスが指すモデルで処理されるため、モデルを入れ替えても接続中のアプリはそのまま動きます。エイリアスがモデルを読み込めるよう、リクエストごとにモデルを切り替えをオンにしてください。",
+        description: "API クライアントがモデルの正式名の代わりに使える短い名前です。",
         namePlaceholder: "fast-chat",
         nameAriaLabel: "エイリアス名",
         modelAriaLabel: "エイリアスが指すモデル",
@@ -2116,6 +2116,12 @@ export const ja = {
         add: "エイリアスを追加",
         loadError: "モデルエイリアスを読み込めませんでした。",
         saveError: "モデルエイリアスを保存できませんでした。",
+        contextLength: "コンテキスト長",
+        kvCacheType: "KV キャッシュの種類",
+        speculativeDecoding: "投機的デコード",
+        savedSetting: "保存済みの設定",
+        loadSettings: "読み込み設定",
+        loadSettingsHint: "GGUF モデルのみ。空欄の項目にはモデルに保存された設定が使われます。",
       },
       previewSharing: {
         sectionTitle: "プレビュー共有",
@@ -4950,6 +4956,7 @@ export const ja = {
       intervalHours: "間隔（時間）",
       hourlyNote: "保存してから指定した間隔が経過すると初回の実行が始まります。間隔の変更や再開を行うと、待機時間がリセットされます。",
       createTitle: "タスクをスケジュール",
+      repliesInChat: "各実行は「{title}」に返信します。",
       editTitle: "スケジュール済みタスクを編集",
       name: "名前",
       namePlaceholder: "名前（任意）",

@@ -879,6 +879,7 @@ export const ko = {
   chatMenu: {
     more: "채팅 옵션",
     copy: "복사",
+    addScheduledTask: "예약 작업 추가…",
     compact: "대화 압축",
     compactQueued: "다음 메시지에 대한 대화 압축을 요청했습니다",
     compactEmpty: "아직 압축할 내용이 없습니다",
@@ -1730,7 +1731,7 @@ export const ko = {
       modeInterval: "3초마다",
       modeManual: "수동",
       refreshNow: "지금 새로 고침",
-      privacyNote: "이 화면에서는 인증 정보가 가려져 표시됩니다. 실제 로그 파일에는 가려지지 않습니다.",
+      privacyNote: "이 화면에서는 알려진 형식의 인증 정보를 가립니다. 공유하기 전에 로그에 기밀 정보, 파일 경로 또는 비공개 텍스트가 있는지 확인하세요. 디스크의 파일에는 원본 로그가 들어 있습니다.",
       copyVisible: "표시된 로그 복사",
       empty: "아직 기록된 내용이 없습니다.",
       disabled: "파일 로깅이 꺼져 있습니다 (UNSLOTH_STUDIO_NO_FILE_LOG=1).",
@@ -2111,8 +2112,7 @@ export const ko = {
       },
       modelAliases: {
         sectionTitle: "모델 별칭 (OpenAI API)",
-        description:
-          "fast-chat이나 code처럼 API 클라이언트용 고정 이름입니다. 별칭을 지정한 요청은 그 별칭이 가리키는 모델이 처리하므로, 모델을 바꿔도 연결된 앱이 계속 동작합니다. 별칭이 모델을 불러올 수 있도록 요청에 따라 모델 전환을 켜세요.",
+        description: "API 클라이언트가 모델 전체 이름 대신 사용할 수 있는 짧은 이름입니다.",
         namePlaceholder: "fast-chat",
         nameAriaLabel: "별칭 이름",
         modelAriaLabel: "별칭이 가리키는 모델",
@@ -2121,6 +2121,12 @@ export const ko = {
         add: "별칭 추가",
         loadError: "모델 별칭을 불러오지 못했습니다.",
         saveError: "모델 별칭을 저장하지 못했습니다.",
+        contextLength: "컨텍스트 길이",
+        kvCacheType: "KV 캐시 유형",
+        speculativeDecoding: "추측 디코딩",
+        savedSetting: "저장된 설정",
+        loadSettings: "로드 설정",
+        loadSettingsHint: "GGUF 모델 전용입니다. 비워 둔 항목은 모델에 저장된 설정을 사용합니다.",
       },
       previewSharing: {
         sectionTitle: "미리보기 공유",
@@ -4990,6 +4996,7 @@ export const ko = {
       intervalHours: "간격(시간)",
       hourlyNote: "저장한 뒤 설정한 간격이 지나면 처음 실행됩니다. 간격을 변경하거나 작업을 재개하면 대기 시간이 다시 시작됩니다.",
       createTitle: "작업 예약",
+      repliesInChat: "각 실행은 “{title}”에 답장합니다.",
       editTitle: "예약 작업 편집",
       name: "이름",
       namePlaceholder: "이름 (선택 사항)",

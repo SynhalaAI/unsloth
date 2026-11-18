@@ -917,6 +917,7 @@ export const he = {
   chatMenu: {
     more: "אפשרויות צ'אט",
     copy: "העתקה",
+    addScheduledTask: "הוספת משימה מתוזמנת…",
     compact: "כווץ שיחה",
     compactQueued: "התבקש כיווץ שיחה עבור ההודעה הבאה",
     compactEmpty: "אין עדיין מה לכווץ",
@@ -1797,7 +1798,7 @@ export const he = {
       modeManual: "ידני",
       refreshNow: "רענן כעת",
       privacyNote:
-        "פרטי הזדהות מוסתרים בתצוגה זו. הקובץ המאוחסן בדיסק אינו מוסתר.",
+        "בתצוגה זו מוסתרים פרטי הזדהות בתבניות מוכרות. לפני השיתוף יש לבדוק אם היומן מכיל סודות, נתיבי קבצים או טקסט פרטי. הקובץ בדיסק מכיל את היומן המקורי.",
       copyVisible: "העתק יומן גלוי",
       empty: "שום דבר לא נרשם ביומן עדיין.",
       disabled: "רישום לקובץ יומן מושבת (UNSLOTH_STUDIO_NO_FILE_LOG=1).",
@@ -2171,7 +2172,7 @@ export const he = {
       modelAliases: {
         sectionTitle: "כינויים למודלים (OpenAI API)",
         description:
-          "שמות קבועים ללקוחות API, כמו fast-chat או code. בקשה שמציינת כינוי מוגשת על ידי המודל שאליו הוא מצביע, כך שאפליקציות מחוברות ממשיכות לעבוד כשמחליפים מודל. הפעילו את החלף מודל לפי בקשה כדי שכינוי יוכל לטעון את המודל שלו.",
+          "שמות קצרים שלקוחות API יכולים להשתמש בהם במקום השם המלא של המודל.",
         namePlaceholder: "fast-chat",
         nameAriaLabel: "שם הכינוי",
         modelAriaLabel: "המודל שאליו הכינוי מצביע",
@@ -2180,6 +2181,13 @@ export const he = {
         add: "הוספת כינוי",
         loadError: "טעינת הכינויים למודלים נכשלה.",
         saveError: "שמירת הכינויים למודלים נכשלה.",
+        contextLength: "אורך הקשר",
+        kvCacheType: "סוג מטמון KV",
+        speculativeDecoding: "פענוח ספקולטיבי",
+        savedSetting: "הגדרה שמורה",
+        loadSettings: "הגדרות טעינה",
+        loadSettingsHint:
+          "למודלי GGUF בלבד. שדות ריקים משתמשים בהגדרות השמורות של המודל.",
       },
       previewSharing: {
         sectionTitle: "שיתוף תצוגה מקדימה",
@@ -5081,6 +5089,7 @@ export const he = {
       intervalHours: "מרווח (שעות)",
       hourlyNote: "ההרצה הראשונה תתחיל לאחר מרווח אחד מרגע השמירה. שינוי המרווח או חידוש המשימה מתחילים את ההמתנה מחדש.",
       createTitle: "תזמון משימה",
+      repliesInChat: "כל הרצה עונה ב„{title}”.",
       editTitle: "עריכת משימה מתוזמנת",
       name: "שם",
       namePlaceholder: "שם (אופציונלי)",

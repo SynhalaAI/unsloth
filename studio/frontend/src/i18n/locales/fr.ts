@@ -879,6 +879,7 @@ export const fr = {
   chatMenu: {
     more: "Options de la discussion",
     copy: "Copier",
+    addScheduledTask: "Ajouter une tâche planifiée…",
     compact: "Compacter la conversation",
     compactQueued: "Compactage demandé pour le prochain message",
     compactEmpty: "Rien à compacter pour le moment",
@@ -1734,7 +1735,7 @@ export const fr = {
       modeInterval: "Toutes les 3 secondes",
       modeManual: "Manuel",
       refreshNow: "Actualiser maintenant",
-      privacyNote: "Les identifiants sont masqués dans cette vue. Dans le fichier sur le disque, ils ne le sont pas.",
+      privacyNote: "Cette vue masque les formats d’identifiants connus. Avant de partager le journal, vérifiez s’il contient des secrets, des chemins de fichiers ou du texte privé. Le fichier sur le disque contient le journal d’origine.",
       copyVisible: "Copier le journal visible",
       empty: "Rien n'a encore été consigné.",
       disabled: "La journalisation dans un fichier est désactivée (UNSLOTH_STUDIO_NO_FILE_LOG=1).",
@@ -2131,7 +2132,7 @@ export const fr = {
       modelAliases: {
         sectionTitle: "Alias de modèles (OpenAI API)",
         description:
-          "Des noms stables pour les clients de l’API, comme fast-chat ou code. Une requête qui nomme un alias est servie par le modèle vers lequel il pointe, donc les apps connectées continuent de fonctionner quand vous changez de modèle. Activez Changer de modèle par requête pour qu’un alias puisse charger son modèle.",
+          "Des noms courts que les clients de l’API peuvent utiliser à la place du nom complet du modèle.",
         namePlaceholder: "fast-chat",
         nameAriaLabel: "Nom de l’alias",
         modelAriaLabel: "Modèle vers lequel pointe l’alias",
@@ -2140,6 +2141,13 @@ export const fr = {
         add: "Ajouter un alias",
         loadError: "Impossible de charger les alias de modèles.",
         saveError: "Impossible d’enregistrer les alias de modèles.",
+        contextLength: "Longueur du contexte",
+        kvCacheType: "Type de cache KV",
+        speculativeDecoding: "Décodage spéculatif",
+        savedSetting: "Paramètre enregistré",
+        loadSettings: "Paramètres de chargement",
+        loadSettingsHint:
+          "Modèles GGUF uniquement. Les champs vides utilisent les paramètres enregistrés du modèle.",
       },
       previewSharing: {
         sectionTitle: "Partage de l'aperçu",
@@ -5083,6 +5091,7 @@ export const fr = {
       intervalHours: "Intervalle (heures)",
       hourlyNote: "La première exécution a lieu un intervalle après l’enregistrement. Modifier l’intervalle ou reprendre la tâche relance le délai d’attente.",
       createTitle: "Planifier une tâche",
+      repliesInChat: "Chaque exécution répond dans « {title} ».",
       editTitle: "Modifier la tâche planifiée",
       name: "Nom",
       namePlaceholder: "Nom (facultatif)",
