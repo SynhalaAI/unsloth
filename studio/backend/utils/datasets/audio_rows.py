@@ -86,9 +86,7 @@ def audio_transcription_messages(
     n_images: int = 0,
     instruction: str = "",
 ) -> list:
-    """System/user/assistant chat turns that train an audio-input model to transcribe ``audio``,
-    with one image slot per image of the row ahead of the audio. A non-empty ``instruction``
-    replaces the default user prompt."""
+    """Chat turns training an audio-input model to transcribe audio; n_images image slots precede it, and a non-empty instruction replaces the default prompt."""
     return [
         {
             "role": "system",

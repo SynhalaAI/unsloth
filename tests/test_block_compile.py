@@ -1045,6 +1045,34 @@ def test_gemma4_long_band_routes_to_the_interval_kernel(monkeypatch):
     assert len(kernel) == 1 and len(calls["plain"]) == 3
 
 
+def test_gemma4_long_band_past_int32_keeps_the_plain_route(monkeypatch):
+    M = _load()
+    from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
+
+    scans = []
+    calls, _ = _fake_gemma4_router_stack(M, monkeypatch, scans)
+    M._gemma4_router_hook()
+    wrapped = ALL_ATTENTION_FUNCTIONS["sdpa"]
+    _, attn = _sliding_layer(window = 16, head_dim = 32)
+    monkeypatch.setattr(M, "_band_kernel_attention", lambda q, k, v, w, s: "kernel")
+    monkeypatch.setattr(M, "_band_kernel_checked", lambda q: True)
+    import importlib
+
+    lh = importlib.import_module(M._LH_MODULE)
+    q = torch.randn(1, 4, 48, 32, dtype = torch.bfloat16)
+    kv = torch.randn(1, 2, 48, 32, dtype = torch.bfloat16)
+    mask = torch.zeros(1, 1, 48, 48)
+    mask._unsloth_block_long_band = True
+    monkeypatch.setattr(torch.compiler, "is_compiling", lambda: True)
+    M._IN_BLOCK[0] = M._FULL
+    try:
+        assert wrapped(attn, q, kv, kv, mask, scaling = 1.0)[0] == "kernel"
+        monkeypatch.setattr(lh, "_INT32_MAX", q.numel() - 1)
+        assert wrapped(attn, q, kv, kv, mask, scaling = 1.0)[0] == "plain"
+    finally:
+        M._IN_BLOCK[0] = M._OFF
+
+
 def test_kill_switch(monkeypatch):
     M = _load()
     monkeypatch.setenv("UNSLOTH_BLOCK_COMPILE", "0")
@@ -2208,13 +2236,10 @@ def test_zero3_partitioned_training_keeps_the_stock_forward(monkeypatch):
 
 
 def test_router_logits_after_a_forward_without_them(request, monkeypatch):
-    """transformers installs the router_logits hooks on the first forward that asks for them.
-
-    Dynamo does not guard on module hooks (skip_nnmodule_hook_guards), so a block compiled during an
-    earlier forward without output_router_logits kept running without the gate hook: no router logits,
-    and the aux loss raised IndexError in load_balancing_loss_func. The hooks now exist before the
-    first block compiles, and the hook body (guarded on the collector keys) decides per call.
-    """
+    """transformers installs router_logits hooks on first forward asking; Dynamo does not guard
+    hooks (skip_nnmodule_hook_guards), so a block compiled earlier lost its gate hook (IndexError
+    in load_balancing_loss_func); hooks exist before compile; hook body (guarded on collector
+    keys) decides per call."""
     misc = pytest.importorskip("unsloth_zoo.temporary_patches.misc")
     if not hasattr(misc, "output_capture_scratch"):
         pytest.skip("needs an unsloth_zoo with output_capture_scratch (unsloth-zoo#2041)")
@@ -2248,9 +2273,8 @@ def test_router_logits_after_a_forward_without_them(request, monkeypatch):
 
 @pytest.mark.parametrize("registry_kind", ["dict", "model_keyed"])
 def test_router_hooks_install_with_either_registry_api(monkeypatch, registry_kind):
-    """transformers 5.23 (huggingface/transformers#49594) made _CAN_RECORD_REGISTRY a dict subclass whose
-    .get takes the model and stringifies its class, so .get(<class string>) answered {} and no router hook
-    was installed up front (the IndexError above came back). Keys are still the class strings."""
+    """transformers 5.23 (huggingface/transformers#49594) made _CAN_RECORD_REGISTRY.get take the
+    model, so a class-string get returned {} and no router hook was installed."""
     M = _load()
 
     class Registry(dict):
@@ -2589,9 +2613,8 @@ def test_relax_strict_dynamic_aliases_only_marked_tensors():
 
 
 def test_strict_marked_kwarg_does_not_demote_the_block(monkeypatch, capsys):
-    """Qwen4Exp passes input_ids (strictly marked by unsloth_zoo's loss bookkeeping) into every block as
-    ple_input_ids; a length the block specialized raised ConstraintViolationError and the layer kind fell
-    back to the stock forward."""
+    """Qwen4Exp passes input_ids (strictly marked by unsloth_zoo's loss bookkeeping) as
+    ple_input_ids; a specialized length raised ConstraintViolationError, demoting the layer."""
     M = _load()
     real_compile = torch.compile
     monkeypatch.setattr(

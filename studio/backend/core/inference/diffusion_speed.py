@@ -336,6 +336,14 @@ def resolve_speed_mode(
     return normalize_speed_mode(value)
 
 
+def int8_attention_speed_active(
+    speed_mode: Optional[str], effective_speed: str, deferred: bool
+) -> bool:
+    """Auto INT8 attention races at load when speed is active, or unset with no deferred profile;
+    speed off stays bit-identical."""
+    return effective_speed != SPEED_OFF or (speed_mode is None and not deferred)
+
+
 @lru_cache(maxsize = 1)
 def torch_compile_runtime_available() -> bool:
     """Triton has no Windows wheel; TORCHDYNAMO_DISABLE is honored on every platform."""
@@ -1885,9 +1893,8 @@ def _fused_vae_planned(pipe: Any) -> bool:
 
 
 def _vae_decode_compile_allowed(pipe: Any, speed_mode: str) -> bool:
-    """U-Nets always; a DiT only in max mode or when the env forces it; never with the fused eager VAE. Never on
-    Windows ROCm: a compiled decode skips the eager routing (diffusion_vae_attn_chunked) that keeps the VAE's head-512
-    attention off the fused kernels that miscompute it there."""
+    """U-Nets always; DiTs only in max mode or when the env forces it; never on Windows ROCm, where
+    compiled decode skips routing."""
     if _fused_vae_planned(pipe):
         return False
     from .diffusion_vae_attn_chunked import windows_rocm

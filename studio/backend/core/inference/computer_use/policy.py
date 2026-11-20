@@ -21,12 +21,15 @@ COORDINATE_SETTINGS = ("auto", "pixels", "grid")
 MAX_ALLOWED_APPS = 100
 _MAX_APP_NAME_CHARS = 80
 
-# Families that answer on a 0-1000 grid whatever the picture's size; the others answer in pixels.
+# Families named here answer on a 0-1000 grid whatever the picture's size.
 _GRID_MODEL_RE = re.compile(
     r"qwen[-_ ]?3(?:\.\d+)?[-_ ]?vl|qwen3vl|qwen[-_ ]?3\.[5-9](?!\d)|gemma[-_ ]?4(?!\d)"
     r"|ui[-_ ]?tars(?![-_ ]?1\.5)|gemini",
     re.IGNORECASE,
 )
+
+# Image towers measured answering in picture pixels; every newer local family measured uses the grid.
+_PIXEL_ENCODERS = frozenset({"qwen2vl_merger", "qwen2.5vl_merger", "qwen2_vl", "qwen2_5_vl"})
 
 _TERMINALS = (
     "terminal", "iterm", "warp", "kitty", "alacritty", "wezterm", "ghostty", "konsole", "xterm",
@@ -48,6 +51,8 @@ _PROTECTED = (
     "authorizationhost", "polkit", "pinentry", "askpass", "gcr-prompter", "kdesu", "consent",
     "credentialuibroker",
 )  # fmt: skip
+# Cinnamon's shut-down, restart and log-out dialog is "Cinnamon-session-quit.py".
+_SESSION_DIALOGS = ("session-quit",)
 _EXACT = {"cmd": "a terminal", "wt": "a terminal", "hyper": "a terminal", "mmc": "a system tool"}
 
 # Whole names, since "arc" or "edge" inside another app's name is not a browser.
@@ -67,8 +72,16 @@ _OWN_APP_IDS = ("ai.unsloth.studio",)
 _BLOCKED = {
     "darwin": {"ctrl+cmd+q", "shift+cmd+q", "alt+shift+cmd+q", "alt+cmd+escape", "alt+shift+cmd+escape"},
     "win32": {"cmd+l", "ctrl+alt+delete"},
-    "linux": {"cmd+l", "ctrl+alt+delete", "ctrl+alt+backspace", "ctrl+alt+l"},
+    "linux": {
+        "cmd+l", "ctrl+alt+delete", "ctrl+alt+l",
+        # Cinnamon's shut-down dialog and restart.
+        "ctrl+alt+end", "ctrl+alt+escape",
+        # KDE Plasma up to 5.21: log out, shut down and reboot without confirmation.
+        "ctrl+alt+shift+delete", "ctrl+alt+shift+pagedown", "ctrl+alt+shift+pageup",
+    },
 }  # fmt: skip
+# The X server's own kill and text-console switch: xkb's CTRL+ALT key type ignores Super, so they fire with it held too.
+_XKB_ACTIONS = {"ctrl+alt+backspace", *(f"ctrl+alt+f{n}" for n in range(1, 13))}
 _RISKY = {
     "darwin": {"cmd+q", "cmd+backspace", "shift+cmd+backspace", "alt+shift+cmd+backspace", "alt+cmd+backspace"},
     "win32": {"alt+f4", "shift+delete", "ctrl+shift+delete", "ctrl+shift+escape", "cmd+r", "cmd+x"},
@@ -205,11 +218,16 @@ def update_settings(*, enabled: Optional[bool] = None, coordinates: Optional[str
     return settings()
 
 
-def coordinate_mode(model: Any) -> str:
+def coordinate_mode(model: Any, encoder: Optional[str] = None) -> str:
+    """`encoder`: the local model's image tower ("" if unknown); None for a cloud model."""
     chosen = settings()["coordinates"]
     if chosen in ("pixels", "grid"):
         return chosen
-    return "grid" if isinstance(model, str) and _GRID_MODEL_RE.search(model) else "pixels"
+    if isinstance(model, str) and _GRID_MODEL_RE.search(model):
+        return "grid"
+    if encoder is None or encoder.strip().lower() in _PIXEL_ENCODERS:
+        return "pixels"
+    return "grid"
 
 
 def host_problem() -> Optional[str]:
@@ -254,6 +272,7 @@ def _sensitive_kind(front: FrontWindow) -> Optional[str]:
         (_TERMINALS, "a terminal"),
         (_SECRETS, "a password manager"),
         (_SYSTEM, "a system tool"),
+        (_SESSION_DIALOGS, "the shut-down and log-out dialog"),
     ):
         if any(word in name for word in words for name in names if name):
             return kind
@@ -393,7 +412,14 @@ def is_security_prompt(front: FrontWindow) -> bool:
 
 
 def blocked_chord(chord: Chord) -> bool:
-    return chord_text(chord) in _BLOCKED.get(_platform(), set())
+    platform = _platform()
+    if chord_text(chord) in _BLOCKED.get(platform, set()):
+        return True
+    mods, key = chord
+    return (
+        platform == "linux"
+        and chord_text((tuple(m for m in mods if m != "cmd"), key)) in _XKB_ACTIONS
+    )
 
 
 def risks(

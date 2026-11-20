@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-only
+import { MemoryToolUI } from "./tool-ui-memory";
 // Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
 import { AiSpeechIcon, BookmarkIcon, FileSearchIcon, TrashIcon } from "@/lib/hugeicons-derived";
@@ -83,6 +84,7 @@ import {
   threadMessageKind,
 } from "@/components/assistant-ui/thread-message-slot";
 import { ComposerModelPicker } from "@/components/assistant-ui/composer-model-picker/composer-model-picker";
+import { ModelPickerAnnouncement } from "@/components/assistant-ui/model-picker-announcement";
 import { withToolConfirmation } from "@/components/assistant-ui/tool-confirmation-controls";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
 import { ToolGroup } from "@/components/assistant-ui/tool-group";
@@ -242,7 +244,6 @@ import {
   useLibraryChatHandoffStore,
 } from "@/features/library/chat-handoff-store";
 import { resumesThought } from "@/features/model-picker";
-import { CompactOnReturnChip } from "./compact-on-return-chip";
 import { isNpuModelId } from "@/features/npu";
 import { cancelResearchRun } from "@/features/chat/api/research-api";
 import {
@@ -538,6 +539,10 @@ import {
 import { extractTaggedText, updateThreadMessage } from "@/features/chat/utils/update-thread-message";
 import { useComposerPillFit } from "@/hooks/use-composer-pill-fit";
 import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  COMPOSER_MIN_ROWS,
+  useComposerMaxRows,
+} from "@/hooks/use-composer-rows";
 import { useUiSpaceScale } from "@/hooks/use-ui-space-scale";
 import { useExpandedComposerFill } from "./use-expanded-composer-fill";
 import { watchComposerClearance } from "@/lib/toast-offset";
@@ -1917,12 +1922,53 @@ const PendingCompactionRule: FC = () => {
   const pending = useCompactRequestStore((s) =>
     threadId === null ? false : s.requested[threadId] === true,
   );
-  const endsWithReply = useAuiState(
-    ({ message }) => message.isLast && message.role === "assistant",
+  // Any role: a reply can fail. Hidden mid-run, when the request is already taken.
+  const anchored = useAuiState(
+    ({ thread, message }) => message.isLast && !thread.isRunning,
   );
   const cloud = useChatRuntimeStore((s) => isExternalModelId(s.params.checkpoint));
-  if (!pending || !endsWithReply) return null;
-  return <CompactionDivider pending={true} cloud={cloud} className="mt-6" />;
+  if (!pending || !anchored || threadId === null) return null;
+  return (
+    <CompactionDivider
+      pending={true}
+      cloud={cloud}
+      className="mt-6"
+      onCancel={() => useCompactRequestStore.getState().clear(threadId)}
+    />
+  );
+};
+
+/** Confirms /compact and the chat menu: scrolls the queued rule out from under the scroll button and announces it. */
+const PendingCompactionStatus: FC<{ threadId: string | null }> = ({ threadId }) => {
+  const scrollToBottom = useScrollThreadToBottom();
+  const requested = useCompactRequestStore((s) =>
+    threadId === null ? false : s.requested[threadId] === true,
+  );
+  // Mirrors PendingCompactionRule's visibility.
+  const idle = useAuiState(({ thread }) => !thread.isRunning && thread.messages.length > 0);
+  const cloud = useChatRuntimeStore((s) => isExternalModelId(s.params.checkpoint));
+  const aui = useAui();
+  useEffect(() => {
+    if (threadId === null) return;
+    return useCompactRequestStore.subscribe((state, previous) => {
+      if (
+        state.requested[threadId] &&
+        !previous.requested[threadId] &&
+        !aui.thread().getState().isRunning
+      ) {
+        scrollToBottom();
+      }
+    });
+  }, [aui, scrollToBottom, threadId]);
+  return (
+    <span role="status" className="sr-only">
+      {requested && idle
+        ? cloud
+          ? "Your next message will be sent with a summary of the older messages."
+          : "Your next message will start a fresh context."
+        : ""}
+    </span>
+  );
 };
 
 // The selector returns the persisted record, which keeps its identity between renders, so a
@@ -2259,7 +2305,11 @@ export const Thread: FC<{
     }
     if (prev != null && composerHeight > prev) {
       // Detach as if the user scrolled up so nothing re-pins; not mid-run, where growth is tool rows.
-      if (!aui.thread().getState().isRunning) {
+      // An empty composer only grows as its row floor eases (new chat vs conversation), which must
+      // not strand a conversation opening under it a few pixels above its end.
+      const draft = aui.composer().getState();
+      const writing = draft.text.length > 0 || draft.attachments.length > 0;
+      if (writing && !aui.thread().getState().isRunning) {
         autoScrollContext.detachFromBottom();
       }
     }
@@ -2381,6 +2431,7 @@ export const Thread: FC<{
           />
           <ForkChatShortcut />
           <ContextReportMount />
+          <PendingCompactionStatus threadId={threadId} />
 
           {/* Bottom slack so the last message has room above the sticky
           scroll-to-bottom button (and floating composer in single mode),
@@ -2706,7 +2757,10 @@ const ThreadComposerDock: FC<{
             : "top-[calc(10px*var(--ui-space-scale,1))]",
         )}
       />
-      <div ref={dockInnerRef} className="unsloth-composer-dock-inner relative pb-2">
+      <div
+        ref={dockInnerRef}
+        className="unsloth-composer-dock-inner relative pb-[calc(1rem*var(--ui-space-scale,1))]"
+      >
         <div
           ref={composerColumnRef}
           className="pointer-events-auto mx-auto w-full max-w-(--thread-max-width)"
@@ -2908,6 +2962,9 @@ const ThreadWelcome: FC<{
         {composerAtBottom ? (
           <div className="aui-thread-welcome-message flex w-full flex-col justify-center">
             {greetingRow}
+            {!hideComposer && !incognito && (
+              <ModelPickerAnnouncement className="mt-[calc(28px*var(--ui-space-scale,1))]" />
+            )}
           </div>
         ) : (
           <>
@@ -2919,8 +2976,12 @@ const ThreadWelcome: FC<{
               {/* Padding here, not on the spacer, where it would count toward the spacer's share. */}
               <div className="flex flex-col pb-[calc(22px*var(--ui-space-scale,1))]">{greetingRow}</div>
             </div>
-            <div className="aui-thread-welcome-message flex w-full flex-col">
+            <div className="aui-thread-welcome-message relative flex w-full flex-col">
               {!hideComposer && <ComposerAnimated threadId={threadId} />}
+              {/* Out of flow, so the composer stays centred by its own box. */}
+              {!hideComposer && !incognito && (
+                <ModelPickerAnnouncement className="absolute inset-x-0 top-full mt-[calc(28px*var(--ui-space-scale,1))]" />
+              )}
             </div>
             <div
               aria-hidden="true"
@@ -3273,12 +3334,15 @@ const Composer: FC<{
   const editorRef = useRef<HTMLDivElement>(null);
   const inputId = useId();
   const uiSpaceScale = useUiSpaceScale();
-  const oneRowHeight = Math.round(40 * uiSpaceScale);
+  const threadEmpty = useAuiState(({ thread }) => thread.isEmpty);
+  const minEditorHeight = Math.round(
+    (16 + 24 * (threadEmpty ? COMPOSER_MIN_ROWS : 1)) * uiSpaceScale,
+  );
+  const maxRows = useComposerMaxRows(24 * uiSpaceScale);
   const [editorHeight, setEditorHeight] = useState(40);
   const [isWritingExpanded, setIsWritingExpanded] = useState(false);
   const detachFromBottom = useDetachThreadFromBottom();
   const scrollThreadToBottom = useScrollThreadToBottom();
-  const threadEmpty = useAuiState(({ thread }) => thread.isEmpty);
   const toggleWritingExpanded = () => {
     setIsWritingExpanded((expanded) => !expanded);
     inputRef.current?.focus({ preventScroll: true });
@@ -6277,7 +6341,7 @@ const Composer: FC<{
               className="unsloth-composer-editor"
               style={
                 {
-                  "--composer-editor-height": `${composerText.length === 0 ? oneRowHeight : Math.max(oneRowHeight, editorHeight)}px`,
+                  "--composer-editor-height": `${composerText.length === 0 ? minEditorHeight : Math.max(minEditorHeight, editorHeight)}px`,
                 } as CSSProperties
               }
             >
@@ -6291,7 +6355,7 @@ const Composer: FC<{
                 data-type-to-activate="composer"
                 className="aui-composer-input unsloth-composer-input"
                 minRows={1}
-                maxRows={12}
+                maxRows={maxRows}
                 onHeightChange={handleEditorHeightChange}
                 autoFocus={!disabled}
                 disabled={disabled}
@@ -7764,7 +7828,6 @@ const ComposerRightControls: FC<{
           !thread.isRunning && !isQueueRunning && !isResearchActive
         }
       >
-        <CompactOnReturnChip />
         <ComposerPrimitive.Send asChild={true}>
           <TooltipIconButton
             tooltip={
@@ -8149,6 +8212,10 @@ function useContinuation() {
     const request: ContinuationRequest = {
       partial,
       ...(carriedReasoning ? { reasoning: carriedReasoning, reasoningDuration } : {}),
+      ...((metadata as { custom?: { splitReasoningSeen?: unknown } } | undefined)?.custom
+        ?.splitReasoningSeen === true
+        ? { splitReasoningSeen: true }
+        : {}),
       ...(thoughtSignature ? { thoughtSignature } : {}),
       ...(thoughtParts.length > 0 ? { thoughtParts } : {}),
       ...(answerParts.length > 0 ? { answerParts } : {}),
@@ -8379,6 +8446,7 @@ const ASSISTANT_PART_COMPONENTS = {
       web_search: WebSearchToolUIConfirmable,
       search_knowledge_base: KnowledgeBaseToolUIConfirmable,
       read_skill: ReadSkillToolUIConfirmable,
+      update_memory: withToolConfirmation(MemoryToolUI),
       studio_load_skill: ReadSkillToolUIConfirmable,
       python: PythonToolUIConfirmable,
       terminal: TerminalToolUIConfirmable,

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from core.inference.tool_budget import DEFAULT_MAX_TOOL_CALLS_PER_MESSAGE
 import re
 import time
 import uuid
@@ -119,6 +120,10 @@ class LoadRequest(BaseModel):
     force_reload: bool = Field(
         False,
         description = "Start a fresh runtime even when the active settings already match",
+    )
+    use_saved_settings: bool = Field(
+        False,
+        description = "Take every load setting this request leaves unset from the model's saved launch settings",
     )
     alongside: bool = Field(
         False,
@@ -374,7 +379,9 @@ class LoadRequest(BaseModel):
         description = (
             "Logical prompt batch size for llama-server (--batch-size) for "
             f"this load ({BATCH_MIN}..{BATCH_MAX}). Omit for the llama.cpp "
-            "default (2048). Ignored for non-GGUF models."
+            "default (2048). On MLX it caps the tokens one batched prefill forward "
+            "takes across replies (never below one reply); omit to prefill every "
+            "waiting reply together. Ignored for other non-GGUF models."
         ),
     )
     n_ubatch: Optional[int] = Field(
@@ -389,7 +396,9 @@ class LoadRequest(BaseModel):
             "2048 for a projector whose family cannot be read. Every other "
             "vision model keeps the 512 default. "
             "llama.cpp caps it at the batch size. Larger values speed up prompt "
-            "processing at the cost of compute-buffer VRAM. Ignored for "
+            "processing at the cost of compute-buffer VRAM. On MLX it is the "
+            "prefill step, tokens per prefill forward (default 2048); an "
+            "expert-offload plan's own chunk caps it. Ignored for other "
             "non-GGUF models."
         ),
     )
@@ -438,7 +447,9 @@ class LoadRequest(BaseModel):
             "Host memory in MiB llama-server may spend caching prompt state it "
             "has evicted from a slot (--cache-ram). Omit for the llama.cpp "
             "default (8192); 0 disables the cache and -1 lifts the limit. "
-            "Ignored for non-GGUF models."
+            "On MLX it sizes the prompt cache, which shares memory with the model: "
+            "omit (or -1) for 15% of the GPU working set, 0 disables it. "
+            "Ignored for other non-GGUF models."
         ),
     )
     tensor_parallel: bool = Field(
@@ -456,8 +467,9 @@ class LoadRequest(BaseModel):
             "Load a vision-capable GGUF without its multimodal projector, as a "
             "text-only model. Frees the VRAM the projector would hold, at the cost "
             "of image input, which is off for the session; text generation is "
-            "unaffected. Ignored for models with no vision projector, and for "
-            "non-GGUF models."
+            "unaffected. On MLX, stops image input and frees the vision weights "
+            "(an adapter or audio-input model keeps them). Ignored for models with no "
+            "vision input, and for other non-GGUF models."
         ),
     )
     engram_precision: Optional[str] = Field(
@@ -1167,6 +1179,12 @@ class EstimateMemoryRequest(BaseModel):
     n_batch: Optional[int] = Field(None, ge = BATCH_MIN, le = BATCH_MAX)
     n_ubatch: Optional[int] = Field(None, ge = BATCH_MIN, le = BATCH_MAX)
     ctx_checkpoints: Optional[int] = Field(None, ge = 0, le = CTX_CHECKPOINTS_MAX)
+    cache_ram: Optional[int] = Field(
+        None,
+        ge = -1,
+        le = CACHE_RAM_MAX_MIB,
+        description = "MLX prompt cache in MiB, as on /load; it comes out of what the context fits in.",
+    )
     speculative_type: Optional[str] = Field(
         None, description = "Speculative mode; decides which drafter's weights are charged."
     )
@@ -1242,7 +1260,13 @@ class EstimateMemoryRequest(BaseModel):
     )
 
     _no_booleans = field_validator(
-        "n_batch", "n_ubatch", "ctx_checkpoints", "n_ctx", "max_seq_length", mode = "before"
+        "n_batch",
+        "n_ubatch",
+        "ctx_checkpoints",
+        "cache_ram",
+        "n_ctx",
+        "max_seq_length",
+        mode = "before",
     )(LoadRequest._no_booleans.__func__)
     # Unresolved, the handle reads as a Hub id and the panel is told the estimate is unavailable.
     _resolve_the_handle = field_validator("model_path")(resolve_inventory_handle)
@@ -2925,6 +2949,13 @@ def _normalize_sandbox_level(value: Any) -> Any:
     return value
 
 
+def _canonical_tool_names(value: Optional[list[str]]) -> Optional[list[str]]:
+    # The curl guide published ``bash`` for the built-in shell tool, whose real name is ``terminal``.
+    if value is None:
+        return None
+    return ["terminal" if name == "bash" else name for name in value]
+
+
 _SANDBOX_LEVEL_DESCRIPTION = (
     "[x-unsloth] Sandbox level for the Python and Terminal tools. 'high' (default) runs them "
     "in the OS sandbox when it works and on software safeguards otherwise. 'low' runs them on "
@@ -3162,6 +3193,7 @@ class ChatCompletionRequest(BaseModel):
             "server-side tools are forwarded."
         ),
     )
+    _canonical_enabled_tools = field_validator("enabled_tools")(_canonical_tool_names)
     mcp_enabled: Optional[bool] = Field(
         None,
         description = "[x-unsloth] When true, append tools from every enabled MCP server to this request's tool list.",
@@ -3285,7 +3317,7 @@ class ChatCompletionRequest(BaseModel):
         ),
     )
     max_tool_calls_per_message: Optional[int] = Field(
-        25,
+        DEFAULT_MAX_TOOL_CALLS_PER_MESSAGE,
         ge = 0,
         description = "[x-unsloth] Maximum number of tool call iterations per message (0 = disabled, 9999 = unlimited).",
     )
@@ -3464,6 +3496,19 @@ class ChatCompletionRequest(BaseModel):
             'after" setting rather than the default. Anthropic and OpenAI server-side '
             "compaction then use it as given instead of capping it at 200k: it is still "
             "raised to the provider's floor and never exceeds context_window."
+        ),
+    )
+    compaction_mode: Optional[Literal["summary", "rolling", "checkpoint"]] = Field(
+        None,
+        description = (
+            "[x-unsloth] How a cloud connection that does not compact server-side "
+            "compacts once compaction_threshold is passed, and on compact_context. "
+            "'summary' (the default) asks the same model to summarise the older turns. "
+            "'rolling' and 'checkpoint' make no summary call and drop whole oldest turns "
+            "into the thread's archive, where search_conversation and inline recall find "
+            "them: 'rolling' drops just enough on each request, 'checkpoint' resets to the "
+            "latest turn as a local model does, and only it honours compact_context. "
+            "Ignored by local engines and by Anthropic and OpenAI server-side compaction."
         ),
     )
     context_window: Optional[int] = Field(
@@ -3704,6 +3749,7 @@ class ChatCountTokensRequest(ReasoningControlsRequest):
         None,
         description = "[x-unsloth] List of enabled built-in tool names",
     )
+    _canonical_enabled_tools = field_validator("enabled_tools")(_canonical_tool_names)
     mcp_enabled: Optional[bool] = Field(
         None,
         description = "[x-unsloth] Append tools from every enabled MCP server",
@@ -4548,10 +4594,11 @@ class AnthropicMessage(BaseModel):
                         else getattr(block, "source", None)
                     )
                     stype = source.get("type") if isinstance(source, dict) else None
-                    if stype not in ("text", "content"):
+                    pdf = stype == "base64" and source.get("media_type") == "application/pdf"
+                    if stype not in ("text", "content") and not pdf:
                         raise ValueError(
-                            f"unsupported document source type {stype!r}: only text and content "
-                            "documents can be read"
+                            f"unsupported document source type {stype!r}: only text, content "
+                            "and base64 PDF documents can be read"
                         )
         return data
 
@@ -4607,6 +4654,7 @@ class AnthropicMessagesRequest(BaseModel):
     )
     enable_tools: Optional[bool] = None
     enabled_tools: Optional[list[str]] = None
+    _canonical_enabled_tools = field_validator("enabled_tools")(_canonical_tool_names)
     thinking: Optional[AnthropicThinkingConfig] = None
     # These win over `thinking` when both are present.
     enable_thinking: Optional[bool] = None
@@ -4917,7 +4965,8 @@ class DiffusionLoadRequest(BaseModel):
         None,
         description = "Memory policy: auto (measured), fast (resident), balanced "
         "(stream the transformer, near-resident speed, moderate VRAM "
-        "cut), low_vram (offload every component, lowest VRAM, slower). "
+        "cut), low_vram (stream the transformer and text encoders block by block, tiled VAE "
+        "decode; lowest VRAM, slowest). "
         "Overrides cpu_offload when set.",
     )
     allow_oversized_load: bool = Field(
@@ -4929,7 +4978,9 @@ class DiffusionLoadRequest(BaseModel):
     )
     speed_mode: Optional[Literal["off", "eager", "default", "max"]] = Field(
         None,
-        description = "Opt-in speed optims (default off -> bit-identical output): "
+        description = "Speed optims. Unset: off for a dense load, default for a GGUF load "
+        "(near-lossless compile profile). off: bit-identical output (a quantized transformer "
+        "still compiles). "
         "eager (channels_last + cudnn + attention + fused RMSNorm/AdaLayerNorm patches, "
         "NO torch.compile -> fast first image, no compile tax), "
         "default (also regional torch.compile where eligible), "
@@ -5026,6 +5077,16 @@ class DiffusionLoadRequest(BaseModel):
         "strided attention processors; xformers/aiter are memory-efficient (NVIDIA) / AMD ROCm. An "
         "unavailable kernel falls back to the default.",
     )
+    int8_attention: Optional[Literal["auto", "on", "off"]] = Field(
+        None,
+        description = "Studio's own INT8 attention kernel for this load. auto (the default, also when unset) "
+        "engages it where it is measured accurate and faster for this model and GPU (it passes the per-card "
+        "accuracy check against fp32 attention and wins a timed race against the selected attention); the "
+        "UNSLOTH_DIFFUSION_INT8_ATTENTION_KERNEL environment switch still applies. on engages it wherever it "
+        "passes the accuracy check, over the env switch (attention_backend=unsloth_int8 is the same). off never "
+        "engages it on this load, over the env switch; it does not change an explicit attention_backend such as "
+        "sage. The status record reports what engaged under resolved.int8_attention.",
+    )
     transformer_cache: Optional[Literal["off", "fbcache", "static"]] = Field(
         None,
         description = "Step caching. fbcache = First-Block-Cache: reuse the transformer tail "
@@ -5053,6 +5114,15 @@ class DiffusionLoadRequest(BaseModel):
         "to the one with the most free VRAM. Refused with a 400 when an index does not exist "
         "here; ignored on XPU / MPS / CPU, which have no applicator for a physical index.",
     )
+
+    @field_validator("int8_attention", mode = "before")
+    @classmethod
+    def _normalize_int8_attention(cls, value):
+        # Folded like attention_backend: the Literal above is validated after this; "" reads as unset.
+        if isinstance(value, str):
+            value = value.strip().lower()
+            return value or None
+        return value
 
     @field_validator("attention_backend", mode = "before")
     @classmethod
@@ -5552,8 +5622,9 @@ class DiffusionGenerateRequest(BaseModel):
         None,
         max_length = 8,
         description = "LoRA adapters to apply for this generation (by discovery id + weight). "
-        "Omitted/empty applies none and behaves exactly as before. Rejected with a clear "
-        "message when the loaded model or its quantisation can't apply LoRA.",
+        "Omitted: the adapters the model was loaded with (baked in, or named on a dense load), at "
+        "their load weights; none for a load that named none. An empty list applies none. "
+        "Rejected with a clear message when the loaded model or its quantisation can't apply LoRA.",
     )
     controlnet: Optional[ControlNetSpec] = Field(
         None,
@@ -6233,6 +6304,21 @@ class DiffusionResolvedControl(BaseModel):
         '{"step", "status": "engaged" | "declined" | "failed", "reason"} (why a step did not engage, or the '
         "error it failed with). Null on every other control.",
     )
+    engaged: Any = Field(
+        None,
+        description = "attention_backend: the backend the attention modules actually run (a string). "
+        "int8_attention: whether Studio's INT8 attention kernel engaged (a boolean). Null on every other control.",
+    )
+    modules: Optional[int] = Field(
+        None,
+        description = "attention_backend / int8_attention: how many attention modules run the engaged backend; "
+        "null when the pipeline has no countable processors and on every other control.",
+    )
+    routed: Optional[Dict[str, int]] = Field(
+        None,
+        description = "attention_backend only: how many attention modules route to each backend. Null on every "
+        "other control.",
+    )
 
 
 class DiffusionDownloadPlanEntry(BaseModel):
@@ -6412,6 +6498,11 @@ class DiffusionStatusResponse(BaseModel):
         default_factory = list,
         description = "Adapter ids baked into the transformer at load time, as GalleryImage.baked_loras "
         "records them; empty when the load baked none",
+    )
+    baked_lora_specs: list[dict] = Field(
+        default_factory = list,
+        description = "The baked adapters as the load requested them, [{id, weight}]; empty when none. The "
+        "Images page compares a LoRA selection against it to tell whether Generate needs a reload first",
     )
     transformer_cache_stats: Optional[dict] = Field(
         None,
@@ -7545,7 +7636,8 @@ class VideoLoadRequest(BaseModel):
         None,
         description = "Memory policy: auto (measured), fast (resident), balanced "
         "(stream the transformer, near-resident speed, moderate VRAM cut), low_vram "
-        "(offload every component, lowest VRAM, slower).",
+        "(stream the transformer and text encoders block by block, tiled VAE decode; lowest "
+        "VRAM, slowest).",
     )
     allow_oversized_load: bool = Field(
         False,
@@ -7554,13 +7646,24 @@ class VideoLoadRequest(BaseModel):
         "can exhaust memory, swap heavily, stop the server or make the computer unresponsive. Same "
         "effect as the server's UNSLOTH_DIFFUSION_ALLOW_OVERSIZED_LOAD=1, for this load only.",
     )
+    loras: Optional[list[LoraSpec]] = Field(
+        None,
+        max_length = 8,
+        description = "LoRA adapters to BAKE into the denoiser at load time, by discovery id (the same "
+        "catalog the Images load reads, family-gated by the adapter's sidecar). Each is merged into the "
+        "dense bfloat16 DiT before any quantisation, compile or offload, so changing the set or a weight "
+        "needs a reload. Needs a full diffusers pipeline load (no gguf_filename); skips any hosted "
+        "pre-quantized denoiser (the dense load peak is paid) and, on MiniMax-H3, pins the released "
+        "bfloat16 denoiser. null / empty / all weights 0 = a plain load.",
+    )
     speed_mode: Optional[Literal["off", "eager", "default", "max"]] = Field(
         None,
-        description = "Opt-in speed optims (default off -> bit-identical output): "
+        description = "Speed optims. Unset: default for every video load, dense or GGUF (regional "
+        "torch.compile where eligible; output is close to, not bit-identical with, off). "
+        "off (bit-identical output; a quantized transformer still compiles), "
         "eager (channels_last + cudnn + attention + fused norm patches, NO torch.compile), "
         "default (also regional torch.compile where eligible), "
-        "max (also TF32 + fused QKV). GGUF video loads default to the near-lossless "
-        "compile profile.",
+        "max (also TF32 + fused QKV).",
     )
     attention_backend: Optional[
         Literal[
@@ -7586,6 +7689,16 @@ class VideoLoadRequest(BaseModel):
         "attention; unsloth_int8 is Studio's own INT8 attention kernel on the families with strided "
         "attention processors; xformers/aiter are memory-efficient (NVIDIA) / AMD ROCm. An unavailable "
         "kernel falls back to the default.",
+    )
+    int8_attention: Optional[Literal["auto", "on", "off"]] = Field(
+        None,
+        description = "Studio's own INT8 attention kernel for this load. auto (the default, also when unset) "
+        "engages it where it is measured accurate and faster for this model and GPU (it passes the per-card "
+        "accuracy check against fp32 attention and wins a timed race against the selected attention); the "
+        "UNSLOTH_DIFFUSION_INT8_ATTENTION_KERNEL environment switch still applies. on engages it wherever it "
+        "passes the accuracy check, over the env switch (attention_backend=unsloth_int8 is the same). off never "
+        "engages it on this load, over the env switch; it does not change an explicit attention_backend such as "
+        "sage. The status record reports what engaged under resolved.int8_attention.",
     )
     transformer_cache: Optional[Literal["off", "fbcache", "static"]] = Field(
         None,
@@ -7653,6 +7766,31 @@ class VideoLoadRequest(BaseModel):
         "ignored on XPU / MPS / CPU, which have no applicator for a physical index. Mirrors the "
         "image backend's field.",
     )
+
+    @field_validator("loras")
+    @classmethod
+    def _unique_video_lora_ids(
+        cls, value: Optional[list["LoraSpec"]]
+    ) -> Optional[list["LoraSpec"]]:
+        # Repeated ids would bake the same adapter twice, past the weight bound.
+        if value:
+            seen: set[str] = set()
+            for spec in value:
+                if spec.id in seen:
+                    raise ValueError(
+                        f"duplicate LoRA id '{spec.id}'; list each adapter at most once"
+                    )
+                seen.add(spec.id)
+        return value
+
+    @field_validator("int8_attention", mode = "before")
+    @classmethod
+    def _normalize_int8_attention(cls, value):
+        # Folded like attention_backend: the Literal above is validated after this; "" reads as unset.
+        if isinstance(value, str):
+            value = value.strip().lower()
+            return value or None
+        return value
 
     @field_validator("attention_backend", mode = "before")
     @classmethod
@@ -7934,6 +8072,11 @@ class GalleryVideo(BaseModel):
     offload_policy: Optional[str] = Field(
         None, description = "Offload policy actually engaged: none | group | model | sequential"
     )
+    baked_loras: list[str] = Field(
+        default_factory = list,
+        description = "Adapters baked into the denoiser at load time (VideoLoadRequest.loras); empty when "
+        "the load baked none or the clip predates the field",
+    )
     created_at: str = Field(..., description = "Creation time (ISO 8601 timestamp)")
     # Library state, not recipe: stored beside the clip, so older sidecars simply read as unset.
     pinned: bool = Field(False, description = "Pinned to the front of the gallery")
@@ -8202,6 +8345,20 @@ class VideoStatusResponse(BaseModel):
         description = "Why flashinfer is not serving an NVFP4 load that runs torchao: the on-demand "
         "install was refused (offline, opt-out, ineligible host) or failed and was rolled back. "
         "null when the backend is flashinfer, the scheme is not nvfp4, or no reason was recorded.",
+    )
+    baked_loras: list[str] = Field(
+        default_factory = list,
+        description = "Adapters baked into the denoiser at load time (VideoLoadRequest.loras), by "
+        "adapter name; empty when the load baked none",
+    )
+    baked_lora_specs: list[dict] = Field(
+        default_factory = list,
+        description = "The baked adapters as the load requested them, [{id, weight}]; empty when none",
+    )
+    lora_refusal: Optional[str] = Field(
+        None,
+        description = "Why a reload of this model with VideoLoadRequest.loras would be refused (GGUF or "
+        "single-file checkpoint, two-expert family); null when it can bake LoRAs or nothing is loaded",
     )
     text_encoder_quant: Optional[str] = Field(
         None,

@@ -180,6 +180,7 @@ export const es419 = {
       add: "Agregar",
       cancel: "Cancelar",
       removeSite: "Quitar {site}",
+      hostOnly: "Solo este host, no sus subdominios",
       permissionsNote:
         "Aquí solo aparecen los sitios con permisos propios. Las acciones son inicios de sesión, envíos de formularios y botones que compran, envían o eliminan.",
       siteInvalid: "Escribe un sitio como example.com o *.example.com.",
@@ -810,6 +811,7 @@ export const es419 = {
     failed:
       "No se pudo instalar el motor. Vuelve a intentarlo o usa el motor predeterminado.",
     details: "Detalles técnicos",
+    lastAttempt: "Último intento: {time}",
     cancelled: "Instalación cancelada. Puedes volver a intentarlo.",
     scope:
       "Chat de texto e imagen en GPU NVIDIA. La primera carga puede tardar más.",
@@ -982,8 +984,8 @@ export const es419 = {
   chatMenu: {
     more: "Opciones del chat",
     copy: "Copiar",
+    addScheduledTask: "Agregar tarea programada…",
     compact: "Compactar conversación",
-    compactQueued: "Se solicitó la compactación para el siguiente mensaje",
     compactEmpty: "Aún no hay nada que compactar",
     compactUnsupported:
       "La compactación requiere un modelo GGUF o MLX compatible con herramientas",
@@ -1133,6 +1135,7 @@ export const es419 = {
       video: "Video",
       audio: "Audio",
       tasks: "Programadas",
+      translate: "Traducir",
       trainChecking: "Comprobando si esta computadora admite entrenamiento...",
       videoChecking: "Comprobando si esta computadora admite video...",
       more: "Más",
@@ -1878,6 +1881,12 @@ export const es419 = {
       learnMore: "Más información",
       managedNote:
         "El propietario de este servidor de Unsloth configura el sandbox del sistema.",
+      trustedFoldersTitle: "Carpetas de confianza",
+      trustedFoldersLabel: "Ejecutar sin preguntar",
+      trustedFoldersDescription: "Python y la Terminal pueden leer y ejecutar archivos de estas carpetas sin pedir aprobación, solo en tus propios chats. Escribir en ellas sigue pidiendo aprobación. Una carpeta por línea.",
+      trustedFoldersPlaceholder: "/Users/you/tools",
+      trustedFoldersLoadError: "No se pudieron cargar las carpetas de confianza.",
+      trustedFoldersSaveError: "No se pudieron guardar las carpetas de confianza.",
     },
     debugging: {
       description: "Lee los registros de Unsloth sin salir de la aplicación.",
@@ -2321,7 +2330,7 @@ export const es419 = {
       modelAliases: {
         sectionTitle: "Alias de modelos (API de OpenAI)",
         description:
-          "Nombres estables para clientes de la API, como fast-chat o code. Una solicitud que nombra un alias la atiende el modelo al que apunta, así las apps conectadas siguen funcionando cuando cambias de modelo. Activa “Cambiar de modelo según la solicitud” para que un alias pueda cargar su modelo.",
+          "Nombres cortos que los clientes de la API pueden usar en lugar del nombre completo del modelo.",
         namePlaceholder: "fast-chat",
         nameAriaLabel: "Nombre del alias",
         modelAriaLabel: "Modelo al que apunta el alias",
@@ -2330,6 +2339,13 @@ export const es419 = {
         add: "Agregar alias",
         loadError: "No se pudieron cargar los alias de modelos.",
         saveError: "No se pudieron guardar los alias de modelos.",
+        contextLength: "Longitud de contexto",
+        kvCacheType: "Tipo de caché KV",
+        speculativeDecoding: "Decodificación especulativa",
+        savedSetting: "Configuración guardada",
+        loadSettings: "Configuración de carga",
+        loadSettingsHint:
+          "Solo para modelos GGUF. Los campos vacíos usan la configuración guardada del modelo.",
       },
       previewSharing: {
         sectionTitle: "Compartir vista previa",
@@ -2424,6 +2440,15 @@ export const es419 = {
         loadError: "No se pudo cargar la opción de ejecutar al iniciar sesión.",
         saveError:
           "No se pudo actualizar la opción de ejecutar al iniciar sesión.",
+      },
+      power: {
+        sectionTitle: "Energía",
+        keepAwake: "Mantener la computadora activa",
+        keepAwakeDescription:
+          "Evita que esta computadora entre en suspensión por sí sola mientras Unsloth está en ejecución. La pantalla puede apagarse de todos modos.",
+        keepAwakeKeywords: "suspensión reposo hibernar energía sleep caffeinate",
+        loadError: "No se pudo cargar la opción de mantener la computadora activa.",
+        saveError: "No se pudo actualizar la opción de mantener la computadora activa.",
       },
       hub: {
         source: "Origen de los modelos",
@@ -3426,6 +3451,10 @@ export const es419 = {
         fitOnDeviceOnly: "Mostrar solo modelos que caben",
         fitOnDeviceOnlyDescription:
           "Oculta en el selector de modelos y en el Hub los modelos demasiado grandes para la memoria de GPU y la RAM de este dispositivo. Los modelos descargados siguen visibles.",
+        pickerExpandLoaded: "Mostrar la lista completa de modelos",
+        pickerExpandLoadedDescription: "Abre el selector de modelos en la lista completa mientras hay un modelo cargado, en lugar de solo el modelo cargado. Expandir o contraer el selector también cambia esta opción.",
+        pickerMonochromeIcons: "Iconos de modelos monocromáticos",
+        pickerMonochromeIconsDescription: "Muestra los logotipos de modelos y proveedores en negro, blanco y gris en el selector de modelos.",
       },
       menu: {
         title: "Menú del chat",
@@ -5244,6 +5273,118 @@ export const es419 = {
       "Cada skill vuelve a como está en una instalación nueva: tus skills y las de Claude activadas, las incluidas desactivadas. Se borran tus elecciones de activar y desactivar.",
     reset: "Restablecer",
   },
+  translate: {
+    title: "Traducir",
+    detectLanguage: "Detectar idioma",
+    detectedLanguage: "{language} (detectado)",
+    detectedTab: "{language} - Detectado",
+    sourceLanguage: "Traducir de",
+    targetLanguage: "Traducir a",
+    recentTargets: "Recientes",
+    swap: "Intercambiar idiomas",
+    swapNeedsSource: "Elige un idioma de origen para intercambiar",
+    searchLanguages: "Buscar idiomas",
+    noLanguages: "No se encontraron idiomas",
+    translate: "Traducir",
+    stop: "Detener",
+    sourceLabel: "Texto para traducir",
+    sourcePlaceholder: "Escribe o pega texto, o suelta un documento o una imagen",
+    outputLabel: "Traducción",
+    outputEmpty: "La traducción aparece aquí.",
+    firstRunHint:
+      "La primera traducción descarga {model} ({size}). Después se ejecuta en este dispositivo, sin conexión.",
+    charLimit: "Máx. {max} caracteres",
+    readingFile: "Leyendo {name}…",
+    downloadConfirmTitle: "¿Descargar {model}?",
+    downloadConfirm: "Descargar",
+    clear: "Borrar",
+    paste: "Pegar",
+    openFile: "Abrir un documento o una imagen",
+    dropFile: "Suelta un archivo para traducir su texto",
+    fileNotText: "Este archivo no tiene texto para traducir.",
+    truncated: "Solo se conservaron los primeros {max} caracteres.",
+    copy: "Copiar traducción",
+    copied: "Copiado",
+    useAsSource: "Traducir este texto",
+    stale:
+      "El texto o la configuración cambiaron. Vuelve a traducir para actualizar.",
+    stopped: "Se detuvo antes del final. Traduce de nuevo para obtener el resto.",
+    chat: "Chatear con el texto traducido",
+    promptLabel: "Prompt",
+    promptHint: "{target} y {source} se reemplazan por los idiomas que elegiste. El texto a traducir se agrega después de estas instrucciones.",
+    promptEdited: "Editado: Estilo y Tono ya no lo modifican.",
+    promptReset: "Restablecer",
+    dictate: "Dictar",
+    stopDictating: "Detener el dictado",
+    readAloud: "Leer en voz alta",
+    stopReading: "Detener la lectura",
+    status: {
+      preparing: "Preparando…",
+      downloading: "Descargando {model}",
+      downloadProgress: "{done} de {total}",
+      loading: "Cargando {model}…",
+      translating: "Traduciendo…",
+      translatingPart: "Traduciendo la parte {part} de {parts}…",
+    },
+    model: {
+      label: "Modelo de traducción",
+      fast: "Rápido",
+      quality: "Mejor calidad",
+      chat: "Modelo de chat",
+      recommended: "Recomendados",
+      yourModels: "Tus modelos",
+      browse: "Explorar todos los modelos…",
+      downloadSize: "Descarga de {size}",
+      downloaded: "Descargado",
+      loaded: "Cargado",
+      eject: "Expulsar modelo",
+    },
+    options: {
+      label: "Opciones",
+      mode: "Estilo",
+      modeAutomatic: "Automático",
+      modeLiteral: "Literal",
+      modeSemantic: "Natural",
+      tone: "Tono",
+      toneDefault: "Predeterminado",
+      toneFormal: "Formal",
+      toneCasual: "Informal",
+      auto: "Traducir mientras escribes",
+      autoDescription:
+        "Comienza cuando el modelo está cargado. Escribir nunca inicia una descarga.",
+      saveHistory: "Guardar historial",
+      saveHistoryDescription: "Se guarda solo en este navegador.",
+      showPrompt: "Mostrar prompt",
+      showPromptDescription:
+        "Consulta las instrucciones exactas enviadas al modelo.",
+    },
+    history: {
+      title: "Historial",
+      search: "Buscar en el historial",
+      empty: "Tus traducciones aparecen aquí.",
+      noMatches: "Ninguna traducción coincide.",
+      clearAll: "Borrar todo",
+      clearTitle: "¿Borrar el historial de traducciones?",
+      clearDescription:
+        "Esto elimina todas las traducciones guardadas de este navegador.",
+      delete: "Eliminar traducción",
+      export: "Exportar",
+      chatRecent: "Chatear con las traducciones recientes",
+    },
+    errors: {
+      title: "No se pudo traducir",
+      noChatModel:
+        "No hay ningún modelo de chat cargado. Carga uno en Chat o elige un modelo de traducción.",
+      downloadFailed:
+        "No se pudo descargar el modelo. Revisa Descargas en el Centro de modelos y vuelve a intentarlo.",
+      loadFailed: "No se pudo cargar el modelo. Puede que el archivo esté dañado o que no haya suficiente memoria. Prueba con otro modelo o descárgalo de nuevo.",
+      unavailable:
+        "La conexión de este modelo no está disponible. Revísala en Configuración o elige otro modelo.",
+      cutOff: "La traducción se cortó antes de terminar.",
+      filtered: "El filtro de contenido del proveedor detuvo la traducción.",
+      exportFailed: "No se pudo exportar el historial.",
+    },
+  },
   scheduledTasks: {
     title: "Programadas",
     description:
@@ -5296,6 +5437,7 @@ export const es419 = {
       intervalHours: "Intervalo (horas)",
       hourlyNote: "La primera ejecución ocurre un intervalo después de guardar. Cambiar el intervalo o reanudar reinicia la espera.",
       createTitle: "Programar una tarea",
+      repliesInChat: "Cada ejecución responde en “{title}”.",
       editTitle: "Editar tarea programada",
       name: "Nombre",
       namePlaceholder: "Nombre (opcional)",
@@ -5811,6 +5953,12 @@ export const es419 = {
       readVideoFailed: "No se pudo leer el video ({status}).",
       openFileFailed: "No se pudo abrir el archivo",
     },
+  },
+  exportTabs: {
+    ariaLabel: "Tipo de exportación",
+    llm: "LLM",
+    diffusionLora: "Diffusion LoRA",
+    q4nx: "Convertir a Q4NX",
   },
   exportDecision: {
     title: "Modelo de decisión",
