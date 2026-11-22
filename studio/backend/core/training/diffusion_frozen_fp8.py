@@ -108,11 +108,12 @@ class Fp8BackwardWeights:
         self.hits = 0
         self.misses = 0
 
-    @staticmethod
-    def enabled() -> bool:
-        return (
-            os.environ.get("UNSLOTH_DIFFUSION_FP8_BWD_CACHE", "") or "1"
-        ).strip().lower() not in (
+    ENV = "UNSLOTH_DIFFUSION_FP8_BWD_CACHE"
+    STAT_PREFIX = "fp8_bwd"
+
+    @classmethod
+    def enabled(cls) -> bool:
+        return (os.environ.get(cls.ENV, "") or "1").strip().lower() not in (
             "0",
             "false",
             "off",
@@ -144,12 +145,13 @@ class Fp8BackwardWeights:
         return qcm
 
     def stats(self) -> dict:
+        p = self.STAT_PREFIX
         return {
-            "fp8_bwd_cached_gib": round(self.used / (1 << 30), 3),
-            "fp8_bwd_budget_gib": round(self.budget / (1 << 30), 3),
-            "fp8_bwd_layers": len(self.entries),
-            "fp8_bwd_hits": self.hits,
-            "fp8_bwd_misses": self.misses,
+            f"{p}_cached_gib": round(self.used / (1 << 30), 3),
+            f"{p}_budget_gib": round(self.budget / (1 << 30), 3),
+            f"{p}_layers": len(self.entries),
+            f"{p}_hits": self.hits,
+            f"{p}_misses": self.misses,
         }
 
 
@@ -266,9 +268,14 @@ class FrozenFp8Linear(nn.Module):
         return f"in_features={self.in_features}, out_features={self.out_features}, fp8"
 
 
-def convert_frozen_fp8(model: nn.Module, names) -> tuple[int, int]:
+def convert_frozen_fp8(
+    model: nn.Module,
+    names,
+    device = None,
+) -> tuple[int, int]:
     """Swap each frozen nn.Linear in ``names`` for FrozenFp8Linear one at a time (bounds peak memory); a layer that
-    fails stays bf16 rather than raising mid-conversion. Returns (converted, failed)."""
+    fails stays bf16 rather than raising mid-conversion. With ``device``, a host Linear moves there first, so a
+    host-resident base lands as fp8 without ever being whole in bf16 on the device. Returns (converted, failed)."""
     done = failed = 0
     for fqn in sorted(names):
         parent_name, _, child = fqn.rpartition(".")
@@ -276,6 +283,8 @@ def convert_frozen_fp8(model: nn.Module, names) -> tuple[int, int]:
         old = getattr(parent, child)
         if type(old) is not nn.Linear or old.weight.requires_grad:
             continue
+        if device is not None and old.weight.device.type == "cpu":
+            old.to(device)
         try:
             new = FrozenFp8Linear(old)
         except (RuntimeError, ValueError):

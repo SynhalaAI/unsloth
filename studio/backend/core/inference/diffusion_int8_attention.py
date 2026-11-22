@@ -47,6 +47,7 @@ from __future__ import annotations
 import math
 import os
 import threading
+import weakref
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Callable, Optional
@@ -78,6 +79,7 @@ LOG2E = 1.4426950408889634
 
 # Per CUDA capability and head dim: keys per tile (bn), warps (wpc), 16-row query tiles per warp (nq), smem stages,
 # qreg (2 = Q from global memory: sm75 has 64 KB smem per SM), flush_tail placement and an optional register cap.
+# sinks: overrides of those orderings for the sink-path kernel only (same bits; ``SINK_ORDER_ENV=0`` drops them).
 # qkw / pvw / spread pick the order the products and the tile copies are issued in (see the kernel source): they
 # move no output bit, so they are per card too.
 # long_keys / long: overrides from that many keys on (select_config). A card runs one block per SM, so a call of a
@@ -106,7 +108,16 @@ KERNEL_CONFIGS: dict = {
         64: {"bn": 128, "wpc": 4, "nq": 2, "stages": 2, "qreg": 1},
     },
     (8, 9): {
-        128: {"bn": 128, "wpc": 12, "nq": 1, "stages": 2, "max_registers": 168},
+        128: {
+            "bn": 128,
+            "wpc": 12,
+            "nq": 1,
+            "stages": 2,
+            "max_registers": 168,
+            # L4, B 1 H 24 at 4096 / 4176 / 4608 tokens, sink path with the fold: 1.3-1.9% per call sustained,
+            # 1.6-5.2% in short bursts; the plain kernel is not faster with it (0.8% slower sustained at 4096)
+            "sinks": {"flush_tail": 1, "qkw": 1, "pvw": 8, "spread": 5},
+        },
         64: {
             "bn": 128,
             "wpc": 4,
@@ -241,6 +252,26 @@ def _dtype_kinds() -> dict:
     # filled in one step: a concurrent first call never sees a partial table
     _KINDS.update({getattr(torch, name.split(".", 1)[1]): kind for name, kind in _OUT_KIND.items()})
     return _KINDS
+
+
+SINK_ORDER_ENV = "UNSLOTH_DIFFUSION_INT8_ATTENTION_SINK_ORDER"
+# the orderings a ``sinks`` override may set: none of them moves an output bit (see the kernel source)
+SINK_ORDER_KEYS = ("flush_tail", "qkw", "pvw", "spread")
+
+
+def sink_order_enabled() -> bool:
+    """Whether a config's ``sinks`` overrides reach the sink-path kernel (``SINK_ORDER_ENV``)."""
+    return (os.environ.get(SINK_ORDER_ENV) or "").strip().lower() not in ("0", "off", "false", "no")
+
+
+def kernel_variant(config: dict, sinks: bool) -> dict:
+    """The plain config one compiled kernel is named by: ``select_config(config, 0)`` without the ``sinks`` entry,
+    with its orderings applied for the sink-path kernel."""
+    chosen = select_config(config, 0)
+    override = chosen.pop("sinks", None)
+    if sinks and override and sink_order_enabled():
+        chosen.update({key: value for key, value in override.items() if key in SINK_ORDER_KEYS})
+    return chosen
 
 
 def resid_fold_enabled() -> bool:
@@ -545,9 +576,8 @@ def _functions(
 ) -> tuple:
     """(attention kernel, quantiser kernels, shared bytes), with or without the sink path (``fold``: its kernel adds
     the clipped keys back itself, default ``resid_fold_enabled()``); compiled on first use."""
-    config = select_config(
-        config, 0
-    )  # a config with long overrides names its kernel for short sequences
+    # a config with long overrides names its kernel for short sequences; the sink-path kernel takes its orderings
+    config = kernel_variant(config, sinks)
     # default = the plan's own choice (_plan): folded only for RESID_FOLD_HEAD_DIMS, so kernel_function and the
     # config-fit tests see the kernel a sink-path call of this head dim actually launches
     if fold is None:
@@ -656,17 +686,38 @@ def _sink_unsafe() -> set:
 _GRAPHED = [False]
 # (card, head dim, raise_floor) per raced route; a torch verdict raises the floor so those calls leave the op
 _ROUTES: list = []
+# A prune is read-filter-write: unlocked, a register on another thread could be dropped
+_ROUTES_LOCK = threading.Lock()
+
+
+def _route_alive(raise_floor: Callable) -> bool:
+    alive = getattr(raise_floor, "alive", None)
+    return alive is None or bool(alive())
+
+
+def _prune_locked() -> None:
+    _ROUTES[:] = [route for route in _ROUTES if _route_alive(route[2])]
+
+
+def _prune_routes() -> None:
+    with _ROUTES_LOCK:
+        _prune_locked()
 
 
 def register_route(index: int, head_dim: int, raise_floor: Callable) -> None:
-    _ROUTES.append((int(index), int(head_dim), raise_floor))
+    with _ROUTES_LOCK:
+        _prune_locked()
+        _ROUTES.append((int(index), int(head_dim), raise_floor))
 
 
 def _drop_routes(plan: dict) -> None:
     _, Sq, Sk, _, D = plan["shape"]
     floor = (min(Sq, Sk) // DECIDE_BUCKET + 1) * DECIDE_BUCKET
     restored = raised = 0
-    for index, head_dim, raise_floor in list(_ROUTES):
+    with _ROUTES_LOCK:
+        _prune_locked()
+        routes = list(_ROUTES)
+    for index, head_dim, raise_floor in routes:
         if index == plan["index"] and head_dim == D:
             if raise_floor(floor):
                 restored += 1
@@ -685,11 +736,24 @@ def _drop_routes(plan: dict) -> None:
         )
 
 
+def _weak(obj: Any) -> Callable:
+    try:
+        return weakref.ref(obj)
+    except TypeError:
+        return lambda: obj
+
+
 def _raise_processor_floor(proc: Any, module: Any = None) -> Callable:
     """A processor that replaced a stock one for the kernel (``_unsloth_stock``) gives the module that one back, so
-    its calls compile as they did before the install; any other raises its token floor."""
+    its calls compile as they did before the install; any other raises its token floor. Held weakly: a
+    strong ref in ``_ROUTES`` kept unloaded attention weights (1.7 GB on FLUX.3 klein INT8) on the card."""
+    proc_ref, module_ref = _weak(proc), _weak(module) if module is not None else None
 
     def raise_floor(tokens: int) -> bool:
+        proc = proc_ref()
+        if proc is None:
+            return False
+        module = module_ref() if module_ref is not None else None
         stock = getattr(proc, "_unsloth_stock", None)
         if stock is not None and module is not None and getattr(module, "processor", None) is proc:
             module.processor = stock
@@ -699,14 +763,16 @@ def _raise_processor_floor(proc: Any, module: Any = None) -> Callable:
         )
         return False
 
+    raise_floor.alive = lambda: proc_ref() is not None
     return raise_floor
 
 
 def _config_key(config: dict) -> tuple:
     """``config`` by value, hashable (its ``long`` overrides are a dict)."""
-    long = config.get("long")
-    if long is not None:
-        config = {**config, "long": tuple(sorted(long.items()))}
+    for name in ("long", "sinks"):
+        value = config.get(name)
+        if value is not None:
+            config = {**config, name: tuple(sorted(value.items()))}
     return tuple(sorted(config.items()))
 
 
@@ -911,7 +977,8 @@ def forget_plans() -> None:
     _plans().clear()
     _decisions().clear()
     _sink_unsafe().clear()
-    _ROUTES.clear()
+    with _ROUTES_LOCK:
+        _ROUTES.clear()
     _GRAPHED[0] = False
 
 
