@@ -46,6 +46,7 @@ _MAPPER_HELPERS = {
 
 from transformers import __version__ as transformers_version
 from unsloth.models._utils import TorchAOConfig
+from ..import_fixes import unsloth_logging_enabled
 from unsloth_zoo.utils import Version, get_quant_type
 from .packed_expert_loader import quantize_moe_experts_if_requested  # noqa: F401  (re-exported)
 import gc
@@ -203,6 +204,47 @@ def fsdp2_keeps_fused_lora():
     ):
         return False
     return fsdp2_requested()
+
+
+# Pre-quantized bnb 4-bit repos whose fused MoE experts are bare Params4bit stacks. They store the dtype they were
+# quantized in, so without unsloth_zoo's patching_utils.BARE_PARAMS4BIT_COMPUTE_DTYPE a float16 GPU dequantizes their
+# experts in bfloat16 (2x T4: 36.5 vs 24.1 s per step, about 1.2 GB more per card). An older zoo keeps quantize-on-load.
+_BARE_4BIT_EXPERT_REPOS = frozenset(("unsloth/inkling-2-mini-unsloth-bnb-4bit",))
+
+
+def _zoo_sets_bare_4bit_compute_dtype():
+    """unsloth_zoo gives fused 4-bit expert stacks (bare Params4bit) the compute dtype (older ones keep the saved one)."""
+    try:
+        from unsloth_zoo import patching_utils
+    except Exception:
+        return False
+    return getattr(patching_utils, "BARE_PARAMS4BIT_COMPUTE_DTYPE", False) is True
+
+
+def _complete_in_cache(repo_id, cache_dir = None):
+    """config.json and every safetensors shard of `repo_id` (default revision) are in the local Hub cache."""
+    import json
+    try:
+        from huggingface_hub import try_to_load_from_cache
+
+        if cache_dir is None:
+            from transformers.utils import hub as _tf_hub
+            cache_dir = getattr(_tf_hub, "TRANSFORMERS_CACHE", None)
+
+        def cached(filename):
+            path = try_to_load_from_cache(repo_id, filename, cache_dir = cache_dir)
+            return path if isinstance(path, str) else None
+
+        if cached("config.json") is None:
+            return False
+        index = cached("model.safetensors.index.json")
+        if index is None:
+            return cached("model.safetensors") is not None
+        with open(index, encoding = "utf-8") as f:
+            shards = set(json.load(f)["weight_map"].values())
+        return bool(shards) and all(isinstance(s, str) and cached(s) is not None for s in shards)
+    except Exception:
+        return False
 
 
 def _zoo_gathers_fsdp2_lora():
@@ -854,6 +896,16 @@ def _as_bytes(size):
     return None
 
 
+def _placement_report(plan):
+    """One line by default (unsloth_zoo's DeviceMapPlan.summary); the planner's full table with
+    UNSLOTH_ENABLE_LOGGING on (any value Unsloth accepts), or from an older unsloth_zoo without
+    summary()."""
+    summary = getattr(plan, "summary", None)
+    if unsloth_logging_enabled() or not callable(summary):
+        return plan.describe()
+    return summary()
+
+
 def resolve_unsloth_device_map(
     device_map,
     model_name,
@@ -996,7 +1048,8 @@ def resolve_unsloth_device_map(
             f'to train. Pass device_map = "{UNSLOTH_BALANCED_DEVICE_MAP}" to split it anyway.'
         )
         return {"": single_device}
-    print(plan.describe())
+    # A plan that does not fit raised DeviceMapInfeasible above with its whole arithmetic.
+    print(_placement_report(plan))
     return plan.device_map
 
 
@@ -1186,7 +1239,7 @@ def resolve_auto_block_swap(
     if not plan.layers:
         return 0, device_map, embedding
     if multi and plan.device_plan is not None:
-        print(plan.device_plan.describe())
+        print(_placement_report(plan.device_plan))
         return plan.layers, plan.device_plan.device_map, embedding
     return plan.layers, {"": target}, embedding
 
@@ -2032,6 +2085,24 @@ def get_model_name(
     elif new_model_name is None and model_name.lower() in BAD_MAPPINGS:
         # Some bad names (the -unsloth-bnb-4bit dynamic quants) are keys of the mappers, not values, so the resolver returns None and the remap above is skipped; remap the input name directly.
         new_model_name = BAD_MAPPINGS[model_name.lower()]
+
+    if (
+        load_in_4bit
+        and type(new_model_name) is str
+        and new_model_name.lower() in _BARE_4BIT_EXPERT_REPOS
+        and new_model_name.lower() != str(model_name).lower()
+        and (
+            not _zoo_sets_bare_4bit_compute_dtype()
+            or (
+                (local_files_only or _env_says_offline())
+                and not _complete_in_cache(new_model_name, cache_dir)
+            )
+        )
+    ):
+        # Mapped to the pre-quantized repo, but this unsloth_zoo would dequantize its experts in the saved dtype, or
+        # an offline load has not cached it: load the requested checkpoint and quantize on load, as before. Not
+        # None, so the fetched mapper is not probed.
+        new_model_name = str(model_name)
 
     if (
         new_model_name is None

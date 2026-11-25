@@ -6307,6 +6307,72 @@ const Composer: FC<{
     [],
   );
   const toolStatus = useMemo(() => <ToolStatusDisplay />, []);
+  // Read send/dictate at click time so the controls survive keystrokes without re-running the picker.
+  const rightControlHandlersRef = useRef({ handleSubmit, startDictation });
+  useLayoutEffect(() => {
+    rightControlHandlersRef.current = { handleSubmit, startDictation };
+  });
+  const onRightControlsSend = useCallback(
+    (event: { preventDefault: () => void }) =>
+      rightControlHandlersRef.current.handleSubmit(event),
+    [],
+  );
+  const onRightControlsQueue = useCallback(
+    () => formRef.current?.requestSubmit(),
+    [],
+  );
+  const onRightControlsDictate = useCallback(
+    () => rightControlHandlersRef.current.startDictation(),
+    [],
+  );
+  const rightControlsDisabled =
+    disabled || !hasSendableContent || isComposing || hasPendingAttachments;
+  // disableQueue makes running threads show Stop instead of Queue.
+  const rightControlsQueueDisabled =
+    disableQueue ||
+    !(
+      canQueueCurrentPrompt ||
+      canQueueTextAttachmentsPrompt ||
+      canQueueAttachmentPrompt
+    );
+  const audioUploadBusy = audioUpload.busy;
+  const rightControls = useMemo(
+    () => (
+      <ComposerRightControls
+        disabled={rightControlsDisabled}
+        dictationDisabled={dictationEntryDisabled}
+        queueDisabled={rightControlsQueueDisabled}
+        onQueueClick={onRightControlsQueue}
+        // ComposerPrimitive.Send skips form submit, so run the full queue and capacity path.
+        onSendClick={onRightControlsSend}
+        onStopClick={stopQueue}
+        onResumeClick={resumeQueue}
+        onDictateClick={onRightControlsDictate}
+        isModelAudio={isAudioInputModel}
+        audioUploadBusy={audioUploadBusy}
+        onAudioUploadCancel={cancelAudioUpload}
+        pendingSend={pendingSend}
+        menuSide={effectiveMenuSide}
+        queueThreadIds={promptQueueThreadIds}
+      />
+    ),
+    [
+      rightControlsDisabled,
+      dictationEntryDisabled,
+      rightControlsQueueDisabled,
+      onRightControlsQueue,
+      onRightControlsSend,
+      stopQueue,
+      resumeQueue,
+      onRightControlsDictate,
+      isAudioInputModel,
+      audioUploadBusy,
+      cancelAudioUpload,
+      pendingSend,
+      effectiveMenuSide,
+      promptQueueThreadIds,
+    ],
+  );
   const documentsBar = useMemo(
     () => (
       <ThreadDocumentsBar
@@ -6455,35 +6521,7 @@ const Composer: FC<{
                 </TooltipIconButton>
               )}
             </div>
-            <ComposerRightControls
-              disabled={
-                disabled ||
-                !hasSendableContent ||
-                isComposing ||
-                hasPendingAttachments
-              }
-              dictationDisabled={dictationEntryDisabled}
-              // disableQueue makes running threads show Stop instead of Queue.
-              queueDisabled={
-                disableQueue ||
-                !(
-                  canQueueCurrentPrompt ||
-                  canQueueTextAttachmentsPrompt ||
-                  canQueueAttachmentPrompt
-                )
-              }
-              onQueueClick={() => formRef.current?.requestSubmit()}
-              // ComposerPrimitive.Send skips form submit, so run the full queue and capacity path.
-              onSendClick={handleSubmit}
-              onStopClick={stopQueue}
-              onResumeClick={resumeQueue}
-              onDictateClick={startDictation}
-              isModelAudio={isAudioInputModel}
-              audioUpload={audioUpload}
-              pendingSend={pendingSend}
-              menuSide={effectiveMenuSide}
-              queueThreadIds={promptQueueThreadIds}
-            />
+            {rightControls}
           </>
         )}
       </div>
@@ -7692,7 +7730,8 @@ const ComposerRightControls: FC<{
   onResumeClick?: () => void;
   onDictateClick?: () => void;
   isModelAudio?: boolean;
-  audioUpload: ReturnType<typeof useChatAudioUpload>;
+  audioUploadBusy: boolean;
+  onAudioUploadCancel: () => void;
   pendingSend?: boolean;
   menuSide?: "top" | "bottom";
   queueThreadIds: string[];
@@ -7706,7 +7745,8 @@ const ComposerRightControls: FC<{
   onResumeClick,
   onDictateClick,
   isModelAudio,
-  audioUpload,
+  audioUploadBusy,
+  onAudioUploadCancel,
   pendingSend,
   menuSide,
   queueThreadIds,
@@ -7837,7 +7877,7 @@ const ComposerRightControls: FC<{
     >
       <ComposerModelPicker side={menuSide} />
       <ComposerPrimitive.If dictation={false}>
-        {audioUpload.busy ? (
+        {audioUploadBusy ? (
           <Button
             type="button"
             variant="ghost"
@@ -7845,7 +7885,7 @@ const ComposerRightControls: FC<{
             className="h-9 gap-1.5 rounded-full px-2.5 text-muted-foreground"
             aria-label={t("settings.voice.dictation.audioUploadCancel")}
             title={t("settings.voice.dictation.audioUploadCancel")}
-            onClick={audioUpload.cancel}
+            onClick={onAudioUploadCancel}
           >
             <Spinner className="size-4" />
             <span>{t("settings.voice.dictation.audioUploadTranscribing")}</span>

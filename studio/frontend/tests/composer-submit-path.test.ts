@@ -445,6 +445,21 @@ test("an audio-only composer still dispatches, because the clip is an attachment
   assert.ok(!calls.includes("release"), "a live send keeps its reservation");
 });
 
+test("the composer's right controls keep their element across keystrokes", () => {
+  const memo = text.slice(
+    text.indexOf("const rightControls = useMemo("),
+    text.indexOf("const documentsBar = useMemo("),
+  );
+  assert.match(memo, /<ComposerRightControls/);
+  for (const prop of ["onSendClick", "onDictateClick", "onQueueClick"]) {
+    assert.match(memo, new RegExp(`${prop}=\\{onRightControls\\w+\\}`));
+  }
+  assert.match(memo, /audioUploadBusy=\{audioUploadBusy\}/);
+  assert.doesNotMatch(memo, /audioUpload=\{|=\{\(\) =>|=\{handleSubmit\}|=\{startDictation\}/);
+  assert.match(text, /rightControlHandlersRef\.current = \{ handleSubmit, startDictation \};/);
+  assert.match(text, /\{rightControls\}/);
+});
+
 test("main, edit and comparison composers use the setting and expose settings access", () => {
   assert.match(text, /submitMode="none"/);
   assert.match(
@@ -453,8 +468,9 @@ test("main, edit and comparison composers use the setting and expose settings ac
   );
   assert.match(
     text,
-    /onQueueClick=\{\(\) => formRef.current\?\.requestSubmit\(\)\}/,
+    /const onRightControlsQueue = useCallback\(\s*\(\) => formRef\.current\?\.requestSubmit\(\),/,
   );
+  assert.match(text, /onQueueClick=\{onRightControlsQueue\}/);
   assert.match(text, /scrollTarget: "chat-composer"/);
   const compare = readSrc("features/chat/shared-composer.tsx");
   assert.match(

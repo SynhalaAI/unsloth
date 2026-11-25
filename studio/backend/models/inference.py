@@ -48,6 +48,26 @@ from utils.reasoning_budget import validate_reasoning_budget_message
 _VIDEO_REFERENCE_AUDIO_MAX_CHARS = ((24 * 1024 * 1024 + 2) // 3) * 4 + 64 * 1024
 
 
+def strip_named_quant(request):
+    variant = request.gguf_variant
+    if not variant and ":" in request.model_path:
+        from core.inference.openai_auto_download import looks_like_quant
+
+        # A listed repo:QUANT handle loads that quant.
+        named = request.model_path.rsplit(":", 1)[1]
+        variant = named if looks_like_quant(named) else None
+    if variant and request.model_path.lower().endswith(f":{variant.lower()}"):
+        from hub.utils.paths import is_valid_repo_id
+        repo = request.model_path[: -len(variant) - 1]
+        if "/" in repo and is_valid_repo_id(repo):
+            if hasattr(request, "gguf_variant") and not request.gguf_variant:
+                request.gguf_variant = variant
+            if "_submitted_model_path" in type(request).__private_attributes__:
+                request._submitted_model_path = request.model_path
+            request.model_path = repo
+    return request
+
+
 def resolve_inventory_handle(value: str) -> str:
     """Turn a `ref:...` inventory identity back into the path it stands for. A reference this
     process did not issue is left as it arrived. Decides nothing about authorization."""
@@ -110,6 +130,7 @@ class LoadRequest(BaseModel):
     _override_alias_id: Optional[str] = PrivateAttr(default = None)
     # The catalog id a load by path should keep advertising (Open WebUI /models/load).
     _advertised_id: Optional[str] = PrivateAttr(default = None)
+    _submitted_model_path: Optional[str] = PrivateAttr(default = None)
     load_request_id: Optional[str] = Field(
         None,
         min_length = 1,
@@ -170,6 +191,7 @@ class LoadRequest(BaseModel):
     )
 
     _resolve_the_handle = field_validator("model_path")(resolve_inventory_handle)
+    _strip_named_quant = model_validator(mode = "after")(strip_named_quant)
 
     @field_validator("engram_precision", mode = "before")
     @classmethod
@@ -763,6 +785,7 @@ class ValidateModelRequest(BaseModel):
     model_path: str = Field(..., description = "Model identifier or local path")
     # The same inventory handle the picker was shown; see `resolve_inventory_handle`.
     _resolve_the_handle = field_validator("model_path")(resolve_inventory_handle)
+    _strip_named_quant = model_validator(mode = "after")(strip_named_quant)
     native_path_lease: Optional[str] = Field(
         None, description = "Frontend-visible signed native path grant"
     )
@@ -2514,6 +2537,10 @@ class InferenceStatusResponse(_InferenceRuntimeFields):
         default_factory = list,
         description = "The checkpoint id each serving entry is loaded from, in the same order: "
         "the path of a local model, else the same id. Load, select and unload by this one.",
+    )
+    serving_quants: List[Optional[str]] = Field(
+        default_factory = list,
+        description = "The GGUF quant each serving entry runs, in the same order; null when it has none.",
     )
     inference: Optional[Dict[str, Any]] = Field(
         None, description = "Recommended inference parameters for the active model"
@@ -5697,6 +5724,15 @@ class DiffusionGenerateRequest(BaseModel):
         description = "How far toward the variation seed's noise: 0 = off, 1 = the variation seed alone. "
         "With a batch, every image keeps the seed and image i uses variation_seed + i.",
     )
+    cfg_interval_end: Optional[float] = Field(
+        None,
+        gt = 0.0,
+        le = 1.0,
+        description = "Fast CFG (lossy, off by default): fraction of the denoising steps after which "
+        "the unconditional branch is skipped, e.g. 0.8 runs CFG for the first 80% of the steps and the "
+        "conditional branch alone for the rest (about 10% faster at 50 steps on FLUX.3 Klein base). Only "
+        "on models whose status has supports_cfg_interval; omitted or 1 keeps full CFG.",
+    )
     shift: Optional[float] = Field(
         None,
         gt = 0.0,
@@ -6017,6 +6053,9 @@ class GalleryImage(BaseModel):
     )
     variation_strength: Optional[float] = Field(
         None, description = "Variation strength; null = no variation"
+    )
+    cfg_interval_end: Optional[float] = Field(
+        None, description = "Fast CFG step fraction the image used; null = full CFG"
     )
     shift: Optional[float] = Field(
         None, description = "Requested static flow shift; null = the model's"
@@ -6652,6 +6691,10 @@ class DiffusionStatusResponse(BaseModel):
         "{prompt_weighting, clip_skip {min, max, default, same_as_default_through}, cfg_rescale "
         "{min, max, default, recommended}, variation_seed, vary_strength, prediction_type}. Null when "
         "the loaded model has none of them (every non-SDXL family, the native and MLX engines).",
+    )
+    supports_cfg_interval: bool = Field(
+        False,
+        description = "Whether generate accepts cfg_interval_end (Fast CFG) for the loaded model.",
     )
     shift_control: Optional[Dict[str, Any]] = Field(
         None,
