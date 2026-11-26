@@ -42,6 +42,7 @@ interface ChartsSectionProps {
   grpoCompletionLengthHistory?: TrainingSeriesPoint[];
   grpoClipRatioHistory?: TrainingSeriesPoint[];
   preferenceMethod?: PreferenceTrainingMethod | null;
+  grpoKlThreshold?: number | null;
 }
 
 export function ChartsSection({
@@ -69,6 +70,7 @@ export function ChartsSection({
   grpoCompletionLengthHistory = [],
   grpoClipRatioHistory = [],
   preferenceMethod,
+  grpoKlThreshold,
 }: ChartsSectionProps): ReactElement | null {
   const series = useMemo(
     () => ({
@@ -200,6 +202,7 @@ export function ChartsSection({
         metrics={series}
         evalEnabled={evalEnabled}
         preferenceMethod={preferenceMethod}
+        grpoKlThreshold={grpoKlThreshold}
       />
     </Suspense>
   );

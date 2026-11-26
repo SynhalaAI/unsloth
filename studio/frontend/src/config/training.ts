@@ -171,6 +171,8 @@ export const DEFAULT_HYPERPARAMS = {
   grpoLossType: "grpo" as const,
   grpoRewardFuncs: ["answer_match", "answer_format"] as import("@/types/training").GrpoRewardFunc[],
   grpoUseVllm: false,
+  grpoKlEarlyStopThreshold: 0.0,
+  grpoKlEarlyStopPatience: 3,
   batchSize: 4,
   gradientAccumulation: 8,
   weightDecay: 0.001,

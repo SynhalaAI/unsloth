@@ -2414,6 +2414,8 @@ async def _admit_training_request(
         "grpo_loss_type": request.grpo_loss_type,
         "grpo_reward_funcs": list(request.grpo_reward_funcs),
         "grpo_use_vllm": request.grpo_use_vllm,
+        "grpo_kl_early_stop_threshold": request.grpo_kl_early_stop_threshold,
+        "grpo_kl_early_stop_patience": request.grpo_kl_early_stop_patience,
         "subset": request.subset,
         "train_split": request.train_split,
         "dataset_streaming": request.dataset_streaming,

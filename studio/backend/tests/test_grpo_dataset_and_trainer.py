@@ -224,3 +224,46 @@ def test_setup_grpo_trainer_patches_and_configures_trl(monkeypatch):
     assert trainer.args.remove_unused_columns is False
     assert trainer.args.loss_type == "dr_grpo"
     assert len(trainer.reward_funcs) == 2
+
+
+def test_grpo_kl_early_stopping_patience_and_reset():
+    class _State:
+        global_step = 0
+
+    class _Control:
+        should_training_stop = False
+
+    reasons: list[str] = []
+    cb = gt.GrpoKlEarlyStoppingCallback(
+        threshold = 0.5,
+        patience = 3,
+        on_trigger = reasons.append,
+    )
+    state, control = _State(), _Control()
+
+    for step, kl in [(1, 0.6), (2, 0.7), (3, 0.2), (4, 0.8), (5, 0.9)]:
+        state.global_step = step
+        cb.on_log(None, state, control, logs = {"kl": kl})
+        assert control.should_training_stop is False
+
+    # 3rd consecutive step above 0.5 triggers stop.
+    state.global_step = 6
+    cb.on_log(None, state, control, logs = {"kl": 0.95})
+    assert control.should_training_stop is True
+    assert cb.triggered is True
+    assert len(reasons) == 1
+    assert "step 6" in reasons[0]
+
+
+def test_grpo_kl_early_stopping_immediate_on_nan():
+    class _State:
+        global_step = 12
+
+    class _Control:
+        should_training_stop = False
+
+    cb = gt.GrpoKlEarlyStoppingCallback(threshold = 0.5, patience = 5)
+    state, control = _State(), _Control()
+    cb.on_log(None, state, control, logs = {"kl": float("nan")})
+    assert control.should_training_stop is True
+    assert cb.triggered is True

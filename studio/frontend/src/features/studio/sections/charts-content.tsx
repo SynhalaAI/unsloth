@@ -70,10 +70,12 @@ export function ChartsContent({
   metrics,
   evalEnabled,
   preferenceMethod,
+  grpoKlThreshold,
 }: {
   metrics: TrainingChartSeries;
   evalEnabled: boolean;
   preferenceMethod?: PreferenceTrainingMethod | null;
+  grpoKlThreshold?: number | null;
 }): ReactElement {
   const {
     windowSize,
@@ -493,7 +495,10 @@ export function ChartsContent({
         <GrpoRewardChartCard data={reducedGrpoRewardData} />
       )}
       {reducedGrpoKlData.length > 0 && (
-        <GrpoKlChartCard data={reducedGrpoKlData} />
+        <GrpoKlChartCard
+          data={reducedGrpoKlData}
+          klThreshold={grpoKlThreshold}
+        />
       )}
       {reducedGrpoCompletionLengthData.length > 0 && (
         <GrpoCompletionLengthChartCard

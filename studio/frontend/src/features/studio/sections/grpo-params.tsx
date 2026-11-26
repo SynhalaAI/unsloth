@@ -2,6 +2,7 @@
 // Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -99,6 +100,8 @@ export function GrpoParams({
   grpoLossType,
   grpoRewardFuncs,
   grpoUseVllm,
+  grpoKlEarlyStopThreshold,
+  grpoKlEarlyStopPatience,
   onNumGenerationsChange,
   onMaxCompletionLengthChange,
   onGrpoBetaChange,
@@ -108,6 +111,8 @@ export function GrpoParams({
   onGrpoLossTypeChange,
   onGrpoRewardFuncsChange,
   onGrpoUseVllmChange,
+  onGrpoKlEarlyStopThresholdChange,
+  onGrpoKlEarlyStopPatienceChange,
 }: {
   isMac: boolean;
   contextLength: number;
@@ -121,6 +126,8 @@ export function GrpoParams({
   grpoLossType: GrpoLossType;
   grpoRewardFuncs: GrpoRewardFunc[];
   grpoUseVllm: boolean;
+  grpoKlEarlyStopThreshold: number;
+  grpoKlEarlyStopPatience: number;
   onNumGenerationsChange: (value: number) => void;
   onMaxCompletionLengthChange: (value: number) => void;
   onGrpoBetaChange: (value: number) => void;
@@ -130,6 +137,8 @@ export function GrpoParams({
   onGrpoLossTypeChange: (value: GrpoLossType) => void;
   onGrpoRewardFuncsChange: (value: GrpoRewardFunc[]) => void;
   onGrpoUseVllmChange: (value: boolean) => void;
+  onGrpoKlEarlyStopThresholdChange: (value: number) => void;
+  onGrpoKlEarlyStopPatienceChange: (value: number) => void;
 }): ReactElement {
   const activeLossMeta =
     GRPO_LOSS_TYPE_OPTIONS.find((option) => option.value === grpoLossType) ??
@@ -330,6 +339,45 @@ export function GrpoParams({
           })}
         </div>
       </div>
+
+      <div className="flex flex-col gap-1">
+        <ParamsRow
+          label="KL early stop"
+          tooltip="Automatically stop GRPO if KL divergence exceeds this limit for consecutive steps (0 = off). Helps stop policy collapse early (typical: 0.5–1.0)."
+        >
+          <Input
+            type="number"
+            step="0.05"
+            min="0"
+            max="100"
+            value={grpoKlEarlyStopThreshold}
+            onChange={(event) => {
+              const val = Number(event.target.value);
+              onGrpoKlEarlyStopThresholdChange(
+                Number.isFinite(val) && val >= 0 ? val : 0,
+              );
+            }}
+            className="w-28 font-mono"
+          />
+        </ParamsRow>
+        <p className="text-ui-11p5 leading-relaxed text-muted-foreground">
+          {grpoKlEarlyStopThreshold > 0
+            ? `Stops training if KL > ${grpoKlEarlyStopThreshold} for ${grpoKlEarlyStopPatience} consecutive step${grpoKlEarlyStopPatience === 1 ? "" : "s"} (or immediately on NaN/Inf).`
+            : "0 = off. Set 0.5–1.0 to stop automatically if KL spikes and risks model collapse."}
+        </p>
+      </div>
+
+      {grpoKlEarlyStopThreshold > 0 && (
+        <ParamsSliderRow
+          label="KL patience (steps)"
+          tooltip="Number of consecutive logged steps above the KL threshold before stopping, so a single noisy step does not stop training."
+          value={grpoKlEarlyStopPatience}
+          onChange={onGrpoKlEarlyStopPatienceChange}
+          min={1}
+          max={20}
+          step={1}
+        />
+      )}
 
       <div className="flex items-center gap-2 pt-1">
         <Checkbox

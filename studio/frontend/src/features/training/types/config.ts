@@ -154,6 +154,8 @@ export interface TrainingConfigState {
   grpoLossType: GrpoLossType;
   grpoRewardFuncs: GrpoRewardFunc[];
   grpoUseVllm: boolean;
+  grpoKlEarlyStopThreshold: number;
+  grpoKlEarlyStopPatience: number;
   optimizerType: string;
   lrSchedulerType: string;
   loraRank: number;
@@ -334,6 +336,8 @@ export interface TrainingConfigActions {
   setGrpoLossType: (value: GrpoLossType) => void;
   setGrpoRewardFuncs: (value: GrpoRewardFunc[]) => void;
   setGrpoUseVllm: (value: boolean) => void;
+  setGrpoKlEarlyStopThreshold: (value: number) => void;
+  setGrpoKlEarlyStopPatience: (value: number) => void;
   setOptimizerType: (value: string) => void;
   setWhisperLanguage: (value: string | null) => void;
   setLrSchedulerType: (value: string) => void;

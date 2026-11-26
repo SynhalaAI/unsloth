@@ -318,6 +318,18 @@ class TrainingStartRequest(BaseModel):
         False,
         description = "Use vLLM fast rollouts during GRPO training when available",
     )
+    grpo_kl_early_stop_threshold: float = Field(
+        0.0,
+        ge = 0.0,
+        le = 100.0,
+        description = "Stop GRPO early if KL divergence exceeds this threshold (0 disables)",
+    )
+    grpo_kl_early_stop_patience: int = Field(
+        3,
+        ge = 1,
+        le = 50,
+        description = "Consecutive logged steps above KL threshold before stopping GRPO",
+    )
     hf_token: Optional[str] = Field(None, description = "HuggingFace token")
     load_in_4bit: bool = Field(True, description = "Load model in 4-bit quantization")
     max_seq_length: int = Field(2048, description = "Maximum sequence length")

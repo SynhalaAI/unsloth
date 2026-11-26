@@ -199,6 +199,8 @@ export function TrainingHyperparametersSection({
       grpoLossType: state.grpoLossType,
       grpoRewardFuncs: state.grpoRewardFuncs,
       grpoUseVllm: state.grpoUseVllm,
+      grpoKlEarlyStopThreshold: state.grpoKlEarlyStopThreshold,
+      grpoKlEarlyStopPatience: state.grpoKlEarlyStopPatience,
       isDecision: state.modelType === "decision",
       isCpt: state.trainingMethod === "cpt",
       isEmbedding: state.isEmbeddingModel || state.modelType === "embeddings",
@@ -228,6 +230,8 @@ export function TrainingHyperparametersSection({
       setGrpoLossType: state.setGrpoLossType,
       setGrpoRewardFuncs: state.setGrpoRewardFuncs,
       setGrpoUseVllm: state.setGrpoUseVllm,
+      setGrpoKlEarlyStopThreshold: state.setGrpoKlEarlyStopThreshold,
+      setGrpoKlEarlyStopPatience: state.setGrpoKlEarlyStopPatience,
       setOptimizerType: state.setOptimizerType,
       setLrSchedulerType: state.setLrSchedulerType,
       setBatchSize: state.setBatchSize,
@@ -553,6 +557,8 @@ export function TrainingHyperparametersSection({
                       grpoLossType={store.grpoLossType}
                       grpoRewardFuncs={store.grpoRewardFuncs}
                       grpoUseVllm={store.grpoUseVllm}
+                      grpoKlEarlyStopThreshold={store.grpoKlEarlyStopThreshold}
+                      grpoKlEarlyStopPatience={store.grpoKlEarlyStopPatience}
                       onNumGenerationsChange={store.setGrpoNumGenerations}
                       onMaxCompletionLengthChange={
                         store.setGrpoMaxCompletionLength
@@ -564,6 +570,12 @@ export function TrainingHyperparametersSection({
                       onGrpoLossTypeChange={store.setGrpoLossType}
                       onGrpoRewardFuncsChange={store.setGrpoRewardFuncs}
                       onGrpoUseVllmChange={store.setGrpoUseVllm}
+                      onGrpoKlEarlyStopThresholdChange={
+                        store.setGrpoKlEarlyStopThreshold
+                      }
+                      onGrpoKlEarlyStopPatienceChange={
+                        store.setGrpoKlEarlyStopPatience
+                      }
                     />
                   )}
                   <ParamsRow

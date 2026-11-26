@@ -12,7 +12,8 @@ plain-text prompts paired with verifiable target columns such as ``answer``.
 from __future__ import annotations
 
 import inspect
-from typing import Any, Dict, Optional, Sequence
+import math
+from typing import Any, Callable, Dict, Optional, Sequence
 
 from loggers import get_logger
 
@@ -217,6 +218,74 @@ def _import_grpo_classes() -> Any:
     return GRPOTrainer, GRPOConfig
 
 
+try:
+    from transformers import TrainerCallback as _TrainerCallbackBase
+except Exception:  # noqa: BLE001
+    class _TrainerCallbackBase:  # type: ignore[no-redef]
+        pass
+
+
+class GrpoKlEarlyStoppingCallback(_TrainerCallbackBase):
+    """Stop GRPO training if KL divergence exceeds a threshold for `patience` consecutive logs.
+
+    Stops immediately if KL becomes NaN/Inf. Helps prevent policy collapse and wasted GPU time.
+    """
+
+    def __init__(
+        self,
+        threshold: float,
+        patience: int = 3,
+        on_trigger: Optional[Callable[[str], None]] = None,
+    ) -> None:
+        self.threshold = float(threshold)
+        self.patience = max(1, int(patience))
+        self.on_trigger = on_trigger
+        self.consecutive_exceeded = 0
+        self.triggered = False
+        self.trigger_reason: Optional[str] = None
+
+    def on_log(self, args: Any, state: Any, control: Any, logs: Any = None, **kwargs: Any) -> Any:
+        del args, kwargs
+        if self.triggered or not isinstance(logs, dict) or "kl" not in logs:
+            return control
+
+        raw_kl = logs.get("kl")
+        if raw_kl is None:
+            return control
+        try:
+            kl_val = float(raw_kl)
+        except (TypeError, ValueError):
+            return control
+
+        step = int(getattr(state, "global_step", 0) or 0)
+        if not math.isfinite(kl_val):
+            self.triggered = True
+            self.trigger_reason = (
+                f"GRPO KL early stop at step {step}: KL became non-finite ({kl_val}). "
+                "Stopping to prevent model collapse."
+            )
+        elif kl_val > self.threshold:
+            self.consecutive_exceeded += 1
+            if self.consecutive_exceeded >= self.patience:
+                self.triggered = True
+                self.trigger_reason = (
+                    f"GRPO KL early stop at step {step}: KL={kl_val:.4f} exceeded threshold "
+                    f"{self.threshold:.4f} for {self.consecutive_exceeded} consecutive steps."
+                )
+        else:
+            self.consecutive_exceeded = 0
+
+        if self.triggered and self.trigger_reason:
+            logger.warning(f"{self.trigger_reason}\n")
+            control.should_training_stop = True
+            if callable(self.on_trigger):
+                try:
+                    self.on_trigger(self.trigger_reason)
+                except Exception:  # noqa: BLE001
+                    pass
+        return control
+
+
 def _clamp_grpo_lengths(
     model: Any,
     max_seq_length: Optional[int],
@@ -256,6 +325,9 @@ def setup_grpo_trainer(
     reward_funcs: Optional[Sequence[str]] = None,
     reward_weights: Optional[Sequence[float]] = None,
     use_vllm: bool = False,
+    kl_early_stop_threshold: float = 0.0,
+    kl_early_stop_patience: int = 3,
+    on_kl_early_stop: Optional[Callable[[str], None]] = None,
 ) -> Any:
     """Build a TRL GRPOTrainer for a Studio run."""
     mismatch = grpo_dataset_mismatch("GRPO", train_dataset)
@@ -336,4 +408,18 @@ def setup_grpo_trainer(
     if eval_dataset is not None:
         trainer_kwargs["eval_dataset"] = eval_dataset
     trainer_kwargs[_trainer_tokenizer_kwarg(trainer_cls)] = processing_class
-    return trainer_cls(**trainer_kwargs)
+    trainer = trainer_cls(**trainer_kwargs)
+    threshold = float(kl_early_stop_threshold or 0.0)
+    if threshold > 0.0 and hasattr(trainer, "add_callback"):
+        patience = max(1, int(kl_early_stop_patience or 3))
+        trainer.add_callback(
+            GrpoKlEarlyStoppingCallback(
+                threshold = threshold,
+                patience = patience,
+                on_trigger = on_kl_early_stop,
+            )
+        )
+        logger.info(
+            f"GRPO KL early stopping enabled: threshold={threshold}, patience={patience}\n"
+        )
+    return trainer

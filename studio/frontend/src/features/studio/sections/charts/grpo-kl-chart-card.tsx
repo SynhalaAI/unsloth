@@ -17,7 +17,14 @@ import {
 } from "@/components/ui/chart";
 import type { ChartConfig } from "@/components/ui/chart";
 import type { ReactElement } from "react";
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ReferenceLine,
+  XAxis,
+  YAxis,
+} from "recharts";
 import {
   CHART_CONTAINER_CLASS,
   CHART_SYNC_ID,
@@ -31,8 +38,19 @@ import {
 
 type Point = { step: number; kl: number };
 
-export function GrpoKlChartCard({ data }: { data: Point[] }): ReactElement {
-  const values = data.map((point) => point.kl).filter(Number.isFinite);
+export function GrpoKlChartCard({
+  data,
+  klThreshold,
+}: {
+  data: Point[];
+  klThreshold?: number | null;
+}): ReactElement {
+  const hasThreshold =
+    klThreshold != null && Number.isFinite(klThreshold) && klThreshold > 0;
+  const values = [
+    ...data.map((point) => point.kl).filter(Number.isFinite),
+    ...(hasThreshold ? [klThreshold] : []),
+  ];
   const domain = buildYDomain(values);
   const config = {
     kl: { label: "KL divergence", color: "#2563eb" },
@@ -87,6 +105,14 @@ export function GrpoKlChartCard({ data }: { data: Point[] }): ReactElement {
                 />
               }
             />
+            {hasThreshold && (
+              <ReferenceLine
+                y={klThreshold}
+                stroke="#dc2626"
+                strokeDasharray="4 4"
+                strokeWidth={1.4}
+              />
+            )}
             <Line
               type="linear"
               dataKey="kl"

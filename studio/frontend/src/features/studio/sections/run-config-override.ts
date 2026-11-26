@@ -19,6 +19,8 @@ export interface RunConfigOverride {
   grpoBeta?: number;
   grpoTemperature?: number;
   grpoLossType?: string;
+  grpoKlEarlyStopThreshold?: number;
+  grpoKlEarlyStopPatience?: number;
   isDecision?: boolean;
   epochs?: number;
   batchSize?: number;
@@ -59,6 +61,12 @@ export function mapRunConfigToOverride(
     grpoBeta: config.grpo_beta as number | undefined,
     grpoTemperature: config.grpo_temperature as number | undefined,
     grpoLossType: config.grpo_loss_type as string | undefined,
+    grpoKlEarlyStopThreshold: config.grpo_kl_early_stop_threshold as
+      | number
+      | undefined,
+    grpoKlEarlyStopPatience: config.grpo_kl_early_stop_patience as
+      | number
+      | undefined,
     isDecision: config.is_decision === true,
     epochs: config.num_epochs as number | undefined,
     batchSize: config.batch_size as number | undefined,

@@ -92,6 +92,7 @@ export function LiveTrainingView(): ReactElement {
       projectName: state.projectName,
       trainingMethod: state.trainingMethod,
       preferenceTrainingMethod: state.preferenceTrainingMethod,
+      grpoKlEarlyStopThreshold: state.grpoKlEarlyStopThreshold,
       modelType: state.modelType,
       evalSteps: state.evalSteps,
     })),
@@ -261,6 +262,10 @@ export function LiveTrainingView(): ReactElement {
           grpoCompletionLengthHistory={viewData.grpoCompletionLengthHistory}
           grpoClipRatioHistory={viewData.grpoClipRatioHistory}
           preferenceMethod={viewData.preferenceMethod}
+          grpoKlThreshold={
+            runConfigOverride?.grpoKlEarlyStopThreshold ??
+            config.grpoKlEarlyStopThreshold
+          }
         />
       </div>
       {showOverlay ? (

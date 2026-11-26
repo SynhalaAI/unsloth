@@ -256,6 +256,8 @@ export function buildTrainingStartPayload(
           grpo_loss_type: config.grpoLossType,
           grpo_reward_funcs: config.grpoRewardFuncs,
           grpo_use_vllm: config.grpoUseVllm,
+          grpo_kl_early_stop_threshold: config.grpoKlEarlyStopThreshold,
+          grpo_kl_early_stop_patience: config.grpoKlEarlyStopPatience,
         }
       : {}),
     hf_token: hfToken,

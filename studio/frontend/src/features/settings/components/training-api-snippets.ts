@@ -48,6 +48,8 @@ export const TRAINING_FIELD_ROUTE: Record<keyof TrainingStartRequest, "openai" |
   grpo_loss_type: "extra",
   grpo_reward_funcs: "extra",
   grpo_use_vllm: "extra",
+  grpo_kl_early_stop_threshold: "extra",
+  grpo_kl_early_stop_patience: "extra",
   load_in_4bit: "extra",
   max_seq_length: "extra",
   vision_image_size: "extra",

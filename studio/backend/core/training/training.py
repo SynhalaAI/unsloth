@@ -307,6 +307,8 @@ def _build_training_worker_config(values: dict[str, Any]) -> dict[str, Any]:
         "grpo_loss_type": values.get("grpo_loss_type", "grpo"),
         "grpo_reward_funcs": values.get("grpo_reward_funcs", ["answer_match", "answer_format"]),
         "grpo_use_vllm": values.get("grpo_use_vllm", False),
+        "grpo_kl_early_stop_threshold": values.get("grpo_kl_early_stop_threshold", 0.0),
+        "grpo_kl_early_stop_patience": values.get("grpo_kl_early_stop_patience", 3),
         "subset": values.get("subset"),
         "train_split": values.get("train_split", "train"),
         "eval_split": values.get("eval_split"),

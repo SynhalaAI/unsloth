@@ -1676,6 +1676,10 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
         setGrpoRewardFuncs: (grpoRewardFuncs) =>
           setUserEdit({ grpoRewardFuncs }),
         setGrpoUseVllm: (grpoUseVllm) => setUserEdit({ grpoUseVllm }),
+        setGrpoKlEarlyStopThreshold: (grpoKlEarlyStopThreshold) =>
+          setUserEdit({ grpoKlEarlyStopThreshold }),
+        setGrpoKlEarlyStopPatience: (grpoKlEarlyStopPatience) =>
+          setUserEdit({ grpoKlEarlyStopPatience }),
         setOptimizerType: (optimizerType) => setUserEdit({ optimizerType }),
   setWhisperLanguage: (whisperLanguage) => setUserEdit({ whisperLanguage }),
         setLrSchedulerType: (lrSchedulerType) =>

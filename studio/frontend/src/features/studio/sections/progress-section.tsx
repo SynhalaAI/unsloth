@@ -141,6 +141,8 @@ export function ProgressSection({
       grpoBeta: state.grpoBeta,
       grpoTemperature: state.grpoTemperature,
       grpoLossType: state.grpoLossType,
+      grpoKlEarlyStopThreshold: state.grpoKlEarlyStopThreshold,
+      grpoKlEarlyStopPatience: state.grpoKlEarlyStopPatience,
     })),
   );
 
@@ -262,6 +264,8 @@ export function ProgressSection({
   const cfgGrpoBeta = cfg?.grpoBeta;
   const cfgGrpoTemperature = cfg?.grpoTemperature;
   const cfgGrpoLossType = cfg?.grpoLossType;
+  const cfgGrpoKlEarlyStopThreshold = cfg?.grpoKlEarlyStopThreshold;
+  const cfgGrpoKlEarlyStopPatience = cfg?.grpoKlEarlyStopPatience;
 
   // On Mac the MLX backend runs CUDA optimizers as AdamW.
   const effectiveOptimizer =
@@ -311,6 +315,15 @@ export function ProgressSection({
                     ? formatGrpoLossTypeLabel(cfgGrpoLossType)
                     : undefined,
                 ),
+                ...(cfgGrpoKlEarlyStopThreshold != null &&
+                cfgGrpoKlEarlyStopThreshold > 0
+                  ? [
+                      configRow(
+                        "KL early stop",
+                        `${cfgGrpoKlEarlyStopThreshold} (${cfgGrpoKlEarlyStopPatience ?? 3} steps)`,
+                      ),
+                    ]
+                  : []),
               ],
             },
           ]

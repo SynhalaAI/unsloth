@@ -5873,6 +5873,8 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
             grpo_loss_type = config.get("grpo_loss_type", "grpo"),
             grpo_reward_funcs = config.get("grpo_reward_funcs"),
             grpo_use_vllm = config.get("grpo_use_vllm", False),
+            grpo_kl_early_stop_threshold = config.get("grpo_kl_early_stop_threshold", 0.0),
+            grpo_kl_early_stop_patience = config.get("grpo_kl_early_stop_patience", 3),
             is_ocr_training = config.get("is_ocr_training", False),
             resume_from_checkpoint = resume_from_checkpoint,
         )

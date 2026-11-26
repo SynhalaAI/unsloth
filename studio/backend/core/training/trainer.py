@@ -982,7 +982,12 @@ class UnslothTrainer:
                     trainer_ref.training_start_time = time.time()
                 if trainer_ref.should_stop:
                     return
-                trainer_ref._update_progress(status_message = startup.begin(args, state))
+                update_kwargs = {"status_message": startup.begin(args, state)}
+                # Sync total_steps to HF Trainer's authoritative state.max_steps (e.g. GRPO's RepeatSampler).
+                state_max_steps = int(getattr(state, "max_steps", 0) or 0)
+                if state_max_steps > 0 and state_max_steps != trainer_ref.training_progress.total_steps:
+                    update_kwargs["total_steps"] = state_max_steps
+                trainer_ref._update_progress(**update_kwargs)
 
             def on_step_begin(self, args, state, control, **kwargs):
                 if not trainer_ref.should_stop and (message := startup.step_begin()):
@@ -1056,6 +1061,9 @@ class UnslothTrainer:
                         state.global_step,
                     )
                 current_step = state.global_step
+                state_max_steps = int(getattr(state, "max_steps", 0) or 0)
+                if state_max_steps > 0 and state_max_steps != trainer_ref.training_progress.total_steps:
+                    trainer_ref.training_progress.total_steps = state_max_steps
                 grad_norm = logs.get("grad_norm", None)
 
                 elapsed_seconds = None
@@ -5446,6 +5454,16 @@ class UnslothTrainer:
                         loss_type = training_args.get("grpo_loss_type", "grpo"),
                         reward_funcs = training_args.get("grpo_reward_funcs"),
                         use_vllm = bool(training_args.get("grpo_use_vllm", False)),
+                        kl_early_stop_threshold = float(
+                            training_args.get("grpo_kl_early_stop_threshold", 0.0) or 0.0
+                        ),
+                        kl_early_stop_patience = int(
+                            training_args.get("grpo_kl_early_stop_patience", 3) or 3
+                        ),
+                        on_kl_early_stop = lambda msg: (
+                            self._record_warning(msg),
+                            self._update_progress(status_message = msg),
+                        ),
                     )
                 else:
                     sft_args = SFTConfig(**config_args)
@@ -5638,8 +5656,13 @@ class UnslothTrainer:
                 batch_size = (
                     training_args.get("batch_size", 2) * _parallel_launch.data_parallel_size()
                 )
+                effective_samples = num_samples
+                if is_grpo_run and max_steps <= 0:
+                    grpo_gen = max(2, int(training_args.get("grpo_num_generations", 4) or 4))
+                    grpo_iter = max(1, int(training_args.get("grpo_num_iterations", 1) or 1))
+                    effective_samples = num_samples * grpo_gen * grpo_iter
                 total_steps = self._calculate_total_steps(
-                    num_samples,
+                    effective_samples,
                     batch_size,
                     training_args.get("gradient_accumulation_steps", 4),
                     training_args.get("num_epochs", 3),

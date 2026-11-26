@@ -331,6 +331,7 @@ export function HistoricalTrainingView({
         grpoCompletionLengthHistory={viewData.grpoCompletionLengthHistory}
         grpoClipRatioHistory={viewData.grpoClipRatioHistory}
         preferenceMethod={viewData.preferenceMethod}
+        grpoKlThreshold={configOverride?.grpoKlEarlyStopThreshold ?? null}
       />
     </div>
   );
