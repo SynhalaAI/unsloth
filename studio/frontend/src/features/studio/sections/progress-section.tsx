@@ -136,6 +136,11 @@ export function ProgressSection({
       dpoLossType: state.dpoLossType,
       rpoAlpha: state.rpoAlpha,
       maxPromptLength: state.maxPromptLength,
+      grpoNumGenerations: state.grpoNumGenerations,
+      grpoMaxCompletionLength: state.grpoMaxCompletionLength,
+      grpoBeta: state.grpoBeta,
+      grpoTemperature: state.grpoTemperature,
+      grpoLossType: state.grpoLossType,
     })),
   );
 
