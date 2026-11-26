@@ -34,6 +34,7 @@ import {
   usesPreferenceObjective,
 } from "@/features/training";
 import { useGpuUtilization } from "@/hooks";
+import type { RunParallelInfo } from "@/features/training/types/parallel";
 import type { GpuUtilization } from "@/hooks/use-gpu-utilization";
 import { type TranslationKey, useT } from "@/i18n";
 import { toast } from "@/lib/toast";
@@ -64,6 +65,7 @@ import {
   sessionStepsPerSecond,
 } from "./progress-section-lib";
 import type { RunConfigOverride } from "./run-config-override";
+import { RankMemoryStrip, RunParallelChip } from "./run-parallel";
 
 type ConfigGroup = {
   section: string;
@@ -188,6 +190,7 @@ export function ProgressSection({
     !data.isTrainingRunning &&
     !!exportRunName &&
     !data.resumedLater &&
+    data.artifactsAvailable !== false &&
     (data.phase === "completed" || data.phase === "stopped");
   const canExportGguf = hasFinishedOutput && !data.isDecision;
   const canUseInDecisionApi = hasFinishedOutput && !!data.isDecision && isOwner;
@@ -383,6 +386,7 @@ export function ProgressSection({
                 {data.projectName}
               </span>
             )}
+            {data.parallel && <RunParallelChip parallel={data.parallel} />}
             <span className="text-ui-10 tabular-nums text-muted-foreground">
               {t("studio.progress.epoch", {
                 value: formatNumber(data.currentEpoch, 2),
@@ -406,11 +410,12 @@ export function ProgressSection({
             <Progress value={pct} className="h-2 bg-[color-mix(in_oklab,var(--foreground)_calc(5%*var(--contrast-wash-gain,1)),transparent)]" />
           </div>
 
-          {!isHistorical && (
+          {(!isHistorical || hasFinishedOutput) && (
             <MilestoneCallout
               showCompletedHint={showCompletedHint}
-              showHalfwayHint={showHalfwayHint}
+              showHalfwayHint={!isHistorical && showHalfwayHint}
               onCompareInChat={handleCompareInChat}
+              exportRunName={hasFinishedOutput ? exportRunName : null}
             />
           )}
 
@@ -487,7 +492,10 @@ export function ProgressSection({
         </div>
 
         {!isHistorical && (
-          <LiveGpuPanel isTrainingRunning={data.isTrainingRunning} />
+          <LiveGpuPanel
+            isTrainingRunning={data.isTrainingRunning}
+            parallel={data.parallel ?? null}
+          />
         )}
       </div>
     </SectionCard>
@@ -496,8 +504,10 @@ export function ProgressSection({
 
 function LiveGpuPanel({
   isTrainingRunning,
+  parallel,
 }: {
   isTrainingRunning: boolean;
+  parallel: RunParallelInfo | null;
 }): ReactElement {
   const t = useT();
   const [selectedGpu, setSelectedGpu] = useState(0);
@@ -545,6 +555,7 @@ function LiveGpuPanel({
           {t("studio.progress.live")}
         </span>
       </div>
+      {parallel && <RankMemoryStrip parallel={parallel} devices={gpus} />}
       <div className="grid grid-cols-2 gap-2.5">
         <GpuStat
           label={t("studio.progress.utilization")}
@@ -763,10 +774,12 @@ function MilestoneCallout({
   showCompletedHint,
   showHalfwayHint,
   onCompareInChat,
+  exportRunName,
 }: {
   showCompletedHint: boolean;
   showHalfwayHint: boolean;
   onCompareInChat: () => Promise<void>;
+  exportRunName: string | null;
 }): ReactElement | null {
   const t = useT();
   if (!(showHalfwayHint || showCompletedHint)) {
@@ -805,7 +818,12 @@ function MilestoneCallout({
             {t("studio.training.compareInChat")}
           </Button>
           <Button asChild={true} size="xs" variant="outline">
-            <Link to="/export">{t("studio.training.exportModel")}</Link>
+            <Link
+              to="/export"
+              search={exportRunName ? { run: exportRunName } : {}}
+            >
+              {t("studio.training.exportModel")}
+            </Link>
           </Button>
         </div>
       )}

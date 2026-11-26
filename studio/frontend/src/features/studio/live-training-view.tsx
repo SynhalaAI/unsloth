@@ -44,6 +44,7 @@ export function LiveTrainingView(): ReactElement {
       message: state.message,
       error: state.error,
       warnings: state.warnings,
+      parallel: state.parallel,
       currentStep: state.currentStep,
       totalSteps: state.totalSteps,
       currentEpoch: state.currentEpoch,
@@ -168,6 +169,7 @@ export function LiveTrainingView(): ReactElement {
     error: runtime.error,
     warnings: runtime.warnings,
     isTrainingRunning: runtime.isTrainingRunning,
+    parallel: runtime.parallel,
     modelName: runtime.startModelName ?? config.selectedModel ?? "",
     projectName: activeProjectName,
     // The form may have been edited since start (e.g. LoRA -> Full).

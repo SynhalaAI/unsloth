@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright 2026-present the Unsloth AI Inc. team. All rights reserved. See /studio/LICENSE.AGPL-3.0
 
+import { modelErrorToast } from "@/lib/model-error-toast";
 import { generationFailureLogsAction } from "@/features/settings/lib/view-logs-action";
 import { isRetiredCopySnapshot, readImageModel, retiredSnapshotAsLoaded, rememberImageModel, matchesRememberedModel, componentFilesMatch, componentFieldsOwnerAfterLoad, componentFilesForModel, forgetStaleImageComponents, forgetStaleResidentComponents, recalledComponentFiles, reconcileRememberedComponents, rememberLoadedImageComponents, recoveredComponentFields, seedImageComponents, rememberPendingImageLoad, clearPendingImageLoad, finishedLoadTarget, type ImageComponentFiles, type ImageModelKey, type RememberedImageModel } from "./image-model-recall";
 import { componentFileFields, splitComponentFileList } from "./component-files";
@@ -484,6 +485,7 @@ import {
   withEnhanceChoice,
 } from "./lib/prompt-enhance";
 import { EnhancedPromptRecipeRow, EnhancePromptControls } from "./prompt-enhance-panel";
+import { loraFuseLabel } from "./lib/lora-fuse";
 import {
   ENGINE_HINT,
   ENGINE_HINT_CPU_ONLY,
@@ -1569,6 +1571,7 @@ function LoadedBuildSummary({ status }: { status: DiffusionStatus | null }) {
   if (!status?.loaded) return null;
   const offload = status.offload_policy ?? "none";
   const placement = offload === "group" ? denoiserPlacement(status.denoiser_offload) : null;
+  const loraFuse = loraFuseLabel(status.lora_fuse);
   return (
     <div className="flex flex-col gap-1 rounded-lg border border-border/60 px-2.5 py-2 text-ui-11">
       <div className="flex items-center gap-1 pb-0.5 text-xs font-medium text-muted-foreground">
@@ -1620,6 +1623,13 @@ function LoadedBuildSummary({ status }: { status: DiffusionStatus | null }) {
           badge={<InfoHint>{placement.detail}</InfoHint>}
         />
       ) : null}
+      {loraFuse ? (
+        <BuildRow
+          label="LoRA"
+          value={loraFuse.label}
+          badge={<InfoHint>{loraFuse.detail}</InfoHint>}
+        />
+      ) : null}
       <BuildRow
         label="Attention"
         value={
@@ -1648,7 +1658,7 @@ function reportLoadFailure(failure: unknown, fallback: string): void {
     toast.error(PRECISION_REFUSAL_TITLE, { description: text });
     return;
   }
-  toast.error(text || fallback);
+  modelErrorToast(text || fallback);
 }
 
 type Busy = "loading" | "unloading" | "generating" | null;
@@ -6018,7 +6028,7 @@ export function ImagesPage({
           },
         });
       } else if (report)
-        toast.error(msg, { action: generationFailureLogsAction(msg) });
+        modelErrorToast(msg, { action: generationFailureLogsAction(msg) });
     } finally {
       if (genPollTimer.current) clearInterval(genPollTimer.current);
       genPollTimer.current = null;
@@ -6478,7 +6488,7 @@ export function ImagesPage({
       {gpuChoices.length > 0 && (
         <AdvancedSelect
           label="GPU"
-          hint="Which card this model loads on. Auto uses whichever device torch is pointing at, which on a mixed box is not necessarily the largest. An image model is never split across cards, so this is one choice, not a pool."
+          hint="Which card this model loads on. Auto uses whichever device torch is pointing at, which on a mixed box is not necessarily the largest. An image model is never split across cards, so this is one choice, not a pool. Only cards in this machine are listed: using two machines (for example two DGX Sparks) for one job is not part of this release."
           value={selectedGpu}
           onValueChange={setSelectedGpu}
           options={[
