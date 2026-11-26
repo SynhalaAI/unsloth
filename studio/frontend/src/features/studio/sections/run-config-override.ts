@@ -14,6 +14,11 @@ export interface RunConfigOverride {
   dpoLossType?: string;
   rpoAlpha?: number;
   maxPromptLength?: number;
+  grpoNumGenerations?: number;
+  grpoMaxCompletionLength?: number;
+  grpoBeta?: number;
+  grpoTemperature?: number;
+  grpoLossType?: string;
   isDecision?: boolean;
   epochs?: number;
   batchSize?: number;
@@ -47,6 +52,13 @@ export function mapRunConfigToOverride(
     dpoLossType: config.dpo_loss_type as string | undefined,
     rpoAlpha: config.rpo_alpha as number | undefined,
     maxPromptLength: config.max_prompt_length as number | undefined,
+    grpoNumGenerations: config.grpo_num_generations as number | undefined,
+    grpoMaxCompletionLength: config.grpo_max_completion_length as
+      | number
+      | undefined,
+    grpoBeta: config.grpo_beta as number | undefined,
+    grpoTemperature: config.grpo_temperature as number | undefined,
+    grpoLossType: config.grpo_loss_type as string | undefined,
     isDecision: config.is_decision === true,
     epochs: config.num_epochs as number | undefined,
     batchSize: config.batch_size as number | undefined,

@@ -8,6 +8,10 @@ import { useShallow } from "zustand/react/shallow";
 import { useChartPreferencesStore } from "./charts/chart-preferences-store";
 import { EvalLossChartCard } from "./charts/eval-loss-chart-card";
 import { GradNormChartCard } from "./charts/grad-norm-chart-card";
+import { GrpoClipRatioChartCard } from "./charts/grpo-clip-ratio-chart-card";
+import { GrpoCompletionLengthChartCard } from "./charts/grpo-completion-length-chart-card";
+import { GrpoKlChartCard } from "./charts/grpo-kl-chart-card";
+import { GrpoRewardChartCard } from "./charts/grpo-reward-chart-card";
 import { LearningRateChartCard } from "./charts/learning-rate-chart-card";
 import { LogpsChartCard } from "./charts/logps-chart-card";
 import { NllLossChartCard } from "./charts/nll-loss-chart-card";
@@ -231,6 +235,41 @@ export function ChartsContent({
     () => compressSeries(metrics.meanTokenAccuracyHistory, MAX_RENDER_POINTS),
     [metrics.meanTokenAccuracyHistory],
   );
+  const reducedGrpoRewardData = useMemo(() => {
+    const points = new Map<
+      number,
+      { step: number; reward: number; rewardStd: number }
+    >();
+    for (const point of metrics.grpoRewardHistory) {
+      points.set(point.step, {
+        step: point.step,
+        reward: point.reward,
+        rewardStd: Number.NaN,
+      });
+    }
+    for (const point of metrics.grpoRewardStdHistory) {
+      const existing = points.get(point.step) ?? {
+        step: point.step,
+        reward: Number.NaN,
+        rewardStd: Number.NaN,
+      };
+      points.set(point.step, { ...existing, rewardStd: point.rewardStd });
+    }
+    return compressSeries(Array.from(points.values()), MAX_RENDER_POINTS);
+  }, [metrics.grpoRewardHistory, metrics.grpoRewardStdHistory]);
+  const reducedGrpoKlData = useMemo(
+    () => compressSeries(metrics.grpoKlHistory, MAX_RENDER_POINTS),
+    [metrics.grpoKlHistory],
+  );
+  const reducedGrpoCompletionLengthData = useMemo(
+    () =>
+      compressSeries(metrics.grpoCompletionLengthHistory, MAX_RENDER_POINTS),
+    [metrics.grpoCompletionLengthHistory],
+  );
+  const reducedGrpoClipRatioData = useMemo(
+    () => compressSeries(metrics.grpoClipRatioHistory, MAX_RENDER_POINTS),
+    [metrics.grpoClipRatioHistory],
+  );
   const allSteps = useMemo(() => {
     const set = new Set<number>();
     for (const point of metrics.lossHistory) {
@@ -450,6 +489,20 @@ export function ChartsContent({
         (preferenceMethod == null || preferenceMethod !== "sft") && (
           <TokenAccuracyChartCard data={reducedTokenAccuracyData} />
         )}
+      {reducedGrpoRewardData.length > 0 && (
+        <GrpoRewardChartCard data={reducedGrpoRewardData} />
+      )}
+      {reducedGrpoKlData.length > 0 && (
+        <GrpoKlChartCard data={reducedGrpoKlData} />
+      )}
+      {reducedGrpoCompletionLengthData.length > 0 && (
+        <GrpoCompletionLengthChartCard
+          data={reducedGrpoCompletionLengthData}
+        />
+      )}
+      {reducedGrpoClipRatioData.length > 0 && (
+        <GrpoClipRatioChartCard data={reducedGrpoClipRatioData} />
+      )}
     </div>
   );
 }

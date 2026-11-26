@@ -57,6 +57,7 @@ export function ParamsSection({
     useShallow((state) => ({
       projectName: state.projectName,
       trainingMethod: state.trainingMethod,
+      preferenceTrainingMethod: state.preferenceTrainingMethod,
       isDecision: state.modelType === "decision",
       epochs: state.epochs,
       contextLength: state.contextLength,
@@ -76,6 +77,7 @@ export function ParamsSection({
   useMlxTrainingConfigPolicy();
 
   const isCpt = store.trainingMethod === "cpt";
+  const isGrpo = !isCpt && store.preferenceTrainingMethod === "grpo";
   const showAdvanced = mode === "advanced";
   const [contextDraft, setContextDraft] = useState(() => ({
     contextLength: store.contextLength,
@@ -494,7 +496,7 @@ export function ParamsSection({
           />
         )}
         {showAdvanced && <CheckpointBackupSection />}
-        {showAdvanced && <DrafterSection />}
+        {showAdvanced && !isGrpo && <DrafterSection />}
       </div>
     </div>
   );

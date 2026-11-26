@@ -113,6 +113,11 @@ const initialState: TrainingRuntimeState = {
   logpsChosenHistory: [],
   logpsRejectedHistory: [],
   meanTokenAccuracyHistory: [],
+  grpoRewardHistory: [],
+  grpoRewardStdHistory: [],
+  grpoKlHistory: [],
+  grpoCompletionLengthHistory: [],
+  grpoClipRatioHistory: [],
   resetGeneration: 0,
   stopRequested: false,
   configureRequest: 0,
@@ -244,6 +249,11 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
   logpsChosenHistory: TrainingSeriesPoint[] | null;
   logpsRejectedHistory: TrainingSeriesPoint[] | null;
   meanTokenAccuracyHistory: TrainingSeriesPoint[] | null;
+  grpoRewardHistory: TrainingSeriesPoint[] | null;
+  grpoRewardStdHistory: TrainingSeriesPoint[] | null;
+  grpoKlHistory: TrainingSeriesPoint[] | null;
+  grpoCompletionLengthHistory: TrainingSeriesPoint[] | null;
+  grpoClipRatioHistory: TrainingSeriesPoint[] | null;
 } {
   const history = payload.metric_history;
   if (!history || !history.steps?.length) {
@@ -263,6 +273,11 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
       logpsChosenHistory: null,
       logpsRejectedHistory: null,
       meanTokenAccuracyHistory: null,
+      grpoRewardHistory: null,
+      grpoRewardStdHistory: null,
+      grpoKlHistory: null,
+      grpoCompletionLengthHistory: null,
+      grpoClipRatioHistory: null,
     };
   }
 
@@ -324,6 +339,29 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
     history.mean_token_accuracy && history.mean_token_accuracy_steps
       ? toSeries(history.mean_token_accuracy_steps, history.mean_token_accuracy)
       : null;
+  const grpoRewardHistory =
+    history.grpo_reward && history.grpo_reward_steps
+      ? toSeries(history.grpo_reward_steps, history.grpo_reward)
+      : null;
+  const grpoRewardStdHistory =
+    history.grpo_reward_std && history.grpo_reward_std_steps
+      ? toSeries(history.grpo_reward_std_steps, history.grpo_reward_std)
+      : null;
+  const grpoKlHistory =
+    history.grpo_kl && history.grpo_kl_steps
+      ? toSeries(history.grpo_kl_steps, history.grpo_kl)
+      : null;
+  const grpoCompletionLengthHistory =
+    history.grpo_completion_length && history.grpo_completion_length_steps
+      ? toSeries(
+          history.grpo_completion_length_steps,
+          history.grpo_completion_length,
+        )
+      : null;
+  const grpoClipRatioHistory =
+    history.grpo_clip_ratio && history.grpo_clip_ratio_steps
+      ? toSeries(history.grpo_clip_ratio_steps, history.grpo_clip_ratio)
+      : null;
   return {
     lossHistory,
     lrHistory,
@@ -340,6 +378,11 @@ function applyMetricHistoryFromStatus(payload: TrainingStatusResponse): {
     logpsChosenHistory,
     logpsRejectedHistory,
     meanTokenAccuracyHistory,
+    grpoRewardHistory,
+    grpoRewardStdHistory,
+    grpoKlHistory,
+    grpoCompletionLengthHistory,
+    grpoClipRatioHistory,
   };
 }
 
@@ -412,6 +455,11 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
         logpsChosenHistory: [],
         logpsRejectedHistory: [],
         meanTokenAccuracyHistory: [],
+  grpoRewardHistory: [],
+  grpoRewardStdHistory: [],
+  grpoKlHistory: [],
+  grpoCompletionLengthHistory: [],
+  grpoClipRatioHistory: [],
         resetGeneration: state.resetGeneration + 1,
       })),
 
@@ -466,6 +514,11 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
           logpsChosenHistory: [],
           logpsRejectedHistory: [],
           meanTokenAccuracyHistory: [],
+  grpoRewardHistory: [],
+  grpoRewardStdHistory: [],
+  grpoKlHistory: [],
+  grpoCompletionLengthHistory: [],
+  grpoClipRatioHistory: [],
           resetGeneration: state.resetGeneration + 1,
         };
       }),
@@ -558,6 +611,11 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
               logpsChosenHistory: [],
               logpsRejectedHistory: [],
               meanTokenAccuracyHistory: [],
+  grpoRewardHistory: [],
+  grpoRewardStdHistory: [],
+  grpoKlHistory: [],
+  grpoCompletionLengthHistory: [],
+  grpoClipRatioHistory: [],
               resetGeneration: state.resetGeneration + 1,
               stopRequested: false,
             }
@@ -699,6 +757,33 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
                 metricHistory.meanTokenAccuracyHistory,
               )
             : runtimeState.meanTokenAccuracyHistory,
+          grpoRewardHistory: metricHistory.grpoRewardHistory
+            ? mergeSeries(
+                runtimeState.grpoRewardHistory,
+                metricHistory.grpoRewardHistory,
+              )
+            : runtimeState.grpoRewardHistory,
+          grpoRewardStdHistory: metricHistory.grpoRewardStdHistory
+            ? mergeSeries(
+                runtimeState.grpoRewardStdHistory,
+                metricHistory.grpoRewardStdHistory,
+              )
+            : runtimeState.grpoRewardStdHistory,
+          grpoKlHistory: metricHistory.grpoKlHistory
+            ? mergeSeries(runtimeState.grpoKlHistory, metricHistory.grpoKlHistory)
+            : runtimeState.grpoKlHistory,
+          grpoCompletionLengthHistory: metricHistory.grpoCompletionLengthHistory
+            ? mergeSeries(
+                runtimeState.grpoCompletionLengthHistory,
+                metricHistory.grpoCompletionLengthHistory,
+              )
+            : runtimeState.grpoCompletionLengthHistory,
+          grpoClipRatioHistory: metricHistory.grpoClipRatioHistory
+            ? mergeSeries(
+                runtimeState.grpoClipRatioHistory,
+                metricHistory.grpoClipRatioHistory,
+              )
+            : runtimeState.grpoClipRatioHistory,
         };
       }),
 
@@ -780,6 +865,13 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
         const logpsChosen = toFiniteNumber(payload.logps_chosen);
         const logpsRejected = toFiniteNumber(payload.logps_rejected);
         const meanTokenAccuracy = toFiniteNumber(payload.mean_token_accuracy);
+        const grpoReward = toFiniteNumber(payload.grpo_reward);
+        const grpoRewardStd = toFiniteNumber(payload.grpo_reward_std);
+        const grpoKl = toFiniteNumber(payload.grpo_kl);
+        const grpoCompletionLength = toFiniteNumber(
+          payload.grpo_completion_length,
+        );
+        const grpoClipRatio = toFiniteNumber(payload.grpo_clip_ratio);
         const totalSteps = toFiniteNumber(payload.total_steps);
         const progressPercent = toFiniteNumber(payload.progress_percent);
         const currentEpoch = toFiniteNumber(payload.epoch);
@@ -887,6 +979,30 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
                   meanTokenAccuracy,
                 )
               : state.meanTokenAccuracyHistory,
+          grpoRewardHistory:
+            step > 0 && grpoReward !== null
+              ? upsertPoint(state.grpoRewardHistory, step, grpoReward)
+              : state.grpoRewardHistory,
+          grpoRewardStdHistory:
+            step > 0 && grpoRewardStd !== null
+              ? upsertPoint(state.grpoRewardStdHistory, step, grpoRewardStd)
+              : state.grpoRewardStdHistory,
+          grpoKlHistory:
+            step > 0 && grpoKl !== null
+              ? upsertPoint(state.grpoKlHistory, step, grpoKl)
+              : state.grpoKlHistory,
+          grpoCompletionLengthHistory:
+            step > 0 && grpoCompletionLength !== null
+              ? upsertPoint(
+                  state.grpoCompletionLengthHistory,
+                  step,
+                  grpoCompletionLength,
+                )
+              : state.grpoCompletionLengthHistory,
+          grpoClipRatioHistory:
+            step > 0 && grpoClipRatio !== null
+              ? upsertPoint(state.grpoClipRatioHistory, step, grpoClipRatio)
+              : state.grpoClipRatioHistory,
         };
       }),
   }),

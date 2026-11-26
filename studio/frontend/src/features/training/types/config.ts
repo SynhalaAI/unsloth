@@ -7,6 +7,8 @@ import type {
   DatasetSource,
   DpoLossType,
   GradientCheckpointing,
+  GrpoLossType,
+  GrpoRewardFunc,
   ModelType,
   PreferenceTrainingMethod,
   S3Config,
@@ -143,6 +145,15 @@ export interface TrainingConfigState {
   dpoLossType: DpoLossType;
   rpoAlpha: number;
   maxPromptLength: number;
+  grpoNumGenerations: number;
+  grpoMaxCompletionLength: number;
+  grpoBeta: number;
+  grpoTemperature: number;
+  grpoEpsilon: number;
+  grpoNumIterations: number;
+  grpoLossType: GrpoLossType;
+  grpoRewardFuncs: GrpoRewardFunc[];
+  grpoUseVllm: boolean;
   optimizerType: string;
   lrSchedulerType: string;
   loraRank: number;
@@ -200,6 +211,7 @@ export interface TrainingConfigState {
   trainOnCompletionsDefaultPendingFor: string | null;
   isCheckingDataset: boolean;
   isPreferenceDataset: boolean;
+  isGrpoDataset: boolean;
   isDatasetImage: boolean | null;
   isDatasetAudio: boolean;
   whisperLanguage: string | null;
@@ -313,6 +325,15 @@ export interface TrainingConfigActions {
   setDpoLossType: (value: DpoLossType) => void;
   setRpoAlpha: (value: number) => void;
   setMaxPromptLength: (value: number) => void;
+  setGrpoNumGenerations: (value: number) => void;
+  setGrpoMaxCompletionLength: (value: number) => void;
+  setGrpoBeta: (value: number) => void;
+  setGrpoTemperature: (value: number) => void;
+  setGrpoEpsilon: (value: number) => void;
+  setGrpoNumIterations: (value: number) => void;
+  setGrpoLossType: (value: GrpoLossType) => void;
+  setGrpoRewardFuncs: (value: GrpoRewardFunc[]) => void;
+  setGrpoUseVllm: (value: boolean) => void;
   setOptimizerType: (value: string) => void;
   setWhisperLanguage: (value: string | null) => void;
   setLrSchedulerType: (value: string) => void;

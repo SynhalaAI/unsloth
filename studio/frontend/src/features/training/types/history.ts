@@ -64,6 +64,16 @@ export interface TrainingRunMetrics {
   logps_rejected_step_history: number[];
   mean_token_accuracy_history: number[];
   mean_token_accuracy_step_history: number[];
+  grpo_reward_history?: number[];
+  grpo_reward_step_history?: number[];
+  grpo_reward_std_history?: number[];
+  grpo_reward_std_step_history?: number[];
+  grpo_kl_history?: number[];
+  grpo_kl_step_history?: number[];
+  grpo_completion_length_history?: number[];
+  grpo_completion_length_step_history?: number[];
+  grpo_clip_ratio_history?: number[];
+  grpo_clip_ratio_step_history?: number[];
   final_epoch: number | null;
   final_num_tokens: number | null;
 }

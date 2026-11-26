@@ -19,12 +19,23 @@ export interface TrainingStartRequest {
   actual_model_repo_id?: string | null;
   project_name: string | null;
   training_type: string;
-  training_method?: "SFT" | "DPO" | "ORPO" | "CPO";
+  training_method?: "SFT" | "DPO" | "ORPO" | "CPO" | "GRPO";
   dpo_beta?: number;
   cpo_alpha?: number;
   dpo_loss_type?: "sigmoid" | "ipo" | "hinge";
   rpo_alpha?: number;
   max_prompt_length?: number | null;
+  grpo_num_generations?: number;
+  grpo_max_completion_length?: number | null;
+  grpo_beta?: number;
+  grpo_temperature?: number;
+  grpo_epsilon?: number;
+  grpo_num_iterations?: number;
+  grpo_loss_type?: "grpo" | "bnpo" | "dr_grpo" | "dapo";
+  grpo_reward_funcs?: Array<
+    "answer_match" | "answer_format" | "reasoning_format" | "conciseness"
+  >;
+  grpo_use_vllm?: boolean;
   hf_token: string | null;
   model_known_cached?: boolean;
   model_local_path?: string | null;

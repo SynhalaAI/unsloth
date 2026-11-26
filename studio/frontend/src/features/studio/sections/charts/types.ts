@@ -23,4 +23,9 @@ export interface TrainingChartSeries {
   logpsChosenHistory: { step: number; chosen: number }[];
   logpsRejectedHistory: { step: number; rejected: number }[];
   meanTokenAccuracyHistory: { step: number; accuracy: number }[];
+  grpoRewardHistory: { step: number; reward: number }[];
+  grpoRewardStdHistory: { step: number; rewardStd: number }[];
+  grpoKlHistory: { step: number; kl: number }[];
+  grpoCompletionLengthHistory: { step: number; completionLength: number }[];
+  grpoClipRatioHistory: { step: number; clipRatio: number }[];
 }

@@ -3,8 +3,14 @@
 
 export type ModelType = "vision" | "audio" | "embeddings" | "text" | "decision";
 export type TrainingMethod = "qlora" | "lora" | "full" | "cpt";
-export type PreferenceTrainingMethod = "sft" | "dpo" | "orpo" | "cpo";
+export type PreferenceTrainingMethod = "sft" | "dpo" | "orpo" | "cpo" | "grpo";
 export type DpoLossType = "sigmoid" | "ipo" | "hinge";
+export type GrpoLossType = "grpo" | "bnpo" | "dr_grpo" | "dapo";
+export type GrpoRewardFunc =
+  | "answer_match"
+  | "answer_format"
+  | "reasoning_format"
+  | "conciseness";
 
 export function isTrainingMethod(value: unknown): value is TrainingMethod {
   return (

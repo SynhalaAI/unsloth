@@ -207,6 +207,18 @@ def detect_dataset_format(dataset):
             "preference_columns": pref_cols,
         }
 
+    # GRPO (conversational/string prompt + verifiable answer, or prompt-only user turns)
+    from .grpo import detect_grpo_columns
+    grpo_cols = detect_grpo_columns(column_names, sample_rows = sample_rows)
+    if grpo_cols is not None:
+        return {
+            "format": "grpo",
+            "chat_column": None,
+            "needs_standardization": False,
+            "sample_keys": [],
+            "grpo_columns": grpo_cols,
+        }
+
     # Alpaca
     alpaca_columns = {"instruction", "output"}
     if alpaca_columns.issubset(column_name_set):

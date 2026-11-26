@@ -238,9 +238,9 @@ class TrainingStartRequest(BaseModel):
         ...,
         description = "Training type: 'LoRA/QLoRA', 'Full Finetuning', or 'Continued Pretraining'",
     )
-    training_method: Literal["SFT", "DPO", "ORPO", "CPO"] = Field(
+    training_method: Literal["SFT", "DPO", "ORPO", "CPO", "GRPO"] = Field(
         "SFT",
-        description = "Training method: 'SFT' (Supervised Fine-Tuning), 'DPO' (Direct Preference Optimization), 'ORPO' (Odds Ratio Preference Optimization), or 'CPO' (Contrastive Preference Optimization)",
+        description = "Training method: 'SFT', 'DPO', 'ORPO', 'CPO', or 'GRPO' (Group Relative Policy Optimization)",
     )
     dpo_beta: float = Field(
         0.1,
@@ -268,7 +268,55 @@ class TrainingStartRequest(BaseModel):
         512,
         ge = 1,
         le = _MAX_SEQ_LENGTH,
-        description = "Maximum prompt length for DPO/ORPO/CPO training",
+        description = "Maximum prompt length for DPO/ORPO/CPO/GRPO training",
+    )
+    grpo_num_generations: int = Field(
+        4,
+        ge = 2,
+        le = 64,
+        description = "Number of completions sampled per prompt in GRPO (group size G)",
+    )
+    grpo_max_completion_length: Optional[int] = Field(
+        512,
+        ge = 16,
+        le = _MAX_SEQ_LENGTH,
+        description = "Maximum generated completion length in tokens for GRPO",
+    )
+    grpo_beta: float = Field(
+        0.04,
+        ge = 0.0,
+        le = 2.0,
+        description = "KL penalty coefficient (beta) for GRPO",
+    )
+    grpo_temperature: float = Field(
+        0.9,
+        gt = 0.0,
+        le = 2.0,
+        description = "Sampling temperature for GRPO rollouts",
+    )
+    grpo_epsilon: float = Field(
+        0.2,
+        gt = 0.0,
+        le = 1.0,
+        description = "PPO/GRPO policy ratio clip epsilon",
+    )
+    grpo_num_iterations: int = Field(
+        1,
+        ge = 1,
+        le = 16,
+        description = "Number of policy optimization iterations per rollout batch (mu)",
+    )
+    grpo_loss_type: Literal["grpo", "bnpo", "dr_grpo", "dapo"] = Field(
+        "grpo",
+        description = "GRPO loss formulation: 'grpo', 'bnpo', 'dr_grpo', or 'dapo'",
+    )
+    grpo_reward_funcs: List[Literal["answer_match", "answer_format", "reasoning_format", "conciseness"]] = Field(
+        default_factory = lambda: ["answer_match", "answer_format"],
+        description = "Built-in verifiable reward functions enabled for GRPO",
+    )
+    grpo_use_vllm: bool = Field(
+        False,
+        description = "Use vLLM fast rollouts during GRPO training when available",
     )
     hf_token: Optional[str] = Field(None, description = "HuggingFace token")
     load_in_4bit: bool = Field(True, description = "Load model in 4-bit quantization")
@@ -1186,6 +1234,21 @@ class TrainingProgress(BaseModel):
     mean_token_accuracy: Optional[float] = Field(
         None, description = "Next-token accuracy on chosen responses during preference training"
     )
+    grpo_reward: Optional[float] = Field(
+        None, description = "Mean total reward across GRPO rollouts"
+    )
+    grpo_reward_std: Optional[float] = Field(
+        None, description = "Reward standard deviation across GRPO rollouts"
+    )
+    grpo_kl: Optional[float] = Field(
+        None, description = "KL divergence from the reference policy during GRPO"
+    )
+    grpo_completion_length: Optional[float] = Field(
+        None, description = "Mean generated completion length in tokens during GRPO"
+    )
+    grpo_clip_ratio: Optional[float] = Field(
+        None, description = "Policy clip ratio during GRPO"
+    )
     checkpoint_backup: Optional[dict] = Field(
         None, description = "Current asynchronous checkpoint backup snapshot"
     )
@@ -1270,6 +1333,17 @@ class TrainingRunMetrics(BaseModel):
     logps_rejected_step_history: List[int] = Field(default_factory = list)
     mean_token_accuracy_history: List[float] = Field(default_factory = list)
     mean_token_accuracy_step_history: List[int] = Field(default_factory = list)
+    # GRPO online RL metrics.
+    grpo_reward_history: List[float] = Field(default_factory = list)
+    grpo_reward_step_history: List[int] = Field(default_factory = list)
+    grpo_reward_std_history: List[float] = Field(default_factory = list)
+    grpo_reward_std_step_history: List[int] = Field(default_factory = list)
+    grpo_kl_history: List[float] = Field(default_factory = list)
+    grpo_kl_step_history: List[int] = Field(default_factory = list)
+    grpo_completion_length_history: List[float] = Field(default_factory = list)
+    grpo_completion_length_step_history: List[int] = Field(default_factory = list)
+    grpo_clip_ratio_history: List[float] = Field(default_factory = list)
+    grpo_clip_ratio_step_history: List[int] = Field(default_factory = list)
     final_epoch: Optional[float] = None
     final_num_tokens: Optional[int] = None
 

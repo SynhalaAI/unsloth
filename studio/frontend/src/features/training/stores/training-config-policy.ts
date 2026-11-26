@@ -115,6 +115,7 @@ export const initialTrainingConfigState: TrainingConfigState = {
   trainingToggleChoices: {},
   isCheckingDataset: false,
   isPreferenceDataset: false,
+  isGrpoDataset: false,
   isDatasetImage: null,
   isDatasetAudio: false,
   datasetCheckFailed: false,

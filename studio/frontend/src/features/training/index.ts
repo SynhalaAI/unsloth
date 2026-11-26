@@ -27,6 +27,7 @@ export {
   isTrainingModelTypeSupportedOnDevice,
   parseBackendPreferenceMethod,
   parseBackendTrainingMethod,
+  usesGrpoObjective,
   usesPreferenceObjective,
 } from "./lib/training-methods";
 export {

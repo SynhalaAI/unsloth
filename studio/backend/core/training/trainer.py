@@ -1102,6 +1102,16 @@ class UnslothTrainer:
                         if getattr(trainer_ref, "_is_preference_run", False)
                         else None
                     ),
+                    grpo_reward = logs.get("reward", logs.get("rewards/mean")),
+                    grpo_reward_std = logs.get("reward_std", logs.get("rewards/std")),
+                    grpo_kl = logs.get("kl"),
+                    grpo_completion_length = logs.get(
+                        "completions/mean_length", logs.get("completion_length")
+                    ),
+                    grpo_clip_ratio = logs.get(
+                        "clip_ratio/region_mean",
+                        logs.get("clip_ratio", logs.get("clip_ratio/high_mean")),
+                    ),
                     is_run_summary = is_run_summary,
                     offload = trainer_ref._offload_snapshot(),
                     status_message = "" if trainer_ref.should_stop else startup.log(logs) or "",
@@ -4038,6 +4048,10 @@ class UnslothTrainer:
                 is_preference_dataset,
                 standardize_preference_dataset,
             )
+            from utils.datasets.grpo import (
+                is_grpo_dataset,
+                standardize_grpo_dataset,
+            )
 
             is_preference_format = format_type in (
                 "preference_dpo",
@@ -4046,6 +4060,10 @@ class UnslothTrainer:
                 "cpo",
             ) or (format_type == "auto" and is_preference_dataset(dataset))
 
+            is_grpo_format = (not is_preference_format) and (
+                format_type == "grpo" or (format_type == "auto" and is_grpo_dataset(dataset))
+            )
+
             if is_preference_format:
                 logger.info("Preference dataset detected. Standardizing for DPO/ORPO/CPO training...\n")
                 formatted_ds = standardize_preference_dataset(dataset)
@@ -4053,6 +4071,15 @@ class UnslothTrainer:
                     "dataset": formatted_ds,
                     "detected_format": "preference_dpo",
                     "final_format": "preference_dpo",
+                    "success": True,
+                }
+            elif is_grpo_format:
+                logger.info("GRPO dataset detected. Standardizing prompt/answer columns for GRPO training...\n")
+                formatted_ds = standardize_grpo_dataset(dataset)
+                dataset_info = {
+                    "dataset": formatted_ds,
+                    "detected_format": "grpo",
+                    "final_format": "grpo",
                     "success": True,
                 }
             else:
@@ -4104,6 +4131,12 @@ class UnslothTrainer:
                 eval_dataset = standardize_preference_dataset(eval_dataset)
                 dataset_info["eval_final_format"] = "preference_dpo"
                 logger.info("Eval dataset standardized for preference training\n")
+            elif has_separate_eval_source and eval_dataset is not None and is_grpo_format:
+                eval_n = len(eval_dataset) if hasattr(eval_dataset, "__len__") else "?"
+                logger.info(f"Standardizing GRPO eval dataset ({eval_n} rows)...\n")
+                eval_dataset = standardize_grpo_dataset(eval_dataset)
+                dataset_info["eval_final_format"] = "grpo"
+                logger.info("Eval dataset standardized for GRPO training\n")
             elif has_separate_eval_source and eval_dataset is not None:
                 eval_n = len(eval_dataset) if hasattr(eval_dataset, "__len__") else "?"
                 logger.info(f"Formatting eval dataset ({eval_n} rows)...\n")
@@ -4793,12 +4826,11 @@ class UnslothTrainer:
             pretokenized_mode = dataset_final_format == PRETOKENIZED_FORMAT
             # DPO/ORPO/CPO build their own collator and config, so they must not fall into the
             # SFT/VLM branches that expect a "text" column.
-            is_preference_run = str(training_args.get("training_method") or "").strip().upper() in (
-                "DPO",
-                "ORPO",
-                "CPO",
-            )
+            training_method_upper = str(training_args.get("training_method") or "").strip().upper()
+            is_preference_run = training_method_upper in ("DPO", "ORPO", "CPO")
+            is_grpo_run = training_method_upper == "GRPO"
             self._is_preference_run = is_preference_run
+            self._is_grpo_run = is_grpo_run
             if dataset_final_format in ("preference_dpo", "preference_cpo") and not is_preference_run:
                 # The SFT path has no "text" column to train on, and silently dropping
                 # chosen/rejected would train on nothing: say what to change instead.
@@ -4806,6 +4838,11 @@ class UnslothTrainer:
                     "This dataset is formatted for preference training (chosen/rejected) but the "
                     "training method is SFT. Set the preference method to DPO, ORPO or CPO, or "
                     "choose an SFT dataset."
+                )
+            if dataset_final_format == "grpo" and not is_grpo_run:
+                raise ValueError(
+                    "This dataset is formatted for GRPO (prompt/answer) but the training method "
+                    "is not GRPO. Set the objective to GRPO or choose an SFT dataset."
                 )
             eval_final_format = (
                 str(dataset.get("eval_final_format", dataset_final_format) or "").lower()
@@ -5385,6 +5422,31 @@ class UnslothTrainer:
                         max_prompt_length = training_args.get("max_prompt_length", 512),
                         max_length = training_args.get("max_seq_length", 2048),
                     )
+                elif is_grpo_run:
+                    from core.training.grpo_trainer import setup_grpo_trainer
+
+                    self.trainer = setup_grpo_trainer(
+                        model = self.model,
+                        processing_class = sft_tokenizer,
+                        train_dataset = dataset["dataset"],
+                        eval_dataset = eval_dataset,
+                        config_args = config_args,
+                        num_generations = int(training_args.get("grpo_num_generations", 4) or 4),
+                        max_prompt_length = training_args.get("max_prompt_length", 512),
+                        max_completion_length = training_args.get("grpo_max_completion_length", 512),
+                        max_seq_length = training_args.get("max_seq_length", 2048),
+                        beta = float(
+                            training_args.get("grpo_beta", 0.04)
+                            if training_args.get("grpo_beta") is not None
+                            else 0.04
+                        ),
+                        temperature = float(training_args.get("grpo_temperature", 0.9) or 0.9),
+                        epsilon = float(training_args.get("grpo_epsilon", 0.2) or 0.2),
+                        num_iterations = int(training_args.get("grpo_num_iterations", 1) or 1),
+                        loss_type = training_args.get("grpo_loss_type", "grpo"),
+                        reward_funcs = training_args.get("grpo_reward_funcs"),
+                        use_vllm = bool(training_args.get("grpo_use_vllm", False)),
+                    )
                 else:
                     sft_args = SFTConfig(**config_args)
                     if raw_text_mode and config_args.get("packing", False):
@@ -5410,7 +5472,7 @@ class UnslothTrainer:
             is_cpt = training_args.get("is_cpt", False)
             train_on_responses_enabled = (
                 False
-                if (is_cpt or raw_text_mode or user_labels or is_preference_run)
+                if (is_cpt or raw_text_mode or user_labels or is_preference_run or is_grpo_run)
                 else training_args.get("train_on_completions", False)
             )
 

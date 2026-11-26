@@ -40,6 +40,7 @@ import {
   preferenceBetaTooltip,
   preferenceModeTooltip,
 } from "./dpo-preference-params";
+import { GrpoParams } from "./grpo-params";
 import { TrainingMemoryParams } from "./training-memory-params";
 
 type HyperparameterTab = "optimization" | "schedule" | "memory" | "preference";
@@ -182,12 +183,22 @@ export function TrainingHyperparametersSection({
       epochs: state.epochs,
       contextLength: state.contextLength,
       isPreferenceDataset: state.isPreferenceDataset,
+      isGrpoDataset: state.isGrpoDataset,
       preferenceTrainingMethod: state.preferenceTrainingMethod,
       dpoBeta: state.dpoBeta,
       cpoAlpha: state.cpoAlpha,
       dpoLossType: state.dpoLossType,
       rpoAlpha: state.rpoAlpha,
       maxPromptLength: state.maxPromptLength,
+      grpoNumGenerations: state.grpoNumGenerations,
+      grpoMaxCompletionLength: state.grpoMaxCompletionLength,
+      grpoBeta: state.grpoBeta,
+      grpoTemperature: state.grpoTemperature,
+      grpoEpsilon: state.grpoEpsilon,
+      grpoNumIterations: state.grpoNumIterations,
+      grpoLossType: state.grpoLossType,
+      grpoRewardFuncs: state.grpoRewardFuncs,
+      grpoUseVllm: state.grpoUseVllm,
       isDecision: state.modelType === "decision",
       isCpt: state.trainingMethod === "cpt",
       isEmbedding: state.isEmbeddingModel || state.modelType === "embeddings",
@@ -208,6 +219,15 @@ export function TrainingHyperparametersSection({
       setDpoLossType: state.setDpoLossType,
       setRpoAlpha: state.setRpoAlpha,
       setMaxPromptLength: state.setMaxPromptLength,
+      setGrpoNumGenerations: state.setGrpoNumGenerations,
+      setGrpoMaxCompletionLength: state.setGrpoMaxCompletionLength,
+      setGrpoBeta: state.setGrpoBeta,
+      setGrpoTemperature: state.setGrpoTemperature,
+      setGrpoEpsilon: state.setGrpoEpsilon,
+      setGrpoNumIterations: state.setGrpoNumIterations,
+      setGrpoLossType: state.setGrpoLossType,
+      setGrpoRewardFuncs: state.setGrpoRewardFuncs,
+      setGrpoUseVllm: state.setGrpoUseVllm,
       setOptimizerType: state.setOptimizerType,
       setLrSchedulerType: state.setLrSchedulerType,
       setBatchSize: state.setBatchSize,
@@ -226,9 +246,12 @@ export function TrainingHyperparametersSection({
   // Only mounted in advanced mode, so start expanded.
   const [open, setOpen] = useState(true);
   const [tab, setTab] = useState<HyperparameterTab>("optimization");
+  const isGrpoMode = store.preferenceTrainingMethod === "grpo" && !store.isCpt;
   const showPreferenceTab =
-    store.isPreferenceDataset || store.preferenceTrainingMethod !== "sft";
-  // CPT trains every token, so the preference objective and its knobs never apply.
+    store.isPreferenceDataset ||
+    store.isGrpoDataset ||
+    store.preferenceTrainingMethod !== "sft";
+  // CPT trains every token, so the preference/RL objective and its knobs never apply.
   const showPreferenceRows =
     store.preferenceTrainingMethod !== "sft" && !store.isCpt;
   // Mirror the trainers' own cap so the row cannot offer a value the run would reduce.
@@ -252,7 +275,7 @@ export function TrainingHyperparametersSection({
     { value: "schedule", label: t("studio.params.schedule") },
     { value: "memory", label: t("studio.params.memory") },
     ...(showPreferenceTab
-      ? [{ value: "preference" as const, label: "Preference" }]
+      ? [{ value: "preference" as const, label: isGrpoMode ? "GRPO" : "Preference" }]
       : []),
   ] as const;
 
@@ -441,7 +464,7 @@ export function TrainingHyperparametersSection({
                   value={store.preferenceTrainingMethod}
                   onValueChange={(value) =>
                     store.setPreferenceTrainingMethod(
-                      value as "sft" | "dpo" | "orpo" | "cpo",
+                      value as "sft" | "dpo" | "orpo" | "cpo" | "grpo",
                     )
                   }
                 >
@@ -453,12 +476,19 @@ export function TrainingHyperparametersSection({
                     <SelectItem value="dpo">DPO</SelectItem>
                     <SelectItem value="orpo">ORPO</SelectItem>
                     <SelectItem value="cpo">CPO</SelectItem>
+                    <SelectItem value="grpo">GRPO</SelectItem>
                   </SelectContent>
                 </Select>
               </ParamsRow>
-              {showPreferenceRows && !store.isPreferenceDataset && (
+              {showPreferenceRows && !isGrpoMode && !store.isPreferenceDataset && (
                 <p className="text-ui-11p5 leading-relaxed text-destructive">
                   {t("studio.training.validation.preferenceDatasetMismatch")}
+                </p>
+              )}
+              {isGrpoMode && !store.isGrpoDataset && (
+                <p className="text-ui-11p5 leading-relaxed text-destructive">
+                  GRPO needs a dataset with a prompt (or question/problem) column,
+                  optionally paired with a verifiable answer column.
                 </p>
               )}
               {store.isCpt && store.preferenceTrainingMethod !== "sft" && (
@@ -469,40 +499,71 @@ export function TrainingHyperparametersSection({
               )}
               {showPreferenceRows && (
                 <>
-                  <ParamsSliderRow
-                    label={
-                      store.preferenceTrainingMethod === "orpo"
-                        ? "ORPO β"
-                        : store.preferenceTrainingMethod === "cpo"
-                          ? "CPO β"
-                          : "DPO β"
-                    }
-                    tooltip={preferenceBetaTooltip(
-                      store.preferenceTrainingMethod,
-                    )}
-                    value={store.dpoBeta}
-                    onChange={store.setDpoBeta}
-                    min={0.001}
-                    max={2}
-                    step={0.001}
-                  />
-                  {store.preferenceTrainingMethod === "dpo" && (
-                    <DpoPreferenceParams
-                      dpoLossType={store.dpoLossType}
-                      rpoAlpha={store.rpoAlpha}
-                      onDpoLossTypeChange={store.setDpoLossType}
-                      onRpoAlphaChange={store.setRpoAlpha}
-                    />
+                  {!isGrpoMode && (
+                    <>
+                      <ParamsSliderRow
+                        label={
+                          store.preferenceTrainingMethod === "orpo"
+                            ? "ORPO β"
+                            : store.preferenceTrainingMethod === "cpo"
+                              ? "CPO β"
+                              : "DPO β"
+                        }
+                        tooltip={preferenceBetaTooltip(
+                          store.preferenceTrainingMethod,
+                        )}
+                        value={store.dpoBeta}
+                        onChange={store.setDpoBeta}
+                        min={0.001}
+                        max={2}
+                        step={0.001}
+                      />
+                      {store.preferenceTrainingMethod === "dpo" && (
+                        <DpoPreferenceParams
+                          dpoLossType={store.dpoLossType}
+                          rpoAlpha={store.rpoAlpha}
+                          onDpoLossTypeChange={store.setDpoLossType}
+                          onRpoAlphaChange={store.setRpoAlpha}
+                        />
+                      )}
+                      {store.preferenceTrainingMethod === "cpo" && (
+                        <ParamsSliderRow
+                          label="CPO α"
+                          tooltip={cpoAlphaTooltip()}
+                          value={store.cpoAlpha}
+                          onChange={store.setCpoAlpha}
+                          min={0}
+                          max={10}
+                          step={0.1}
+                        />
+                      )}
+                    </>
                   )}
-                  {store.preferenceTrainingMethod === "cpo" && (
-                    <ParamsSliderRow
-                      label="CPO α"
-                      tooltip={cpoAlphaTooltip()}
-                      value={store.cpoAlpha}
-                      onChange={store.setCpoAlpha}
-                      min={0}
-                      max={10}
-                      step={0.1}
+                  {isGrpoMode && (
+                    <GrpoParams
+                      isMac={isMac}
+                      contextLength={store.contextLength}
+                      effectivePromptLength={effectivePromptLength}
+                      numGenerations={store.grpoNumGenerations}
+                      maxCompletionLength={store.grpoMaxCompletionLength}
+                      grpoBeta={store.grpoBeta}
+                      grpoTemperature={store.grpoTemperature}
+                      grpoEpsilon={store.grpoEpsilon}
+                      grpoNumIterations={store.grpoNumIterations}
+                      grpoLossType={store.grpoLossType}
+                      grpoRewardFuncs={store.grpoRewardFuncs}
+                      grpoUseVllm={store.grpoUseVllm}
+                      onNumGenerationsChange={store.setGrpoNumGenerations}
+                      onMaxCompletionLengthChange={
+                        store.setGrpoMaxCompletionLength
+                      }
+                      onGrpoBetaChange={store.setGrpoBeta}
+                      onGrpoTemperatureChange={store.setGrpoTemperature}
+                      onGrpoEpsilonChange={store.setGrpoEpsilon}
+                      onGrpoNumIterationsChange={store.setGrpoNumIterations}
+                      onGrpoLossTypeChange={store.setGrpoLossType}
+                      onGrpoRewardFuncsChange={store.setGrpoRewardFuncs}
+                      onGrpoUseVllmChange={store.setGrpoUseVllm}
                     />
                   )}
                   <ParamsRow
@@ -640,7 +701,7 @@ export function TrainingHyperparametersSection({
                 className="w-28 font-mono"
               />
             </ParamsRow>
-            {!store.isDecision && !store.isEmbedding && (
+            {!store.isDecision && !store.isEmbedding && !isGrpoMode && (
               <ParamsRow
                 label={t("studio.params.earlyStoppingPatience")}
                 tooltip={t("studio.params.earlyStoppingPatienceTooltip")}

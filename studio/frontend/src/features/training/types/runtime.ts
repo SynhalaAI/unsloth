@@ -72,6 +72,16 @@ export interface TrainingStatusResponse {
     logps_rejected_steps?: number[];
     mean_token_accuracy?: number[];
     mean_token_accuracy_steps?: number[];
+    grpo_reward?: number[];
+    grpo_reward_steps?: number[];
+    grpo_reward_std?: number[];
+    grpo_reward_std_steps?: number[];
+    grpo_kl?: number[];
+    grpo_kl_steps?: number[];
+    grpo_completion_length?: number[];
+    grpo_completion_length_steps?: number[];
+    grpo_clip_ratio?: number[];
+    grpo_clip_ratio_steps?: number[];
   } | null;
 }
 
@@ -112,6 +122,11 @@ export interface TrainingProgressPayload {
   logps_chosen?: number | null;
   logps_rejected?: number | null;
   mean_token_accuracy?: number | null;
+  grpo_reward?: number | null;
+  grpo_reward_std?: number | null;
+  grpo_kl?: number | null;
+  grpo_completion_length?: number | null;
+  grpo_clip_ratio?: number | null;
 }
 
 export interface TrainingSeriesPoint {
@@ -170,6 +185,11 @@ export interface TrainingRuntimeState {
   logpsChosenHistory: TrainingSeriesPoint[];
   logpsRejectedHistory: TrainingSeriesPoint[];
   meanTokenAccuracyHistory: TrainingSeriesPoint[];
+  grpoRewardHistory: TrainingSeriesPoint[];
+  grpoRewardStdHistory: TrainingSeriesPoint[];
+  grpoKlHistory: TrainingSeriesPoint[];
+  grpoCompletionLengthHistory: TrainingSeriesPoint[];
+  grpoClipRatioHistory: TrainingSeriesPoint[];
   resetGeneration: number;
   stopRequested: boolean;
   configureRequest: number;
@@ -257,4 +277,9 @@ export interface TrainingViewData {
   logpsChosenHistory: TrainingSeriesPoint[];
   logpsRejectedHistory: TrainingSeriesPoint[];
   meanTokenAccuracyHistory: TrainingSeriesPoint[];
+  grpoRewardHistory?: TrainingSeriesPoint[];
+  grpoRewardStdHistory?: TrainingSeriesPoint[];
+  grpoKlHistory?: TrainingSeriesPoint[];
+  grpoCompletionLengthHistory?: TrainingSeriesPoint[];
+  grpoClipRatioHistory?: TrainingSeriesPoint[];
 }

@@ -18,12 +18,13 @@ const BACKEND_TRAINING_TYPE: Record<TrainingMethod, string> = {
 
 const BACKEND_PREFERENCE_METHOD: Record<
   PreferenceTrainingMethod,
-  "SFT" | "DPO" | "ORPO" | "CPO"
+  "SFT" | "DPO" | "ORPO" | "CPO" | "GRPO"
 > = {
   sft: "SFT",
   dpo: "DPO",
   orpo: "ORPO",
   cpo: "CPO",
+  grpo: "GRPO",
 };
 
 const TRAINING_METHOD_LABELS: Record<TrainingMethod, string> = {
@@ -39,7 +40,7 @@ export function toBackendTrainingType(trainingMethod: TrainingMethod): string {
 
 export function toBackendPreferenceMethod(
   method: PreferenceTrainingMethod,
-): "SFT" | "DPO" | "ORPO" | "CPO" {
+): "SFT" | "DPO" | "ORPO" | "CPO" | "GRPO" {
   return BACKEND_PREFERENCE_METHOD[method];
 }
 
@@ -59,6 +60,7 @@ const PREFERENCE_METHOD_LABELS: Record<PreferenceTrainingMethod, string> = {
   dpo: "DPO",
   orpo: "ORPO",
   cpo: "CPO",
+  grpo: "GRPO",
 };
 
 /** Map a run's saved `training_method` back onto the preference objective. */
@@ -77,6 +79,8 @@ export function parseBackendPreferenceMethod(
       return "orpo";
     case "CPO":
       return "cpo";
+    case "GRPO":
+      return "grpo";
     default:
       return null;
   }
@@ -117,6 +121,13 @@ export function usesPreferenceObjective(
     preferenceMethod != null &&
     preferenceMethod !== "sft"
   );
+}
+
+export function usesGrpoObjective(
+  trainingMethod: TrainingMethod | string,
+  preferenceMethod?: PreferenceTrainingMethod | null,
+): boolean {
+  return trainingMethod !== "cpt" && preferenceMethod === "grpo";
 }
 
 export function isTrainingMethodSupportedOnDevice(

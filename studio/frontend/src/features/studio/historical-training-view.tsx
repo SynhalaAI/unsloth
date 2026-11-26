@@ -164,6 +164,26 @@ function mapToViewData(
       metrics.mean_token_accuracy_step_history ?? [],
       metrics.mean_token_accuracy_history ?? [],
     ),
+    grpoRewardHistory: metricSeries(
+      metrics.grpo_reward_step_history ?? [],
+      metrics.grpo_reward_history ?? [],
+    ),
+    grpoRewardStdHistory: metricSeries(
+      metrics.grpo_reward_std_step_history ?? [],
+      metrics.grpo_reward_std_history ?? [],
+    ),
+    grpoKlHistory: metricSeries(
+      metrics.grpo_kl_step_history ?? [],
+      metrics.grpo_kl_history ?? [],
+    ),
+    grpoCompletionLengthHistory: metricSeries(
+      metrics.grpo_completion_length_step_history ?? [],
+      metrics.grpo_completion_length_history ?? [],
+    ),
+    grpoClipRatioHistory: metricSeries(
+      metrics.grpo_clip_ratio_step_history ?? [],
+      metrics.grpo_clip_ratio_history ?? [],
+    ),
   };
 }
 
@@ -305,6 +325,11 @@ export function HistoricalTrainingView({
         logpsChosenHistory={viewData.logpsChosenHistory}
         logpsRejectedHistory={viewData.logpsRejectedHistory}
         meanTokenAccuracyHistory={viewData.meanTokenAccuracyHistory}
+        grpoRewardHistory={viewData.grpoRewardHistory}
+        grpoRewardStdHistory={viewData.grpoRewardStdHistory}
+        grpoKlHistory={viewData.grpoKlHistory}
+        grpoCompletionLengthHistory={viewData.grpoCompletionLengthHistory}
+        grpoClipRatioHistory={viewData.grpoClipRatioHistory}
         preferenceMethod={viewData.preferenceMethod}
       />
     </div>

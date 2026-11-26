@@ -44,6 +44,11 @@ const NULLABLE_NUMERIC_FIELDS = [
   "logps_chosen",
   "logps_rejected",
   "mean_token_accuracy",
+  "grpo_reward",
+  "grpo_reward_std",
+  "grpo_kl",
+  "grpo_completion_length",
+  "grpo_clip_ratio",
 ] as const;
 
 function isFiniteNumber(value: unknown): value is number {
@@ -123,6 +128,13 @@ function parseTrainingProgressPayload(
     mean_token_accuracy: normalizeNullableFiniteNumber(
       payload.mean_token_accuracy,
     ),
+    grpo_reward: normalizeNullableFiniteNumber(payload.grpo_reward),
+    grpo_reward_std: normalizeNullableFiniteNumber(payload.grpo_reward_std),
+    grpo_kl: normalizeNullableFiniteNumber(payload.grpo_kl),
+    grpo_completion_length: normalizeNullableFiniteNumber(
+      payload.grpo_completion_length,
+    ),
+    grpo_clip_ratio: normalizeNullableFiniteNumber(payload.grpo_clip_ratio),
   };
 }
 

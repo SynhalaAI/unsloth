@@ -298,6 +298,15 @@ def _build_training_worker_config(values: dict[str, Any]) -> dict[str, Any]:
         "dpo_loss_type": values.get("dpo_loss_type", "sigmoid"),
         "rpo_alpha": values.get("rpo_alpha", 0.0),
         "max_prompt_length": values.get("max_prompt_length", 512),
+        "grpo_num_generations": values.get("grpo_num_generations", 4),
+        "grpo_max_completion_length": values.get("grpo_max_completion_length", 512),
+        "grpo_beta": values.get("grpo_beta", 0.04),
+        "grpo_temperature": values.get("grpo_temperature", 0.9),
+        "grpo_epsilon": values.get("grpo_epsilon", 0.2),
+        "grpo_num_iterations": values.get("grpo_num_iterations", 1),
+        "grpo_loss_type": values.get("grpo_loss_type", "grpo"),
+        "grpo_reward_funcs": values.get("grpo_reward_funcs", ["answer_match", "answer_format"]),
+        "grpo_use_vllm": values.get("grpo_use_vllm", False),
         "subset": values.get("subset"),
         "train_split": values.get("train_split", "train"),
         "eval_split": values.get("eval_split"),
@@ -838,6 +847,11 @@ class TrainingProgress:
     logps_chosen: Optional[float] = None
     logps_rejected: Optional[float] = None
     mean_token_accuracy: Optional[float] = None
+    grpo_reward: Optional[float] = None
+    grpo_reward_std: Optional[float] = None
+    grpo_kl: Optional[float] = None
+    grpo_completion_length: Optional[float] = None
+    grpo_clip_ratio: Optional[float] = None
     peak_memory_gb: Optional[float] = None
     # BlockSwap.stats() from the last logged step, for the live offload panel.
     offload: Optional[dict] = None
@@ -1379,6 +1393,16 @@ class TrainingBackend:
         self.logps_rejected_step_history: list = []
         self.mean_token_accuracy_history: list = []
         self.mean_token_accuracy_step_history: list = []
+        self.grpo_reward_history: list = []
+        self.grpo_reward_step_history: list = []
+        self.grpo_reward_std_history: list = []
+        self.grpo_reward_std_step_history: list = []
+        self.grpo_kl_history: list = []
+        self.grpo_kl_step_history: list = []
+        self.grpo_completion_length_history: list = []
+        self.grpo_completion_length_step_history: list = []
+        self.grpo_clip_ratio_history: list = []
+        self.grpo_clip_ratio_step_history: list = []
         # OCR transcription metrics (CER/WER), keyed by the eval step (None for non-OCR runs).
         self.cer_history: list = []
         self.wer_history: list = []
@@ -1451,6 +1475,16 @@ class TrainingBackend:
             "logps_rejected_step_history",
             "mean_token_accuracy_history",
             "mean_token_accuracy_step_history",
+            "grpo_reward_history",
+            "grpo_reward_step_history",
+            "grpo_reward_std_history",
+            "grpo_reward_std_step_history",
+            "grpo_kl_history",
+            "grpo_kl_step_history",
+            "grpo_completion_length_history",
+            "grpo_completion_length_step_history",
+            "grpo_clip_ratio_history",
+            "grpo_clip_ratio_step_history",
         ):
             getattr(self, name).clear()
         self.current_job_id = self.current_start_request_id = None
@@ -2200,6 +2234,16 @@ class TrainingBackend:
             self.logps_rejected_step_history.clear()
             self.mean_token_accuracy_history.clear()
             self.mean_token_accuracy_step_history.clear()
+            self.grpo_reward_history.clear()
+            self.grpo_reward_step_history.clear()
+            self.grpo_reward_std_history.clear()
+            self.grpo_reward_std_step_history.clear()
+            self.grpo_kl_history.clear()
+            self.grpo_kl_step_history.clear()
+            self.grpo_completion_length_history.clear()
+            self.grpo_completion_length_step_history.clear()
+            self.grpo_clip_ratio_history.clear()
+            self.grpo_clip_ratio_step_history.clear()
             self.eval_enabled = False
             self.parallel_plan = config.get("parallel")
             self._output_dir = config.get("output_dir") if resume_source_run_id else None
@@ -2421,6 +2465,16 @@ class TrainingBackend:
                 self.logps_rejected_step_history.clear()
                 self.mean_token_accuracy_history.clear()
                 self.mean_token_accuracy_step_history.clear()
+                self.grpo_reward_history.clear()
+                self.grpo_reward_step_history.clear()
+                self.grpo_reward_std_history.clear()
+                self.grpo_reward_std_step_history.clear()
+                self.grpo_kl_history.clear()
+                self.grpo_kl_step_history.clear()
+                self.grpo_completion_length_history.clear()
+                self.grpo_completion_length_step_history.clear()
+                self.grpo_clip_ratio_history.clear()
+                self.grpo_clip_ratio_step_history.clear()
                 self._needs_xet_respawn = False
                 self._status_start_request_id = None
                 self.parallel_plan = None
@@ -3516,6 +3570,11 @@ class TrainingBackend:
                 logps_chosen = _finite_metric(event.get("logps_chosen"))
                 logps_rejected = _finite_metric(event.get("logps_rejected"))
                 mean_token_accuracy = _finite_metric(event.get("mean_token_accuracy"))
+                grpo_reward = _finite_metric(event.get("grpo_reward"))
+                grpo_reward_std = _finite_metric(event.get("grpo_reward_std"))
+                grpo_kl = _finite_metric(event.get("grpo_kl"))
+                grpo_completion_length = _finite_metric(event.get("grpo_completion_length"))
+                grpo_clip_ratio = _finite_metric(event.get("grpo_clip_ratio"))
 
                 self._progress.rewards_chosen = rewards_chosen
                 self._progress.rewards_rejected = rewards_rejected
@@ -3528,6 +3587,11 @@ class TrainingBackend:
                 self._progress.logps_chosen = logps_chosen
                 self._progress.logps_rejected = logps_rejected
                 self._progress.mean_token_accuracy = mean_token_accuracy
+                self._progress.grpo_reward = grpo_reward
+                self._progress.grpo_reward_std = grpo_reward_std
+                self._progress.grpo_kl = grpo_kl
+                self._progress.grpo_completion_length = grpo_completion_length
+                self._progress.grpo_clip_ratio = grpo_clip_ratio
 
                 if step > 0:
                     # An eval log repeats the last train values; only the eval_* fields are new,
@@ -3581,6 +3645,31 @@ class TrainingBackend:
                                 self.mean_token_accuracy_step_history,
                                 mean_token_accuracy,
                             ),
+                            (
+                                self.grpo_reward_history,
+                                self.grpo_reward_step_history,
+                                grpo_reward,
+                            ),
+                            (
+                                self.grpo_reward_std_history,
+                                self.grpo_reward_std_step_history,
+                                grpo_reward_std,
+                            ),
+                            (
+                                self.grpo_kl_history,
+                                self.grpo_kl_step_history,
+                                grpo_kl,
+                            ),
+                            (
+                                self.grpo_completion_length_history,
+                                self.grpo_completion_length_step_history,
+                                grpo_completion_length,
+                            ),
+                            (
+                                self.grpo_clip_ratio_history,
+                                self.grpo_clip_ratio_step_history,
+                                grpo_clip_ratio,
+                            ),
                         )
                     )
                     eval_metrics = (
@@ -3623,6 +3712,11 @@ class TrainingBackend:
                         "logps_chosen": logps_chosen,
                         "logps_rejected": logps_rejected,
                         "mean_token_accuracy": mean_token_accuracy,
+                        "grpo_reward": grpo_reward,
+                        "grpo_reward_std": grpo_reward_std,
+                        "grpo_kl": grpo_kl,
+                        "grpo_completion_length": grpo_completion_length,
+                        "grpo_clip_ratio": grpo_clip_ratio,
                     }
                 )
 

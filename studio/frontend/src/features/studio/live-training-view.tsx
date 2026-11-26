@@ -76,6 +76,11 @@ export function LiveTrainingView(): ReactElement {
       logpsChosenHistory: state.logpsChosenHistory,
       logpsRejectedHistory: state.logpsRejectedHistory,
       meanTokenAccuracyHistory: state.meanTokenAccuracyHistory,
+      grpoRewardHistory: state.grpoRewardHistory,
+      grpoRewardStdHistory: state.grpoRewardStdHistory,
+      grpoKlHistory: state.grpoKlHistory,
+      grpoCompletionLengthHistory: state.grpoCompletionLengthHistory,
+      grpoClipRatioHistory: state.grpoClipRatioHistory,
       firstStepReceived: state.firstStepReceived,
       isStarting: state.isStarting,
     })),
@@ -194,6 +199,11 @@ export function LiveTrainingView(): ReactElement {
     logpsChosenHistory: runtime.logpsChosenHistory,
     logpsRejectedHistory: runtime.logpsRejectedHistory,
     meanTokenAccuracyHistory: runtime.meanTokenAccuracyHistory,
+    grpoRewardHistory: runtime.grpoRewardHistory,
+    grpoRewardStdHistory: runtime.grpoRewardStdHistory,
+    grpoKlHistory: runtime.grpoKlHistory,
+    grpoCompletionLengthHistory: runtime.grpoCompletionLengthHistory,
+    grpoClipRatioHistory: runtime.grpoClipRatioHistory,
   };
 
   const isPreparingPhase =
@@ -245,6 +255,11 @@ export function LiveTrainingView(): ReactElement {
           logpsChosenHistory={viewData.logpsChosenHistory}
           logpsRejectedHistory={viewData.logpsRejectedHistory}
           meanTokenAccuracyHistory={viewData.meanTokenAccuracyHistory}
+          grpoRewardHistory={viewData.grpoRewardHistory}
+          grpoRewardStdHistory={viewData.grpoRewardStdHistory}
+          grpoKlHistory={viewData.grpoKlHistory}
+          grpoCompletionLengthHistory={viewData.grpoCompletionLengthHistory}
+          grpoClipRatioHistory={viewData.grpoClipRatioHistory}
           preferenceMethod={viewData.preferenceMethod}
         />
       </div>

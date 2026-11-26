@@ -2405,6 +2405,15 @@ async def _admit_training_request(
         "dpo_loss_type": request.dpo_loss_type,
         "rpo_alpha": request.rpo_alpha,
         "max_prompt_length": request.max_prompt_length,
+        "grpo_num_generations": request.grpo_num_generations,
+        "grpo_max_completion_length": request.grpo_max_completion_length,
+        "grpo_beta": request.grpo_beta,
+        "grpo_temperature": request.grpo_temperature,
+        "grpo_epsilon": request.grpo_epsilon,
+        "grpo_num_iterations": request.grpo_num_iterations,
+        "grpo_loss_type": request.grpo_loss_type,
+        "grpo_reward_funcs": list(request.grpo_reward_funcs),
+        "grpo_use_vllm": request.grpo_use_vllm,
         "subset": request.subset,
         "train_split": request.train_split,
         "dataset_streaming": request.dataset_streaming,
@@ -3355,6 +3364,18 @@ def _build_training_status(
             "mean_token_accuracy_steps": list(
                 getattr(backend, "mean_token_accuracy_step_history", [])
             ),
+            "grpo_reward": list(getattr(backend, "grpo_reward_history", [])),
+            "grpo_reward_steps": list(getattr(backend, "grpo_reward_step_history", [])),
+            "grpo_reward_std": list(getattr(backend, "grpo_reward_std_history", [])),
+            "grpo_reward_std_steps": list(getattr(backend, "grpo_reward_std_step_history", [])),
+            "grpo_kl": list(getattr(backend, "grpo_kl_history", [])),
+            "grpo_kl_steps": list(getattr(backend, "grpo_kl_step_history", [])),
+            "grpo_completion_length": list(getattr(backend, "grpo_completion_length_history", [])),
+            "grpo_completion_length_steps": list(
+                getattr(backend, "grpo_completion_length_step_history", [])
+            ),
+            "grpo_clip_ratio": list(getattr(backend, "grpo_clip_ratio_history", [])),
+            "grpo_clip_ratio_steps": list(getattr(backend, "grpo_clip_ratio_step_history", [])),
         }
 
     return TrainingStatus(
@@ -3598,6 +3619,13 @@ async def stream_training_progress(
                 mean_token_accuracy = (
                     getattr(progress, "mean_token_accuracy", None) if progress else None
                 ),
+                grpo_reward = getattr(progress, "grpo_reward", None) if progress else None,
+                grpo_reward_std = getattr(progress, "grpo_reward_std", None) if progress else None,
+                grpo_kl = getattr(progress, "grpo_kl", None) if progress else None,
+                grpo_completion_length = (
+                    getattr(progress, "grpo_completion_length", None) if progress else None
+                ),
+                grpo_clip_ratio = getattr(progress, "grpo_clip_ratio", None) if progress else None,
             )
 
         def format_sse(

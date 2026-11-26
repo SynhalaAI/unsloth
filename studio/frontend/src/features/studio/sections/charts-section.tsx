@@ -36,6 +36,11 @@ interface ChartsSectionProps {
   logpsChosenHistory?: TrainingSeriesPoint[];
   logpsRejectedHistory?: TrainingSeriesPoint[];
   meanTokenAccuracyHistory?: TrainingSeriesPoint[];
+  grpoRewardHistory?: TrainingSeriesPoint[];
+  grpoRewardStdHistory?: TrainingSeriesPoint[];
+  grpoKlHistory?: TrainingSeriesPoint[];
+  grpoCompletionLengthHistory?: TrainingSeriesPoint[];
+  grpoClipRatioHistory?: TrainingSeriesPoint[];
   preferenceMethod?: PreferenceTrainingMethod | null;
 }
 
@@ -58,6 +63,11 @@ export function ChartsSection({
   logpsChosenHistory = [],
   logpsRejectedHistory = [],
   meanTokenAccuracyHistory = [],
+  grpoRewardHistory = [],
+  grpoRewardStdHistory = [],
+  grpoKlHistory = [],
+  grpoCompletionLengthHistory = [],
+  grpoClipRatioHistory = [],
   preferenceMethod,
 }: ChartsSectionProps): ReactElement | null {
   const series = useMemo(
@@ -124,8 +134,28 @@ export function ChartsSection({
         step: point.step,
         accuracy: point.value,
       })),
+      grpoRewardHistory: grpoRewardHistory.map((point) => ({
+        step: point.step,
+        reward: point.value,
+      })),
+      grpoRewardStdHistory: grpoRewardStdHistory.map((point) => ({
+        step: point.step,
+        rewardStd: point.value,
+      })),
+      grpoKlHistory: grpoKlHistory.map((point) => ({
+        step: point.step,
+        kl: point.value,
+      })),
+      grpoCompletionLengthHistory: grpoCompletionLengthHistory.map((point) => ({
+        step: point.step,
+        completionLength: point.value,
+      })),
+      grpoClipRatioHistory: grpoClipRatioHistory.map((point) => ({
+        step: point.step,
+        clipRatio: point.value,
+      })),
     }),
-    [currentStep, evalLossHistory, evalRewardAccuracyHistory, evalRewardMarginHistory, gradNormHistory, logOddsRatioHistory, logpsChosenHistory, logpsRejectedHistory, lossHistory, lrHistory, meanTokenAccuracyHistory, nllLossHistory, rewardAccuracyHistory, rewardMarginHistory, rewardsChosenHistory, rewardsRejectedHistory, totalSteps],
+    [currentStep, evalLossHistory, evalRewardAccuracyHistory, evalRewardMarginHistory, gradNormHistory, grpoClipRatioHistory, grpoCompletionLengthHistory, grpoKlHistory, grpoRewardHistory, grpoRewardStdHistory, logOddsRatioHistory, logpsChosenHistory, logpsRejectedHistory, lossHistory, lrHistory, meanTokenAccuracyHistory, nllLossHistory, rewardAccuracyHistory, rewardMarginHistory, rewardsChosenHistory, rewardsRejectedHistory, totalSteps],
   );
 
   if (
@@ -143,7 +173,12 @@ export function ChartsSection({
     series.rewardsRejectedHistory.length === 0 &&
     series.logpsChosenHistory.length === 0 &&
     series.logpsRejectedHistory.length === 0 &&
-    series.meanTokenAccuracyHistory.length === 0
+    series.meanTokenAccuracyHistory.length === 0 &&
+    series.grpoRewardHistory.length === 0 &&
+    series.grpoRewardStdHistory.length === 0 &&
+    series.grpoKlHistory.length === 0 &&
+    series.grpoCompletionLengthHistory.length === 0 &&
+    series.grpoClipRatioHistory.length === 0
   ) {
     return null;
   }

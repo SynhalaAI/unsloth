@@ -57,6 +57,7 @@ import { type ReactElement, type ReactNode, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { ChartSettingsSheet } from "./charts/chart-settings-sheet";
 import { formatDpoLossTypeLabel } from "./dpo-preference-params";
+import { formatGrpoLossTypeLabel } from "./grpo-params";
 import {
   formatDuration,
   formatNumber,
@@ -251,6 +252,11 @@ export function ProgressSection({
   const cfgDpoLossType = cfg?.dpoLossType;
   const cfgRpoAlpha = cfg?.rpoAlpha;
   const cfgMaxPromptLength = cfg?.maxPromptLength;
+  const cfgGrpoNumGenerations = cfg?.grpoNumGenerations;
+  const cfgGrpoMaxCompletionLength = cfg?.grpoMaxCompletionLength;
+  const cfgGrpoBeta = cfg?.grpoBeta;
+  const cfgGrpoTemperature = cfg?.grpoTemperature;
+  const cfgGrpoLossType = cfg?.grpoLossType;
 
   // On Mac the MLX backend runs CUDA optimizers as AdamW.
   const effectiveOptimizer =
@@ -281,32 +287,59 @@ export function ProgressSection({
       ],
     },
     ...(usesPreferenceObjective(data.trainingMethod, cfgPreferenceMethod)
-      ? [
-        {
-          section: t("studio.progress.preference"),
-          rows: [
-            configRow(t("studio.progress.preferenceBeta"), cfgDpoBeta),
-            ...(cfgPreferenceMethod === "dpo"
-              ? [
-                  configRow(
-                    "Loss type",
-                    cfgDpoLossType !== undefined
-                      ? formatDpoLossTypeLabel(cfgDpoLossType)
-                      : undefined,
-                  ),
-                  configRow("RPO alpha", cfgRpoAlpha),
-                ]
-              : []),
-            ...(cfgPreferenceMethod === "cpo"
-              ? [configRow(t("studio.progress.preferenceAlpha"), cfgCpoAlpha)]
-              : []),
-            configRow(
-              t("studio.progress.preferenceMaxPromptLength"),
-              cfgMaxPromptLength,
-            ),
-          ],
-        },
-      ]
+      ? cfgPreferenceMethod === "grpo"
+        ? [
+            {
+              section: "GRPO",
+              rows: [
+                configRow("Generations (G)", cfgGrpoNumGenerations),
+                configRow("Max completion", cfgGrpoMaxCompletionLength),
+                configRow(
+                  t("studio.progress.preferenceMaxPromptLength"),
+                  cfgMaxPromptLength,
+                ),
+                configRow("KL beta", cfgGrpoBeta),
+                configRow("Temperature", cfgGrpoTemperature),
+                configRow(
+                  "Loss type",
+                  cfgGrpoLossType !== undefined
+                    ? formatGrpoLossTypeLabel(cfgGrpoLossType)
+                    : undefined,
+                ),
+              ],
+            },
+          ]
+        : [
+            {
+              section: t("studio.progress.preference"),
+              rows: [
+                configRow(t("studio.progress.preferenceBeta"), cfgDpoBeta),
+                ...(cfgPreferenceMethod === "dpo"
+                  ? [
+                      configRow(
+                        "Loss type",
+                        cfgDpoLossType !== undefined
+                          ? formatDpoLossTypeLabel(cfgDpoLossType)
+                          : undefined,
+                      ),
+                      configRow("RPO alpha", cfgRpoAlpha),
+                    ]
+                  : []),
+                ...(cfgPreferenceMethod === "cpo"
+                  ? [
+                      configRow(
+                        t("studio.progress.preferenceAlpha"),
+                        cfgCpoAlpha,
+                      ),
+                    ]
+                  : []),
+                configRow(
+                  t("studio.progress.preferenceMaxPromptLength"),
+                  cfgMaxPromptLength,
+                ),
+              ],
+            },
+          ]
       : []),
     ...(data.trainingMethod !== "full"
       ? [

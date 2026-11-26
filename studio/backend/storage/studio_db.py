@@ -392,6 +392,11 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             logps_chosen REAL,
             logps_rejected REAL,
             mean_token_accuracy REAL,
+            grpo_reward REAL,
+            grpo_reward_std REAL,
+            grpo_kl REAL,
+            grpo_completion_length REAL,
+            grpo_clip_ratio REAL,
             UNIQUE(run_id, step)
         )
         """
@@ -415,6 +420,11 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         "logps_chosen",
         "logps_rejected",
         "mean_token_accuracy",
+        "grpo_reward",
+        "grpo_reward_std",
+        "grpo_kl",
+        "grpo_completion_length",
+        "grpo_clip_ratio",
     ):
         if _column not in metrics_cols:
             conn.execute(f"ALTER TABLE training_metrics ADD COLUMN {_column} REAL")
@@ -1783,8 +1793,9 @@ _INSERT_METRICS_SQL = """
         (run_id, step, loss, learning_rate, grad_norm, eval_loss, cer, wer, epoch, num_tokens,
          elapsed_seconds, rewards_accuracy, rewards_margin, eval_rewards_accuracy,
          eval_rewards_margin, nll_loss, log_odds_ratio, rewards_chosen, rewards_rejected,
-         logps_chosen, logps_rejected, mean_token_accuracy)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         logps_chosen, logps_rejected, mean_token_accuracy,
+         grpo_reward, grpo_reward_std, grpo_kl, grpo_completion_length, grpo_clip_ratio)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(run_id, step) DO UPDATE SET
         loss = COALESCE(excluded.loss, loss),
         learning_rate = COALESCE(excluded.learning_rate, learning_rate),
@@ -1809,7 +1820,12 @@ _INSERT_METRICS_SQL = """
         rewards_rejected = COALESCE(excluded.rewards_rejected, rewards_rejected),
         logps_chosen = COALESCE(excluded.logps_chosen, logps_chosen),
         logps_rejected = COALESCE(excluded.logps_rejected, logps_rejected),
-        mean_token_accuracy = COALESCE(excluded.mean_token_accuracy, mean_token_accuracy)
+        mean_token_accuracy = COALESCE(excluded.mean_token_accuracy, mean_token_accuracy),
+        grpo_reward = COALESCE(excluded.grpo_reward, grpo_reward),
+        grpo_reward_std = COALESCE(excluded.grpo_reward_std, grpo_reward_std),
+        grpo_kl = COALESCE(excluded.grpo_kl, grpo_kl),
+        grpo_completion_length = COALESCE(excluded.grpo_completion_length, grpo_completion_length),
+        grpo_clip_ratio = COALESCE(excluded.grpo_clip_ratio, grpo_clip_ratio)
 """
 
 
@@ -1840,6 +1856,11 @@ def _insert_metrics_rows(conn: sqlite3.Connection, run_id: str, metrics: list[di
                 m.get("logps_chosen"),
                 m.get("logps_rejected"),
                 m.get("mean_token_accuracy"),
+                m.get("grpo_reward"),
+                m.get("grpo_reward_std"),
+                m.get("grpo_kl"),
+                m.get("grpo_completion_length"),
+                m.get("grpo_clip_ratio"),
             )
             for m in metrics
         ],
@@ -2221,7 +2242,8 @@ def get_run_metrics(id: str) -> dict:
                    num_tokens, elapsed_seconds, rewards_accuracy, rewards_margin,
                    eval_rewards_accuracy, eval_rewards_margin, nll_loss, log_odds_ratio,
                    rewards_chosen, rewards_rejected, logps_chosen, logps_rejected,
-                   mean_token_accuracy
+                   mean_token_accuracy, grpo_reward, grpo_reward_std, grpo_kl,
+                   grpo_completion_length, grpo_clip_ratio
             FROM training_metrics
             WHERE run_id = ?
             ORDER BY step
@@ -2264,6 +2286,16 @@ def get_run_metrics(id: str) -> dict:
         logps_rejected_step_history: list[int] = []
         mean_token_accuracy_history: list[float] = []
         mean_token_accuracy_step_history: list[int] = []
+        grpo_reward_history: list[float] = []
+        grpo_reward_step_history: list[int] = []
+        grpo_reward_std_history: list[float] = []
+        grpo_reward_std_step_history: list[int] = []
+        grpo_kl_history: list[float] = []
+        grpo_kl_step_history: list[int] = []
+        grpo_completion_length_history: list[float] = []
+        grpo_completion_length_step_history: list[int] = []
+        grpo_clip_ratio_history: list[float] = []
+        grpo_clip_ratio_step_history: list[int] = []
         final_epoch: float | None = None
         final_num_tokens: int | None = None
 
@@ -2308,6 +2340,11 @@ def get_run_metrics(id: str) -> dict:
                 (logps_chosen_history, logps_chosen_step_history, row["logps_chosen"]),
                 (logps_rejected_history, logps_rejected_step_history, row["logps_rejected"]),
                 (mean_token_accuracy_history, mean_token_accuracy_step_history, row["mean_token_accuracy"]),
+                (grpo_reward_history, grpo_reward_step_history, row["grpo_reward"]),
+                (grpo_reward_std_history, grpo_reward_std_step_history, row["grpo_reward_std"]),
+                (grpo_kl_history, grpo_kl_step_history, row["grpo_kl"]),
+                (grpo_completion_length_history, grpo_completion_length_step_history, row["grpo_completion_length"]),
+                (grpo_clip_ratio_history, grpo_clip_ratio_step_history, row["grpo_clip_ratio"]),
             ):
                 if step > 0 and value is not None:
                     history.append(value)
@@ -2353,6 +2390,16 @@ def get_run_metrics(id: str) -> dict:
             "logps_rejected_step_history": logps_rejected_step_history,
             "mean_token_accuracy_history": mean_token_accuracy_history,
             "mean_token_accuracy_step_history": mean_token_accuracy_step_history,
+            "grpo_reward_history": grpo_reward_history,
+            "grpo_reward_step_history": grpo_reward_step_history,
+            "grpo_reward_std_history": grpo_reward_std_history,
+            "grpo_reward_std_step_history": grpo_reward_std_step_history,
+            "grpo_kl_history": grpo_kl_history,
+            "grpo_kl_step_history": grpo_kl_step_history,
+            "grpo_completion_length_history": grpo_completion_length_history,
+            "grpo_completion_length_step_history": grpo_completion_length_step_history,
+            "grpo_clip_ratio_history": grpo_clip_ratio_history,
+            "grpo_clip_ratio_step_history": grpo_clip_ratio_step_history,
             "final_epoch": final_epoch,
             "final_num_tokens": final_num_tokens,
         }

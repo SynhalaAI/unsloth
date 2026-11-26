@@ -245,6 +245,19 @@ export function buildTrainingStartPayload(
       config.preferenceTrainingMethod === "dpo" ? config.rpoAlpha : 0.0,
     max_prompt_length:
       config.preferenceTrainingMethod !== "sft" ? config.maxPromptLength : 512,
+    ...(config.preferenceTrainingMethod === "grpo"
+      ? {
+          grpo_num_generations: config.grpoNumGenerations,
+          grpo_max_completion_length: config.grpoMaxCompletionLength,
+          grpo_beta: config.grpoBeta,
+          grpo_temperature: config.grpoTemperature,
+          grpo_epsilon: config.grpoEpsilon,
+          grpo_num_iterations: config.grpoNumIterations,
+          grpo_loss_type: config.grpoLossType,
+          grpo_reward_funcs: config.grpoRewardFuncs,
+          grpo_use_vllm: config.grpoUseVllm,
+        }
+      : {}),
     hf_token: hfToken,
     model_known_cached: config.modelKnownCached,
     model_local_path: config.modelKnownCached ? config.modelLocalPath : null,

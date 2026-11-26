@@ -36,6 +36,7 @@ import { resolveDeletedLocalDatasetSelection } from "../lib/dataset-selection";
 import { requiresExplicitCachedDatasetSplit } from "../lib/dataset-split-policy";
 import { isMissingLocalDatasetCacheError } from "../lib/local-cache-errors";
 import { mapBackendModelConfigToTrainingPatch } from "../lib/model-defaults";
+import { grpoDatasetDefaultsPatch } from "../lib/grpo-dataset-defaults";
 import { preferenceDatasetDefaultsPatch } from "../lib/preference-dataset-defaults";
 import { isWhisperTrainingModel } from "../lib/model-modality-inference";
 import {
@@ -866,14 +867,18 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
               res.detected_format === "preference_cpo" ||
               res.detected_format === "dpo" ||
               res.detected_format === "cpo";
-            const preferenceDefaults = isPreferenceDataset
+            const isGrpoDataset = res.detected_format === "grpo";
+            const objectiveDefaults = isPreferenceDataset
               ? preferenceDatasetDefaultsPatch(current)
-              : {};
+              : isGrpoDataset
+                ? grpoDatasetDefaultsPatch(current)
+                : {};
             const updates: Partial<TrainingConfigState> = {
-              ...preferenceDefaults,
+              ...objectiveDefaults,
               isDatasetImage: isImage,
               isDatasetAudio: isAudio,
               isPreferenceDataset,
+              isGrpoDataset,
               isCheckingDataset: false,
               datasetCheckFailed: false,
               ...(streamingDisabled ? { datasetStreaming: false } : {}),
@@ -1021,6 +1026,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
         isDatasetImage: null,
         isDatasetAudio: false,
         isPreferenceDataset: false,
+        isGrpoDataset: false,
         isCheckingDataset: false,
         datasetCheckFailed: false,
       });
@@ -1460,6 +1466,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             isDatasetImage: null,
             isDatasetAudio: false,
             isPreferenceDataset: false,
+        isGrpoDataset: false,
             isCheckingDataset: false,
           });
           const datasetName =
@@ -1655,6 +1662,20 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
         setRpoAlpha: (rpoAlpha) => setUserEdit({ rpoAlpha }),
         setMaxPromptLength: (maxPromptLength) =>
           setUserEdit({ maxPromptLength }),
+        setGrpoNumGenerations: (grpoNumGenerations) =>
+          setUserEdit({ grpoNumGenerations }),
+        setGrpoMaxCompletionLength: (grpoMaxCompletionLength) =>
+          setUserEdit({ grpoMaxCompletionLength }),
+        setGrpoBeta: (grpoBeta) => setUserEdit({ grpoBeta }),
+        setGrpoTemperature: (grpoTemperature) =>
+          setUserEdit({ grpoTemperature }),
+        setGrpoEpsilon: (grpoEpsilon) => setUserEdit({ grpoEpsilon }),
+        setGrpoNumIterations: (grpoNumIterations) =>
+          setUserEdit({ grpoNumIterations }),
+        setGrpoLossType: (grpoLossType) => setUserEdit({ grpoLossType }),
+        setGrpoRewardFuncs: (grpoRewardFuncs) =>
+          setUserEdit({ grpoRewardFuncs }),
+        setGrpoUseVllm: (grpoUseVllm) => setUserEdit({ grpoUseVllm }),
         setOptimizerType: (optimizerType) => setUserEdit({ optimizerType }),
   setWhisperLanguage: (whisperLanguage) => setUserEdit({ whisperLanguage }),
         setLrSchedulerType: (lrSchedulerType) =>
