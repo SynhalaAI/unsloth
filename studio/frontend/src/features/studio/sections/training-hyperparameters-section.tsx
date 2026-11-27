@@ -201,6 +201,7 @@ export function TrainingHyperparametersSection({
       grpoUseVllm: state.grpoUseVllm,
       grpoKlEarlyStopThreshold: state.grpoKlEarlyStopThreshold,
       grpoKlEarlyStopPatience: state.grpoKlEarlyStopPatience,
+      grpoStopStrings: state.grpoStopStrings,
       isDecision: state.modelType === "decision",
       isCpt: state.trainingMethod === "cpt",
       isEmbedding: state.isEmbeddingModel || state.modelType === "embeddings",
@@ -232,6 +233,7 @@ export function TrainingHyperparametersSection({
       setGrpoUseVllm: state.setGrpoUseVllm,
       setGrpoKlEarlyStopThreshold: state.setGrpoKlEarlyStopThreshold,
       setGrpoKlEarlyStopPatience: state.setGrpoKlEarlyStopPatience,
+      setGrpoStopStrings: state.setGrpoStopStrings,
       setOptimizerType: state.setOptimizerType,
       setLrSchedulerType: state.setLrSchedulerType,
       setBatchSize: state.setBatchSize,
@@ -559,6 +561,7 @@ export function TrainingHyperparametersSection({
                       grpoUseVllm={store.grpoUseVllm}
                       grpoKlEarlyStopThreshold={store.grpoKlEarlyStopThreshold}
                       grpoKlEarlyStopPatience={store.grpoKlEarlyStopPatience}
+                      grpoStopStrings={store.grpoStopStrings}
                       onNumGenerationsChange={store.setGrpoNumGenerations}
                       onMaxCompletionLengthChange={
                         store.setGrpoMaxCompletionLength
@@ -576,6 +579,7 @@ export function TrainingHyperparametersSection({
                       onGrpoKlEarlyStopPatienceChange={
                         store.setGrpoKlEarlyStopPatience
                       }
+                      onGrpoStopStringsChange={store.setGrpoStopStrings}
                     />
                   )}
                   <ParamsRow

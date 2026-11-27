@@ -173,6 +173,7 @@ export const DEFAULT_HYPERPARAMS = {
   grpoUseVllm: false,
   grpoKlEarlyStopThreshold: 0.0,
   grpoKlEarlyStopPatience: 3,
+  grpoStopStrings: ["</answer>"] as string[],
   batchSize: 4,
   gradientAccumulation: 8,
   weightDecay: 0.001,

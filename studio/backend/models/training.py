@@ -330,6 +330,10 @@ class TrainingStartRequest(BaseModel):
         le = 50,
         description = "Consecutive logged steps above KL threshold before stopping GRPO",
     )
+    grpo_stop_strings: List[str] = Field(
+        default_factory = lambda: ["</answer>"],
+        description = "Optional stop strings that end GRPO completion generation early (e.g. ['</answer>'])",
+    )
     hf_token: Optional[str] = Field(None, description = "HuggingFace token")
     load_in_4bit: bool = Field(True, description = "Load model in 4-bit quantization")
     max_seq_length: int = Field(2048, description = "Maximum sequence length")

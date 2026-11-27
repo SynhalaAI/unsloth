@@ -267,3 +267,30 @@ def test_grpo_kl_early_stopping_immediate_on_nan():
     cb.on_log(None, state, control, logs = {"kl": float("nan")})
     assert control.should_training_stop is True
     assert cb.triggered is True
+
+
+def test_grpo_stop_strings_ignores_prompt_and_stops_on_completion():
+    import torch
+
+    vocab = {1: "Pick ", 2: "</answer>", 3: " now", 4: "<answer>B", 5: "</answer>"}
+
+    class _Tok:
+        def decode(self, ids, skip_special_tokens=False):
+            del skip_special_tokens
+            return "".join(vocab.get(int(i), "") for i in ids)
+
+    # Prompt (3 tokens) contains `</answer>` at token index 1; must NOT stop yet.
+    criteria = gt._StopOnStringsCriteria(_Tok(), ["</answer>"], prompt_len = 3)
+    step0 = torch.tensor([[1, 2, 3, 4], [1, 2, 3, 4]])
+    res0 = criteria(step0)
+    assert res0.tolist() == [False, False]
+
+    # Row 0 emits `</answer>`, row 1 does not yet.
+    step1 = torch.tensor([[1, 2, 3, 4, 5], [1, 2, 3, 4, 3]])
+    res1 = criteria(step1)
+    assert res1.tolist() == [True, False]
+
+    # Row 1 emits `</answer>` too -> both stopped.
+    step2 = torch.tensor([[1, 2, 3, 4, 5, 3], [1, 2, 3, 4, 3, 5]])
+    res2 = criteria(step2)
+    assert res2.tolist() == [True, True]

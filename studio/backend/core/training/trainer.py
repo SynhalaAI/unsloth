@@ -5464,6 +5464,7 @@ class UnslothTrainer:
                             self._record_warning(msg),
                             self._update_progress(status_message = msg),
                         ),
+                        stop_strings = training_args.get("grpo_stop_strings"),
                     )
                 else:
                     sft_args = SFTConfig(**config_args)
@@ -5656,18 +5657,27 @@ class UnslothTrainer:
                 batch_size = (
                     training_args.get("batch_size", 2) * _parallel_launch.data_parallel_size()
                 )
-                effective_samples = num_samples
-                if is_grpo_run and max_steps <= 0:
-                    grpo_gen = max(2, int(training_args.get("grpo_num_generations", 4) or 4))
-                    grpo_iter = max(1, int(training_args.get("grpo_num_iterations", 1) or 1))
-                    effective_samples = num_samples * grpo_gen * grpo_iter
-                total_steps = self._calculate_total_steps(
-                    effective_samples,
-                    batch_size,
-                    training_args.get("gradient_accumulation_steps", 4),
-                    training_args.get("num_epochs", 3),
-                    max_steps,
-                )
+                grad_accum = max(1, int(training_args.get("gradient_accumulation_steps", 4) or 1))
+                num_epochs = training_args.get("num_epochs", 3)
+                total_steps = None
+                if is_grpo_run and max_steps <= 0 and hasattr(self.trainer, "get_train_dataloader"):
+                    try:
+                        grpo_dl_len = len(self.trainer.get_train_dataloader())
+                        if grpo_dl_len > 0:
+                            steps_per_epoch = max(
+                                grpo_dl_len // grad_accum + int(grpo_dl_len % grad_accum > 0), 1
+                            )
+                            total_steps = max(1, int(math.ceil(steps_per_epoch * float(num_epochs))))
+                    except Exception:  # noqa: BLE001 - on_train_begin will still sync state.max_steps
+                        total_steps = None
+                if total_steps is None:
+                    total_steps = self._calculate_total_steps(
+                        num_samples,
+                        batch_size,
+                        grad_accum,
+                        num_epochs,
+                        max_steps,
+                    )
 
             self._update_progress(total_steps = total_steps)
             # Fail fast on an invalid first batch (empty/float input_ids) vs a step-1 crash.

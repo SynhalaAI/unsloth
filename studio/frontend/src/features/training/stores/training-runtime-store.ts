@@ -654,7 +654,7 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
               : runtimeState.currentStep,
           totalSteps:
             detailTotal !== null && detailTotal > 0
-              ? Math.max(detailTotal, runtimeState.totalSteps)
+              ? detailTotal
               : runtimeState.totalSteps,
           currentLoss:
             canApplyDetailMetrics && detailLoss !== null
@@ -881,7 +881,7 @@ export const useTrainingRuntimeStore = create<TrainingRuntimeStore>()(
           currentStep: step,
           totalSteps:
             totalSteps !== null && totalSteps > 0
-              ? Math.max(totalSteps, state.totalSteps)
+              ? totalSteps
               : state.totalSteps,
           // A null loss at a new step means non-finite; clear rather than keep a stale value.
           currentLoss:

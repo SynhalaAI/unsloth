@@ -2416,6 +2416,7 @@ async def _admit_training_request(
         "grpo_use_vllm": request.grpo_use_vllm,
         "grpo_kl_early_stop_threshold": request.grpo_kl_early_stop_threshold,
         "grpo_kl_early_stop_patience": request.grpo_kl_early_stop_patience,
+        "grpo_stop_strings": list(request.grpo_stop_strings),
         "subset": request.subset,
         "train_split": request.train_split,
         "dataset_streaming": request.dataset_streaming,

@@ -309,6 +309,7 @@ def _build_training_worker_config(values: dict[str, Any]) -> dict[str, Any]:
         "grpo_use_vllm": values.get("grpo_use_vllm", False),
         "grpo_kl_early_stop_threshold": values.get("grpo_kl_early_stop_threshold", 0.0),
         "grpo_kl_early_stop_patience": values.get("grpo_kl_early_stop_patience", 3),
+        "grpo_stop_strings": values.get("grpo_stop_strings", ["</answer>"]),
         "subset": values.get("subset"),
         "train_split": values.get("train_split", "train"),
         "eval_split": values.get("eval_split"),
@@ -1430,6 +1431,7 @@ class TrainingBackend:
         self._db_run_created: bool = False
         self._db_create_in_progress: bool = False
         self._db_total_steps_set: bool = False
+        self._db_total_steps_value: Optional[int] = None
         self._db_config: Optional[dict] = None
         self._db_started_at: Optional[str] = None
         # Multi-LoRA batch: run_id -> member state; the batch id itself never gets a DB row.
@@ -2257,6 +2259,7 @@ class TrainingBackend:
             self._db_run_created = False
             self._db_create_in_progress = False
             self._db_total_steps_set = False
+            self._db_total_steps_value = None
             self._db_config = None if batch_members else _sanitize_db_config(config)
             self._db_started_at = datetime.now(timezone.utc).isoformat()
             self._batch_members = {
@@ -3737,7 +3740,10 @@ class TrainingBackend:
                 elif (
                     event.get("total_steps")
                     and self._db_run_created
-                    and not self._db_total_steps_set
+                    and (
+                        not self._db_total_steps_set
+                        or event.get("total_steps") != self._db_total_steps_value
+                    )
                 ):
                     db_action = "update_total_steps"
                     db_action_kwargs = {
@@ -3875,6 +3881,7 @@ class TrainingBackend:
             if self._db_run_created:
                 if db_action_kwargs["total_steps"]:
                     self._db_total_steps_set = True
+                    self._db_total_steps_value = int(db_action_kwargs["total_steps"])
                 self._persist_output_dir()
         elif db_action == "persist_output_dir":
             self._persist_output_dir()
@@ -3886,6 +3893,7 @@ class TrainingBackend:
                 from storage.studio_db import update_run_total_steps
                 update_run_total_steps(db_action_kwargs["job_id"], db_action_kwargs["total_steps"])
                 self._db_total_steps_set = True
+                self._db_total_steps_value = int(db_action_kwargs["total_steps"])
             except Exception:
                 logger.warning("Failed to update total_steps in DB", exc_info = True)
         elif db_action == "flush":

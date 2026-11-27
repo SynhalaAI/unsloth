@@ -102,6 +102,7 @@ export function GrpoParams({
   grpoUseVllm,
   grpoKlEarlyStopThreshold,
   grpoKlEarlyStopPatience,
+  grpoStopStrings,
   onNumGenerationsChange,
   onMaxCompletionLengthChange,
   onGrpoBetaChange,
@@ -113,6 +114,7 @@ export function GrpoParams({
   onGrpoUseVllmChange,
   onGrpoKlEarlyStopThresholdChange,
   onGrpoKlEarlyStopPatienceChange,
+  onGrpoStopStringsChange,
 }: {
   isMac: boolean;
   contextLength: number;
@@ -128,6 +130,7 @@ export function GrpoParams({
   grpoUseVllm: boolean;
   grpoKlEarlyStopThreshold: number;
   grpoKlEarlyStopPatience: number;
+  grpoStopStrings: string[];
   onNumGenerationsChange: (value: number) => void;
   onMaxCompletionLengthChange: (value: number) => void;
   onGrpoBetaChange: (value: number) => void;
@@ -139,6 +142,7 @@ export function GrpoParams({
   onGrpoUseVllmChange: (value: boolean) => void;
   onGrpoKlEarlyStopThresholdChange: (value: number) => void;
   onGrpoKlEarlyStopPatienceChange: (value: number) => void;
+  onGrpoStopStringsChange: (value: string[]) => void;
 }): ReactElement {
   const activeLossMeta =
     GRPO_LOSS_TYPE_OPTIONS.find((option) => option.value === grpoLossType) ??
@@ -378,6 +382,32 @@ export function GrpoParams({
           step={1}
         />
       )}
+
+      <div className="flex flex-col gap-1">
+        <ParamsRow
+          label="Stop strings"
+          tooltip="Comma-separated strings that immediately stop completion generation (e.g. </answer>). Prevents rambling and speeds up rollouts; leave blank to disable."
+        >
+          <Input
+            type="text"
+            placeholder="</answer>"
+            value={grpoStopStrings.join(", ")}
+            onChange={(event) => {
+              const items = event.target.value
+                .split(",")
+                .map((item) => item.trim())
+                .filter((item) => item.length > 0);
+              onGrpoStopStringsChange(items);
+            }}
+            className="w-44 font-mono text-xs"
+          />
+        </ParamsRow>
+        <p className="text-ui-11p5 leading-relaxed text-muted-foreground">
+          {grpoStopStrings.length > 0
+            ? `Stops generation once ${grpoStopStrings.join(" or ")} is emitted after the prompt.`
+            : "No stop strings set — completions run until EOS or max completion length."}
+        </p>
+      </div>
 
       <div className="flex items-center gap-2 pt-1">
         <Checkbox

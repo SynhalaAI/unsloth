@@ -258,6 +258,7 @@ export function buildTrainingStartPayload(
           grpo_use_vllm: config.grpoUseVllm,
           grpo_kl_early_stop_threshold: config.grpoKlEarlyStopThreshold,
           grpo_kl_early_stop_patience: config.grpoKlEarlyStopPatience,
+          grpo_stop_strings: config.grpoStopStrings,
         }
       : {}),
     hf_token: hfToken,

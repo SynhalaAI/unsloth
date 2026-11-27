@@ -286,6 +286,90 @@ class GrpoKlEarlyStoppingCallback(_TrainerCallbackBase):
         return control
 
 
+try:
+    from transformers import StoppingCriteria as _StoppingCriteriaBase
+    from transformers import StoppingCriteriaList as _StoppingCriteriaList
+except Exception:  # noqa: BLE001
+    class _StoppingCriteriaBase:  # type: ignore[no-redef]
+        pass
+
+    class _StoppingCriteriaList(list):  # type: ignore[no-redef]
+        pass
+
+
+class _StopOnStringsCriteria(_StoppingCriteriaBase):
+    """Stop each generated sequence as soon as it emits any stop string after the prompt.
+
+    Only inspects newly generated tokens (`input_ids[:, prompt_len:]`) so a stop string like
+    ``</answer>`` appearing in the prompt instructions never triggers an early stop.
+    """
+
+    def __init__(self, tokenizer: Any, stop_strings: Sequence[str], prompt_len: int) -> None:
+        self.tokenizer = tokenizer
+        self.stop_strings = [s for s in stop_strings if s]
+        self.prompt_len = max(0, int(prompt_len))
+        # Only decode a tail window large enough to cover the longest stop string.
+        self._tail_tokens = max(16, max((len(s) for s in self.stop_strings), default = 16))
+        self._done: Optional[list[bool]] = None
+
+    def __call__(self, input_ids: Any, scores: Any = None, **kwargs: Any) -> Any:
+        del scores, kwargs
+        batch_size, seq_len = input_ids.shape
+        if self._done is None or len(self._done) != batch_size:
+            self._done = [False] * batch_size
+        gen_len = seq_len - self.prompt_len
+        if gen_len <= 0 or not self.stop_strings:
+            return False
+
+        start = max(self.prompt_len, seq_len - self._tail_tokens)
+        for row_idx in range(batch_size):
+            if self._done[row_idx]:
+                continue
+            token_slice = input_ids[row_idx, start:seq_len].tolist()
+            try:
+                text = self.tokenizer.decode(token_slice, skip_special_tokens = False)
+            except Exception:  # noqa: BLE001
+                continue
+            if any(stop in text for stop in self.stop_strings):
+                self._done[row_idx] = True
+
+        try:
+            import torch
+
+            return torch.tensor(self._done, dtype = torch.bool, device = input_ids.device)
+        except Exception:  # noqa: BLE001
+            return all(self._done)
+
+
+def _install_grpo_stop_strings(model: Any, processing_class: Any, stop_strings: Sequence[str]) -> bool:
+    """Attach per-call StoppingCriteria to `model.generate` without polluting GRPOConfig JSON."""
+    cleaned = [str(s) for s in stop_strings if str(s)]
+    tokenizer = _tokenizer_of(processing_class)
+    orig_generate = getattr(model, "generate", None)
+    if not cleaned or tokenizer is None or not callable(orig_generate):
+        return False
+
+    # Avoid double-wrapping if setup is called again on the same model instance.
+    base_generate = getattr(model, "_unsloth_grpo_orig_generate", orig_generate)
+    model._unsloth_grpo_orig_generate = base_generate
+
+    def _generate_with_stop_strings(*args: Any, **kwargs: Any) -> Any:
+        input_ids = kwargs.get("input_ids")
+        if input_ids is None and args:
+            input_ids = args[0]
+        prompt_len = int(input_ids.shape[1]) if getattr(input_ids, "ndim", 0) == 2 else 0
+        criteria = _StopOnStringsCriteria(tokenizer, cleaned, prompt_len = prompt_len)
+        existing = kwargs.get("stopping_criteria")
+        if existing is None:
+            kwargs["stopping_criteria"] = _StoppingCriteriaList([criteria])
+        else:
+            kwargs["stopping_criteria"] = _StoppingCriteriaList([*list(existing), criteria])
+        return base_generate(*args, **kwargs)
+
+    model.generate = _generate_with_stop_strings
+    return True
+
+
 def _clamp_grpo_lengths(
     model: Any,
     max_seq_length: Optional[int],
@@ -328,6 +412,7 @@ def setup_grpo_trainer(
     kl_early_stop_threshold: float = 0.0,
     kl_early_stop_patience: int = 3,
     on_kl_early_stop: Optional[Callable[[str], None]] = None,
+    stop_strings: Optional[Sequence[str]] = None,
 ) -> Any:
     """Build a TRL GRPOTrainer for a Studio run."""
     mismatch = grpo_dataset_mismatch("GRPO", train_dataset)
@@ -375,6 +460,11 @@ def setup_grpo_trainer(
         "use_vllm": bool(use_vllm),
         "remove_unused_columns": False,
     }
+    cleaned_stops = [str(s) for s in (stop_strings or []) if str(s)]
+    if cleaned_stops and use_vllm:
+        gen_kwargs = dict(config_kwargs.get("generation_kwargs") or {})
+        gen_kwargs["stop"] = cleaned_stops
+        grpo_overrides["generation_kwargs"] = gen_kwargs
     if resolved_weights is not None:
         grpo_overrides["reward_weights"] = resolved_weights
 
@@ -407,6 +497,10 @@ def setup_grpo_trainer(
     }
     if eval_dataset is not None:
         trainer_kwargs["eval_dataset"] = eval_dataset
+    if cleaned_stops and not use_vllm:
+        if _install_grpo_stop_strings(model, processing_class, cleaned_stops):
+            logger.info(f"GRPO stop strings enabled for generate(): {cleaned_stops}\n")
+
     trainer_kwargs[_trainer_tokenizer_kwarg(trainer_cls)] = processing_class
     trainer = trainer_cls(**trainer_kwargs)
     threshold = float(kl_early_stop_threshold or 0.0)

@@ -38,6 +38,7 @@ export interface TrainingStartRequest {
   grpo_use_vllm?: boolean;
   grpo_kl_early_stop_threshold?: number;
   grpo_kl_early_stop_patience?: number;
+  grpo_stop_strings?: string[];
   hf_token: string | null;
   model_known_cached?: boolean;
   model_local_path?: string | null;

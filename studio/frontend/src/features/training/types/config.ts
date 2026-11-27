@@ -156,6 +156,7 @@ export interface TrainingConfigState {
   grpoUseVllm: boolean;
   grpoKlEarlyStopThreshold: number;
   grpoKlEarlyStopPatience: number;
+  grpoStopStrings: string[];
   optimizerType: string;
   lrSchedulerType: string;
   loraRank: number;
@@ -338,6 +339,7 @@ export interface TrainingConfigActions {
   setGrpoUseVllm: (value: boolean) => void;
   setGrpoKlEarlyStopThreshold: (value: number) => void;
   setGrpoKlEarlyStopPatience: (value: number) => void;
+  setGrpoStopStrings: (value: string[]) => void;
   setOptimizerType: (value: string) => void;
   setWhisperLanguage: (value: string | null) => void;
   setLrSchedulerType: (value: string) => void;
