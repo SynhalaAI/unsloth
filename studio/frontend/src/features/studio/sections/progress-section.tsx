@@ -561,7 +561,8 @@ function LiveGpuPanel({
   parallel: RunParallelInfo | null;
 }): ReactElement {
   const t = useT();
-  const [selectedGpu, setSelectedGpu] = useState(0);
+  // null: follow the run's first GPU until the user picks one.
+  const [selectedGpu, setSelectedGpu] = useState<number | null>(null);
   const gpuData = useGpuUtilization(isTrainingRunning);
   const gpus: GpuUtilization[] =
     Array.isArray(gpuData?.devices) && gpuData.devices.length > 0
@@ -571,7 +572,11 @@ function LiveGpuPanel({
         : [];
 
   const gpuCount = gpus.length;
-  const selectedGpuIndex = selectedGpu >= 0 && selectedGpu < gpuCount ? selectedGpu : 0;
+  const runGpu = parallel?.gpuIds.length
+    ? gpus.findIndex((device) => device.index === parallel.gpuIds[0])
+    : -1;
+  const wanted = selectedGpu ?? Math.max(runGpu, 0);
+  const selectedGpuIndex = wanted >= 0 && wanted < gpuCount ? wanted : 0;
   const currentGpu: Partial<GpuUtilization> = gpus[selectedGpuIndex] || {};
 
   return (
