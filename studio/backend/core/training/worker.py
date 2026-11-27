@@ -54,6 +54,8 @@ install_openblas_runtime_cap()
 from utils.hardware import apply_gpu_ids
 from utils.keep_awake import keeps_system_awake
 from utils.hf_dataset_options import hf_dataset_split_instruction_names
+from utils.process_memory_peaks import PeakStampingQueue as _PeakStampingQueue
+from utils.process_memory_peaks import process_memory_peaks as _process_memory_peaks
 
 # Light module: the MLX branch runs on torch-less hosts.
 from core.training.dataset_bounds import (
@@ -3762,6 +3764,8 @@ def _run_mlx_training(
     # Reuse the GPU format pipeline for VLM (OCR/caption/llava/sharegpt+images) and text.
     format_type = "raw" if is_cpt else config.get("format_type", "")
     custom_format_mapping = config.get("custom_format_mapping")
+    prefer_native_alpaca = config.get("prefer_native_alpaca", False)
+    dataset_template = None
     dataset_final_format = ""
     eval_final_format = ""
     try:
@@ -3869,6 +3873,7 @@ def _run_mlx_training(
                 format_type = format_type,
                 dataset_name = hf_dataset or "local",
                 custom_format_mapping = custom_format_mapping,
+                prefer_native_alpaca = prefer_native_alpaca,
                 progress_callback = _fmt_progress,
             )
             if info.get("success", True):
@@ -3881,6 +3886,7 @@ def _run_mlx_training(
             for message in info.get("run_warnings", []):
                 _send("warning", message = message)
             dataset_final_format = str(info.get("final_format", "") or "").lower()
+            dataset_template = info.get("dataset_template")
             eval_final_format = dataset_final_format
             if eval_dataset is not None:
                 ev = format_and_template_dataset(
@@ -3893,6 +3899,7 @@ def _run_mlx_training(
                     custom_format_mapping = custom_format_mapping,
                     split_name = "eval",
                     raw_text_column = info.get("raw_text_column"),
+                    prefer_native_alpaca = prefer_native_alpaca,
                 )
                 if ev.get("success", True):
                     eval_dataset = ev.get("dataset", eval_dataset)
@@ -4163,7 +4170,7 @@ def _run_mlx_training(
             model_name,
             train_on_responses_only,
             notify = lambda level, message: _send("status", status_message = message),
-            dataset_template = "alpaca" if dataset_final_format == "alpaca" else None,
+            dataset_template = dataset_template,
         )
         if not masking_applied:
             # Masking miss changes the run's objective, so warn in the sticky warning list, not a status line.
@@ -4215,6 +4222,7 @@ def _run_mlx_training(
             eval_loss = None,
             status_message = None,
             peak_memory_gb = peak_gb,
+            memory_peaks = _process_memory_peaks(),
         )
         if wandb_run is not None:
             try:
@@ -4472,6 +4480,8 @@ def _download_decision_checkpoint(event_queue: Any, config: dict) -> None:
 @keeps_system_awake
 def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> None:
     """Fresh subprocess entrypoint: events out on event_queue, stop commands in on stop_queue."""
+    # Error and complete events from every exit path carry this process's memory peaks.
+    event_queue = _PeakStampingQueue(event_queue)
     # Off on Linux: forked map() workers deadlock.
     os.environ["TOKENIZERS_PARALLELISM"] = (
         "true" if sys.platform in ("win32", "darwin") else "false"
@@ -5322,6 +5332,7 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
             result = trainer.load_and_format_dataset(
                 dataset_source = hf_dataset if hf_dataset and hf_dataset.strip() else None,
                 format_type = config.get("format_type", ""),
+                prefer_native_alpaca = config.get("prefer_native_alpaca", False),
                 local_datasets = config.get("local_datasets") or None,
                 local_eval_datasets = config.get("local_eval_datasets") or None,
                 custom_format_mapping = config.get("custom_format_mapping"),
@@ -5941,6 +5952,7 @@ def run_training_process(*, event_queue: Any, stop_queue: Any, config: dict) -> 
                     "output_dir": saved_output_dir,
                     "status_message": (progress.status_message or "Training completed")
                     + drafter_note,
+                    "memory_peaks": _process_memory_peaks(),
                     "ts": time.time(),
                 }
             )
@@ -6166,6 +6178,7 @@ def _create_trainer_progress_callback(event_queue: Any) -> Callable[[TrainingPro
                     "grpo_clip_ratio": getattr(progress, "grpo_clip_ratio", None),
                     "status_message": progress.status_message,
                     "offload": getattr(progress, "offload", None),
+                    "memory_peaks": _process_memory_peaks(),
                     "ts": time.time(),
                 }
             )

@@ -182,6 +182,7 @@ import {
   CHAT_HISTORY_UPDATED_EVENT,
   notifyChatHistoryUpdated,
 } from "./api/chat-api";
+import { subscribeChatImageToolSettled } from "./api/chat-image-tool-events";
 import { codeToolCanRun } from "./api/code-tool-placement";
 import {
   clearAutoOpenedArtifacts,
@@ -3301,7 +3302,6 @@ export function ChatPage({
   const cloudCompactAt =
     isExternalModel && autoCompactEnabled && activeExternalProviderType !== "openai_codex"
       ? cloudCompactionTrigger({
-          providerType: activeExternalProviderType,
           contextLength: cloudContextWindow,
           autoCompactTokens: activeExternalProvider?.autoCompactTokens,
           autoCompactPercent: autoCompactPercentForModel(
@@ -3486,8 +3486,7 @@ export function ChatPage({
     // Reruns once settings hydrate: this normalization reads the stored pills and clamps them to the
     // model, and hydration refreshes what it reads, so it has to be applied last.
   }, [externalProvidersForChat, inferenceCheckpoint, settingsHydrated]);
-  // The Images pill can use the image or video model loaded in Unsloth. Re-read on mount,
-  // when any load settles (a chat load can evict them), when either is ejected, and on focus.
+  // Re-read media readiness on activation, load settle, eject, and after an image tool restores chat.
   useEffect(() => {
     let disposed = false;
     let controller: AbortController | null = null;
@@ -3510,13 +3509,14 @@ export function ChatPage({
           );
       });
     };
-    refresh();
+    if (active) refresh();
     const unsubscribers = [
       subscribeModelLifecycle(({ loading }) => {
         if (!loading) refresh();
       }),
       subscribeModelEjected("image", refresh),
       subscribeModelEjected("video", refresh),
+      subscribeChatImageToolSettled(refresh),
     ];
     // An idle unload, another tab or an MCP client changes them with no event in this tab.
     window.addEventListener("focus", refresh);
@@ -3526,7 +3526,7 @@ export function ChatPage({
       controller?.abort();
       for (const unsubscribe of unsubscribers) unsubscribe();
     };
-  }, []);
+  }, [active]);
   // Another tab can change the active model's pin (the pin store listens for the storage event),
   // and the normalization above reads the pin through a getState helper without subscribing, so
   // the composer kept the old level until a switch. Only the effort here: the pills and the rest
@@ -5190,7 +5190,10 @@ export function ChatPage({
                 onDiscard={toggleIncognito}
               />
             ) : null}
-            {view.mode === "single" ? <ChatFilesMenu /> : null}
+            {view.mode === "single" ||
+            (view.mode === "project" && projectChatShownId != null) ? (
+              <ChatFilesMenu />
+            ) : null}
             {view.mode === "single" && (
               <ChatHeaderMenu temporary={incognito} onToggleTemporary={toggleIncognito} />
             )}
@@ -5312,6 +5315,7 @@ export function ChatPage({
                     <NativeAttachmentOwnerScopeContext.Provider
                       value={baseAttachmentOwnerScope}
                     >
+                      <ChatFilesBridge />
                       {baseView.mode === "project" ? (
                         <ProjectLanding
                           key={baseView.projectId}
@@ -5326,7 +5330,6 @@ export function ChatPage({
                       ) : (
                         <>
                           <TemporaryChatSaveBridge />
-                          <ChatFilesBridge />
                           <SingleContent threadId={baseView.threadId} />
                         </>
                       )}

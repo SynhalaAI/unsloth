@@ -216,6 +216,8 @@ export interface TrainingConfigState {
   isPreferenceDataset: boolean;
   isGrpoDataset: boolean;
   isDatasetImage: boolean | null;
+  /** Train split row count from the dataset check; null until checked or when unknown. */
+  datasetTotalRows: number | null;
   isDatasetAudio: boolean;
   whisperLanguage: string | null;
   datasetCheckFailed: boolean;

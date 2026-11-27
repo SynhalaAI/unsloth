@@ -5495,7 +5495,22 @@ class FastBaseModel:
         def _is_degraded_vlm(_t):
             return is_vlm and _t is not None and not hasattr(_t, "image_processor")
 
-        tokenizer, _primary_err = _acquire_processor(local_files_only)
+        # A GGUF repo with no tokenizer files: the tokenizer lives in the GGUF's metadata (text only).
+        from .._gguf_load import load_gguf_tokenizer_if_missing
+
+        tokenizer = load_gguf_tokenizer_if_missing(
+            tokenizer_name,
+            kwargs.get("gguf_file") if tokenizer_name == model_name else None,
+            revision = _tokenizer_revision,
+            token = token,
+            cache_dir = kwargs.get("cache_dir"),
+            local_files_only = local_files_only,
+            trust_remote_code = trust_remote_code,
+            padding_side = "left",
+        )
+        _primary_err = None
+        if tokenizer is None:
+            tokenizer, _primary_err = _acquire_processor(local_files_only)
         # Online network failure or degrade: raise so @_offline_aware_load retries from cache. Permanent / missing-file errors propagate, and when already offline keep what we got.
         if (
             (tokenizer is None or _is_degraded_vlm(tokenizer))
@@ -5999,12 +6014,20 @@ class FastBaseModel:
             skip = _vllm_unmovable_embedding_modules(model, target_modules),
         )
         _raise_if_no_lora_targets_left(target_modules, _moved, target_parameters)
-        # add_new_tokens rows stay frozen at their mean init otherwise, and on a padded vocab PEFT saves neither matrix, so reload drops them (#1343). Matches FastLanguageModel; skipped under vLLM, which cannot train them, and when trainable_token_indices already trains the rows.
+        # add_new_tokens rows stay frozen at their mean init otherwise, and on a padded vocab PEFT saves neither matrix, so reload drops them (#1343). Matches FastLanguageModel; skipped under vLLM, which cannot train them; trainable_token_indices trains only the rows it names instead.
         if (
             getattr(model, "_need_to_train_embeddings", False)
             and finetune_language_layers
             and getattr(model, "vllm_engine", None) is None
-            and not kwargs.get("trainable_token_indices")
+            and kwargs.get("trainable_token_indices")
+        ):
+            kwargs["trainable_token_indices"] = _cover_untied_new_token_rows(
+                model, kwargs["trainable_token_indices"], modules_to_save, target_modules
+            )
+        elif (
+            getattr(model, "_need_to_train_embeddings", False)
+            and finetune_language_layers
+            and getattr(model, "vllm_engine", None) is None
         ):
             if modules_to_save is None:
                 modules_to_save = []
@@ -6305,7 +6328,9 @@ class FastBaseModel:
 
         from .lora_init import fast_lora_init, record_fast_pissa
         from ._utils import block_swap_shaped
+        from .loader_utils import _patch_peft_for_native_fp8
 
+        _patch_peft_for_native_fp8(model)  # DoRA on native fp8 linears reads the dense weight
         with (
             fast_lora_init() as fast,
             block_swap_shaped(

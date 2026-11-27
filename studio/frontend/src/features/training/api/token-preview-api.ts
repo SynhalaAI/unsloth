@@ -32,6 +32,7 @@ export type TokenPreviewResponse = {
     notes: string[];
   };
   final_format: string | null;
+  alpaca_serialization?: "legacy" | "native" | null;
   vocab_size: number;
   example_text: string | null;
 };
@@ -42,6 +43,7 @@ type TokenPreviewArgs = {
   text?: string;
   /** The dataset's format from an earlier preview, so typed text is masked the way the run is. */
   finalFormat?: string | null;
+  alpacaSerialization?: TokenPreviewResponse["alpaca_serialization"];
   seed?: number;
   numSamples?: number;
   signal?: AbortSignal;
@@ -54,6 +56,7 @@ export async function fetchTokenPreview({
   hfToken,
   text,
   finalFormat,
+  alpacaSerialization,
   seed = 0,
   numSamples = 3,
   signal,
@@ -88,6 +91,7 @@ export async function fetchTokenPreview({
       seed,
       text: text ?? null,
       final_format: finalFormat ?? null,
+      alpaca_serialization: alpacaSerialization ?? null,
     }),
   });
   if (!res.ok) {

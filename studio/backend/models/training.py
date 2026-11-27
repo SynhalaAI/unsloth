@@ -1114,6 +1114,7 @@ class TokenPreviewRequest(BaseModel):
     text: Optional[str] = Field(None, max_length = 200_000)
     # The dataset's format from an earlier preview, so typed text gets the template and markers it would.
     final_format: Optional[str] = None
+    alpaca_serialization: Optional[Literal["legacy", "native"]] = None
 
     _resolve_the_handles = field_validator("model_name", "dataset_name")(_resolve_inventory_handle)
 
@@ -1125,6 +1126,33 @@ class TrainingStartRequestStatus(BaseModel):
     message: str
     error: Optional[str] = None
     error_code: Optional[str] = None
+
+
+class TrainingMemoryPeaks(BaseModel):
+    """Memory peaks of the process that trains the run (not the whole GPU or host), in bytes.
+
+    GPU values are summed over every device visible to the training process. A field is None
+    when the host cannot measure it (no CUDA, or commit outside Windows).
+    """
+
+    gpu_peak_allocated_bytes: Optional[int] = Field(
+        None,
+        description = "torch.cuda.max_memory_allocated summed over visible devices "
+        "(running max of torch.mps.current_allocated_memory on MPS)",
+    )
+    gpu_peak_reserved_bytes: Optional[int] = Field(
+        None,
+        description = "torch.cuda.max_memory_reserved summed over visible devices "
+        "(running max of torch.mps.driver_allocated_memory on MPS)",
+    )
+    gpu_device_count: Optional[int] = Field(None, description = "Devices the GPU sums cover")
+    host_peak_rss_bytes: Optional[int] = Field(
+        None,
+        description = "Peak resident set (ru_maxrss on Linux/macOS, peak working set on Windows)",
+    )
+    host_peak_commit_bytes: Optional[int] = Field(
+        None, description = "Peak committed private memory (Windows only)"
+    )
 
 
 class TrainingStatus(BaseModel):
@@ -1177,13 +1205,19 @@ class TrainingStatus(BaseModel):
     checkpoint_backup: Optional[dict] = Field(
         None, description = "Current asynchronous checkpoint backup snapshot"
     )
+    memory_peaks: Optional[TrainingMemoryPeaks] = Field(
+        None,
+        description = "Memory peaks of the training process so far; absent until it reports them.",
+    )
 
     @model_serializer(mode = "wrap")
     def _omit_absent_layout(self, handler):
-        # Byte-identical status JSON for runs without a layout.
+        # Byte-identical status JSON for runs without a layout or memory peaks.
         data = handler(self)
-        if isinstance(data, dict) and data.get("parallel") is None:
-            data.pop("parallel", None)
+        if isinstance(data, dict):
+            for key in ("parallel", "memory_peaks"):
+                if data.get(key) is None:
+                    data.pop(key, None)
         return data
 
 
@@ -1268,6 +1302,9 @@ class TrainingProgress(BaseModel):
     checkpoint_backup: Optional[dict] = Field(
         None, description = "Current asynchronous checkpoint backup snapshot"
     )
+    memory_peaks: Optional[TrainingMemoryPeaks] = Field(
+        None, description = "Memory peaks of the training process so far"
+    )
 
 
 class TrainingRunSummary(BaseModel):
@@ -1288,6 +1325,11 @@ class TrainingRunSummary(BaseModel):
     duration_seconds: Optional[float] = None
     error_message: Optional[str] = None
     loss_sparkline: Optional[List[float]] = None
+    # Peaks of the process that trained the run, in bytes (see TrainingMemoryPeaks); None on older runs.
+    gpu_peak_allocated_bytes: Optional[int] = None
+    gpu_peak_reserved_bytes: Optional[int] = None
+    host_peak_rss_bytes: Optional[int] = None
+    host_peak_commit_bytes: Optional[int] = None
     can_resume: bool = False
     # Why resume is unavailable when the reason is the recorded resource provenance rather than the checkpoint itself.
     resume_blocked_reason: Optional[str] = None
@@ -1686,13 +1728,16 @@ class DiffusionTrainingStatusResponse(BaseModel):
     lora_path: Optional[str] = None
     # The second, EMA-averaged adapter written in the run's ema subdir when ema_decay was enabled.
     ema_path: Optional[str] = None
-    # Catalog mirror path plus the family and base model, so the UI can deploy the adapter.
+    # Catalog mirror path plus the family, base model and trigger, so the UI can deploy the adapter.
     catalog_path: Optional[str] = None
     family: Optional[str] = None
     base_model: Optional[str] = None
+    instance_prompt: Optional[str] = None
     # Live throughput + peak VRAM (from the trainer's progress events).
     samples_per_second: Optional[float] = None
     peak_memory_gb: Optional[float] = None
+    # Peaks of the trainer process itself, same shape and units as the LLM status's memory_peaks.
+    memory_peaks: Optional[TrainingMemoryPeaks] = None
     # What block_swap resolved to once the base loaded: swapped_blocks, total_blocks, host_gib, pinned_gib.
     block_swap: Optional[Dict[str, float]] = None
     # Newest bundle and step, why it could not be written (Resume tooltip), and where a resume started.
@@ -1737,6 +1782,11 @@ class DiffusionTrainingRunSummary(BaseModel):
     # Lineage: the run this one continued, and the step it picked up from.
     resumed_from_job_id: Optional[str] = None
     resumed_from_step: Optional[int] = None
+    # Peaks of the process that trained the run, in bytes (see TrainingMemoryPeaks); None on older runs.
+    gpu_peak_allocated_bytes: Optional[int] = None
+    gpu_peak_reserved_bytes: Optional[int] = None
+    host_peak_rss_bytes: Optional[int] = None
+    host_peak_commit_bytes: Optional[int] = None
 
 
 class DiffusionTrainingRunDetail(DiffusionTrainingRunSummary):

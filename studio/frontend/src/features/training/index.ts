@@ -52,6 +52,7 @@ export { HfDatasetSubsetSplitSelectors } from "./components/hf-dataset-subset-sp
 export { ResumeCheckpointPicker } from "./components/resume-checkpoint-picker";
 export { useDatasetPreviewDialogStore } from "./stores/dataset-preview-dialog-store";
 export {
+  type DatasetImportOptions,
   DatasetFormatError,
   aiAssistMapping,
   checkDatasetFormat,

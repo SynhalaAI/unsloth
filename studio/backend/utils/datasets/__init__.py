@@ -59,7 +59,6 @@ from .preference import (
 )
 
 __all__ = [
-    # Detection
     "detect_dataset_format",
     "detect_custom_format_heuristic",
     "detect_multimodal_dataset",
@@ -76,18 +75,14 @@ __all__ = [
     "convert_sharegpt_with_images_to_vlm_format",
     "convert_video_to_vlm_format",
     "own_message_videos",
-    # Templates
     "apply_chat_template_to_dataset",
     "get_dataset_info_summary",
     "get_tokenizer_chat_template",
     "DEFAULT_ALPACA_TEMPLATE",
-    # VLM
     "generate_smart_vlm_instruction",
-    # Collators
     "DataCollatorSpeechSeq2SeqWithPadding",
     "DeepSeekOCRDataCollator",
     "VLMDataCollator",
-    # Mappings
     "TEMPLATE_TO_MODEL_MAPPER",
     "MODEL_TO_TEMPLATE_MAPPER",
     "TEMPLATE_TO_RESPONSES_MAPPER",

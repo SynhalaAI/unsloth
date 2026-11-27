@@ -599,9 +599,9 @@ try:
 except Exception:
     def _unsloth_dataset_column_names(dataset): return dataset.column_names
 try:
-    from unsloth.models._utils import _unsloth_tp_skip_dpo_ref_adapter
+    from unsloth.models._utils import _unsloth_tp_skip_ref_adapter
 except Exception:
-    def _unsloth_tp_skip_dpo_ref_adapter(model): return False
+    def _unsloth_tp_skip_ref_adapter(model, trainer = None): return False
 # Drops/renames config arguments the installed TRL no longer accepts, so a
 # script pinned to an older TRL keeps working after an upgrade. Falls back to
 # the historical raw passthrough so this can never break trainer construction.
@@ -675,6 +675,21 @@ def prepare_for_training_mode(f):
         self._unsloth_training_completed = True
         return output
     return wrapper
+pass
+
+def _unsloth_train_to_wrap(self):
+    # The train() prepare_for_training_mode wraps. An instance-level train is kept: the context parallel
+    # wrapper (bound with MethodType) or a closure an __init__ hook set over it (optimizers/auto_fit.py),
+    # which still calls the context parallel one. Falling back to the class method would drop both.
+    train = self.__dict__.get('train')
+    if train is None:
+        return self.__class__.train
+    if getattr(train, '__self__', None) is self and hasattr(train, '__func__'):
+        return train.__func__
+    @functools.wraps(train)
+    def instance_train(self, *args, **kwargs):
+        return train(*args, **kwargs)
+    return instance_train
 pass
 
 torch_compile_options = {{
@@ -3670,7 +3685,7 @@ def _patch_trl_rl_trainers_impl(trainer_file = "grpo_trainer"):
         training_check = (
             "if hasattr(self, 'train'):\n"
             # A context parallel trainer binds its train wrapper on the instance (context_parallel.py).
-            "    self.train = MethodType(prepare_for_training_mode(getattr(self.__dict__.get('train'), '__func__', None) or self.__class__.train), self)\n"
+            "    self.train = MethodType(prepare_for_training_mode(_unsloth_train_to_wrap(self)), self)\n"
             "pass\n"
         )
         RLTrainer_post += training_check
@@ -3967,6 +3982,10 @@ def _patch_trl_rl_trainers_impl(trainer_file = "grpo_trainer"):
         default = 'base',
         metadata = {'help': "Teacher for unsloth_distillation_coef: 'base' is the LoRA student's base model with the adapter disabled. Pass any other teacher as GRPOTrainer(teacher_model = model)."},
     )
+    unsloth_distillation_terminal_tokens : Optional[str] = field(
+        default = None,
+        metadata = {'help': "Opt-in for unsloth_distillation_coef: comma separated stop tokens (e.g. '<|im_end|>,<|endoftext|>') scored as one stop action, their summed probability, for both student and teacher. None scores every token as itself."},
+    )
     unsloth_sampler_kl_coef : Optional[float] = field(
         default = 0.0,
         metadata = {'help': 'StableReinforce: adds coef * KL(sampler || policy) per sampled token (Tinker uses 0.01). 0 disables it.'},
@@ -3978,12 +3997,14 @@ def _patch_trl_rl_trainers_impl(trainer_file = "grpo_trainer"):
         max_seq_length_call += (
             "unsloth_distillation_coef = 0.0,"
             "unsloth_distillation_teacher = 'base',"
+            "unsloth_distillation_terminal_tokens = None,"
             "unsloth_sampler_kl_coef = 0.0,"
             "unsloth_sampler_kl_estimator = 'k1',"
         )
         max_seq_length_post += (
             "\n        self.unsloth_distillation_coef = unsloth_distillation_coef"
             "\n        self.unsloth_distillation_teacher = unsloth_distillation_teacher"
+            "\n        self.unsloth_distillation_terminal_tokens = unsloth_distillation_terminal_tokens"
             "\n        self.unsloth_sampler_kl_coef = unsloth_sampler_kl_coef"
             "\n        self.unsloth_sampler_kl_estimator = unsloth_sampler_kl_estimator"
         )
@@ -4699,7 +4720,7 @@ def _allow_list_train_dataset(function, source, trainer_file):
     return source
 
 
-# TRL >= 1.0 DPOTrainer copies ".default." into a "ref" adapter (1.0-1.6 peft_config["default"], 1.7+ default_config).
+# TRL >= 1.0 DPOTrainer / >= 1.10 KTOTrainer copy ".default." into a "ref" adapter (DPO 1.0-1.6 peft_config["default"], else default_config).
 _DPO_REF_ADAPTER_BLOCK = re.compile(
     r"^(?P<indent>[ \t]*)model\.add_adapter\(\s*[\"']ref[\"']\s*,\s*"
     r"(?:default_config|model\.peft_config\[\s*[\"']default[\"']\s*\])\s*\)[ \t]*\n"
@@ -4754,12 +4775,14 @@ def _skip_rl_ref_adapter(init):
     return "\n".join(lines)
 
 
-def _guard_dpo_ref_adapter_for_tp(init):
+def _guard_ref_adapter_for_tp(init, trainer = "DPOTrainer"):
+    """Guard TRL's "ref" adapter copy (DPO >= 1.0, KTO >= 1.10) so a tp model skips or refuses it."""
+
     def _guard(match):
         indent = match.group("indent")
         lines = match.group(0).split("\n")
         body = "\n".join("    " + line if line.strip() else line for line in lines)
-        return f"{indent}if not _unsloth_tp_skip_dpo_ref_adapter(model):\n{body}"
+        return f"{indent}if not _unsloth_tp_skip_ref_adapter(model, {trainer!r}):\n{body}"
 
     return _DPO_REF_ADAPTER_BLOCK.sub(_guard, init, count = 1)
 
@@ -4826,8 +4849,8 @@ def patch_functions(
     if trainer_file in ("grpo_trainer", "rloo_trainer"):
         init = _skip_rl_ref_adapter(init)
 
-    if trainer_file == "dpo_trainer":
-        init = _guard_dpo_ref_adapter_for_tp(init)
+    if trainer_file in ("dpo_trainer", "kto_trainer"):
+        init = _guard_ref_adapter_for_tp(init, RLTrainer_name)
 
     if "args.use_vllm" in init and "model" in init and "args" in init:
         # .*? matches the first match, .+? the final one.
@@ -4865,16 +4888,19 @@ def patch_functions(
                 vllm_setter += " " * 12 + "args.vllm_mode='colocate'\n"
             if "grpo" in trainer_file and trl_version >= Version("0.18.0"):
                 vllm_setter += " " * 12 + "args.vllm_mode='colocate'\n"
-                if trl_version >= Version("0.23.0"):
-                    # Align TRL sleep mode with the engine's actual enable_sleep_mode (the vision standby gate may have disabled it); fall back to the standby env var when the engine cannot be introspected.
-                    vllm_setter += (
-                        " " * 12
-                        + "_unsloth_esm = getattr(getattr(getattr(getattr(model.vllm_engine, 'llm_engine', None), 'vllm_config', None), 'model_config', None), 'enable_sleep_mode', None)\n"
-                        + " " * 12
-                        + "if (_unsloth_esm if _unsloth_esm is not None else os.environ.get('UNSLOTH_VLLM_STANDBY', '0') != '0'):\n"
-                        + " " * 16
-                        + "args.vllm_enable_sleep_mode=True\n"
-                    )
+            # RLOO and OnlineDPO read the same flag: without it a standby engine never sleeps and training gets ~10% of VRAM.
+            if trl_version >= Version("0.23.0") and (
+                "grpo" in trainer_file or trainer_file in ("rloo_trainer", "online_dpo_trainer")
+            ):
+                # Align TRL sleep mode with the engine's actual enable_sleep_mode (the vision standby gate may have disabled it); fall back to the standby env var when the engine cannot be introspected.
+                vllm_setter += (
+                    " " * 12
+                    + "_unsloth_esm = getattr(getattr(getattr(getattr(model.vllm_engine, 'llm_engine', None), 'vllm_config', None), 'model_config', None), 'enable_sleep_mode', None)\n"
+                    + " " * 12
+                    + "if (_unsloth_esm if _unsloth_esm is not None else os.environ.get('UNSLOTH_VLLM_STANDBY', '0') != '0'):\n"
+                    + " " * 16
+                    + "args.vllm_enable_sleep_mode=True\n"
+                )
 
             init = init.replace(replacer, replacer + vllm_setter)
 

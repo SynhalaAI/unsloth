@@ -519,6 +519,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
                     modelSizeBytes,
                     patch.contextLength ?? get().contextLength,
                     controller.signal,
+                    modelDetails.bnb_4bit === true,
                   )
                 : null;
 
@@ -657,6 +658,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
                     ...streamingCompatiblePatch(nextStreamingState),
                     datasetStreaming: true,
                     isDatasetImage: null,
+                    datasetTotalRows: null,
                     isDatasetAudio: false,
                     datasetCheckFailed: false,
                   }
@@ -879,6 +881,10 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
               isDatasetAudio: isAudio,
               isPreferenceDataset,
               isGrpoDataset,
+              datasetTotalRows:
+                typeof res.total_rows === "number" && res.total_rows > 0
+                  ? res.total_rows
+                  : null,
               isCheckingDataset: false,
               datasetCheckFailed: false,
               ...(streamingDisabled ? { datasetStreaming: false } : {}),
@@ -989,6 +995,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             }
             set({
               isDatasetImage: null,
+              datasetTotalRows: null,
               isDatasetAudio: false,
               isCheckingDataset: false,
               datasetCheckFailed: true,
@@ -1024,6 +1031,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
         datasetSliceEnd: null,
         uploadedEvalFile: null,
         isDatasetImage: null,
+        datasetTotalRows: null,
         isDatasetAudio: false,
         isPreferenceDataset: false,
         isGrpoDataset: false,
@@ -1317,6 +1325,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             ...(cacheReferenceChanged && !state.datasetStreaming
               ? {
                   isDatasetImage: null,
+                  datasetTotalRows: null,
                   isDatasetAudio: false,
                   datasetCheckFailed: false,
                 }
@@ -1438,6 +1447,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             datasetSliceStart: null,
             datasetSliceEnd: null,
             isDatasetImage: null,
+            datasetTotalRows: null,
             isDatasetAudio: false,
             isCheckingDataset: false,
             datasetCheckFailed: false,
@@ -1464,6 +1474,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             manualDatasetOptionsValid: true,
             datasetManualMapping: emptyManualMapping(),
             isDatasetImage: null,
+            datasetTotalRows: null,
             isDatasetAudio: false,
             isPreferenceDataset: false,
         isGrpoDataset: false,
@@ -1489,6 +1500,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             datasetSplit,
             datasetManualMapping: emptyManualMapping(),
             isDatasetImage: null,
+            datasetTotalRows: null,
             isDatasetAudio: false,
             isCheckingDataset: false,
             ...streamingPatch,
@@ -1557,6 +1569,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
               ...(changed
                 ? {
                     isDatasetImage: null,
+                    datasetTotalRows: null,
                     isDatasetAudio: false,
                     datasetCheckFailed: false,
                   }
@@ -1589,6 +1602,7 @@ export const useTrainingConfigStore = create<TrainingConfigStore>()(
             trainOnCompletionsDefaultPendingFor: null,
             evalSteps: dropsEval ? 0 : state.evalSteps,
             isDatasetImage: null,
+            datasetTotalRows: null,
             isDatasetAudio: false,
             datasetCheckFailed: false,
           });

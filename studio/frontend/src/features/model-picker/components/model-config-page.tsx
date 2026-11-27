@@ -150,6 +150,7 @@ import {
   mlxOffloadModePatch,
   mlxOffloadSliderValue,
   resolveReclaimableMemoryCredit,
+  residentPlacementGpuIds,
 } from "../model-config/memory-fit";
 import {
   resolveResidentEstimateRequest,
@@ -250,7 +251,7 @@ import {
   subscribeAdvancedSettingsOpen,
   sameEngramPrecision,
 } from "../model-config/per-model-config";
-import { type EngramTableDetail, listGgufVariants } from "@/features/hub";
+import { type EngramTableDetail, formatBytes, listGgufVariants } from "@/features/hub";
 import { isAudioRuntimeGguf } from "../../audio/audio-cpp-catalog";
 import {
   isNpuModelId,
@@ -744,7 +745,6 @@ function VramBudgetRow() {
   return <VramBudgetControl modelLoading={modelLoading} />;
 }
 
-// --tensor-split is set per GPU row but not persisted per model.
 function GpuMemorySettings({
   config,
   update,
@@ -955,7 +955,7 @@ function GpuMemorySettings({
               {showSplit &&
                 (splitIsPercent
                   ? " The number beside each is its share of every layer, in percent (--tensor-split)."
-                  : " The number beside each is how many of the GPU Layers it holds (--tensor-split).")}
+                  : " The numbers set the relative layer split (--tensor-split). Estimated Memory Usage shows the resulting placement when available.")}
             </InfoHint>
             {showSplit && splitIsCustom && (
               <button
@@ -973,11 +973,17 @@ function GpuMemorySettings({
                 key={d.index}
                 className="flex items-center justify-between gap-3"
               >
-                <span className="min-w-0 truncate text-ui-12 text-muted-foreground">
+                <span className="min-w-0 break-words text-ui-12 text-muted-foreground">
                   GPU {d.index}: {d.name}
                   {d.memoryTotalGb
                     ? ` · ${Math.round(d.memoryTotalGb)} GiB`
                     : ""}
+                  {(d.pcieLinkWidth || d.pcieLinkGen) ? (
+                    <span className="whitespace-nowrap">
+                      {" · PCIe"}{d.pcieLinkGen ? ` Gen${d.pcieLinkGen}` : ""}
+                      {d.pcieLinkWidth ? ` ×${d.pcieLinkWidth}` : ""}
+                    </span>
+                  ) : null}
                 </span>
                 {showSplit && isGpuChecked(d.index) && (
                   <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -991,14 +997,14 @@ function GpuMemorySettings({
                       ariaLabel={
                         splitIsPercent
                           ? `Share of each layer on GPU ${d.index}, percent`
-                          : `Layers on GPU ${d.index}`
+                          : `Layer split weight for GPU ${d.index}`
                       }
                       className="panel-field h-7 w-[calc(52px*var(--ui-space-scale,1))] shrink-0"
                       fixedWidth={true}
                       size={4}
                     />
                     <span className="w-[3.25em] text-ui-12 text-muted-foreground">
-                      {splitIsPercent ? "%" : "layers"}
+                      {splitIsPercent ? "%" : "share"}
                     </span>
                   </div>
                 )}
@@ -2056,10 +2062,6 @@ type EngramTableListing = {
   supported: boolean | null;
 };
 
-function formatTableSize(bytes: number): string {
-  return `${(bytes / 1e9).toFixed(1)} GB`;
-}
-
 /** Tables the repo publishes for this quant, or null when it publishes none (the row then hides). */
 function useEngramTables(source: EngramTableSource | null): EngramTableListing | null {
   const [listing, setListing] = useState<EngramTableListing | null>(null);
@@ -2123,13 +2125,13 @@ function EngramTableRow({
       ? "This llama.cpp build cannot load a separate table, so the next load fails. Update llama.cpp, or pick the built-in table."
       : "Swapping the table needs a newer llama.cpp. Update it to choose another precision.";
   } else if (swapped && table && !table.downloaded) {
-    note = `The next load downloads the ${table.precision} table (${formatTableSize(table.size_bytes)}).`;
+    note = `The next load downloads the ${table.precision} table (${formatBytes(table.size_bytes)}).`;
     if (!ownReady && ownTable) {
-      note += ` The built-in ${own} table (${formatTableSize(ownTable.size_bytes)}) is not needed.`;
+      note += ` The built-in ${own} table (${formatBytes(ownTable.size_bytes)}) is not needed.`;
     }
   } else if (!swapped && quantDownloaded && !ownReady && ownTable) {
     // On disk with another table in place of its own.
-    note = `The next load downloads the built-in ${own} table (${formatTableSize(ownTable.size_bytes)}).`;
+    note = `The next load downloads the built-in ${own} table (${formatBytes(ownTable.size_bytes)}).`;
   }
   return (
     <div className="space-y-1">
@@ -2170,7 +2172,7 @@ function EngramTableRow({
                   <span className="flex min-w-0 flex-1 items-baseline gap-2">
                     <span>{t.precision}</span>
                     <span className="text-ui-12 tabular-nums text-muted-foreground">
-                      {formatTableSize(t.size_bytes)}
+                      {formatBytes(t.size_bytes)}
                       {builtIn ? " · built-in" : downloaded ? " · downloaded" : ""}
                     </span>
                   </span>
@@ -2843,6 +2845,8 @@ export function ModelConfigPage({
   const loadedGpuIds = useChatRuntimeStore((s) => s.loadedGpuIds);
   const loadedGpuIndexKind = useChatRuntimeStore((s) => s.loadedGpuIndexKind);
   const loadedCpuFallback = useChatRuntimeStore((s) => s.loadedCpuFallback);
+  const loadedGpuLayers = useChatRuntimeStore((s) => s.loadedGpuLayers);
+  const loadedSplitRatio = useChatRuntimeStore((s) => s.loadedSplitRatio);
   const residentModelLoading = useChatRuntimeStore((s) => s.modelLoading);
   const residentEstimateSettings = useChatRuntimeStore(
     useShallow(selectResidentEstimateSettings),
@@ -3493,8 +3497,8 @@ export function ModelConfigPage({
       config.selectedGpuIds != null ||
       config.nBatch != null ||
       config.nUbatch != null);
-  const gpuIndexKind =
-    pinnableGpuContext(gpuDevices, resolvedIsDiffusion).indexKind ?? null;
+  const gpuSelectionContext = pinnableGpuContext(gpuDevices, resolvedIsDiffusion);
+  const gpuIndexKind = gpuSelectionContext.indexKind ?? null;
   const handleSharedConfigEdit = () => {
     cancelRunConfigImportForEdit(draftKey);
     setImportedConfig(null);
@@ -3656,10 +3660,16 @@ export function ModelConfigPage({
               : null,
           nCpuMoe: runtimeConfig.nCpuMoe ?? null,
           selectedGpuIds: runtimeConfig.selectedGpuIds ?? null,
+          tensorSplit: target.isGguf ? (runtimeConfig.tensorSplit ?? null) : null,
           llamaExtraArgs: runtimeConfig.llamaExtraArgs ?? null,
         }
       : null;
-  const memoryEstimate = useMemoryEstimate(memoryEstimateRequest);
+  const estimateGpuDevices = gpuSelectionContext.indexKind
+    ? gpuSelectionContext.devices ?? []
+    : [];
+  const memoryEstimate = useMemoryEstimate(memoryEstimateRequest, {
+    gpuDevices: target.isGguf ? estimateGpuDevices : undefined,
+  });
   // The header probe gates the request; hold the row's place while it runs.
   const estimateAwaitingProbe =
     memoryEstimateRequest == null &&
@@ -4536,6 +4546,21 @@ export function ModelConfigPage({
             estimate={memoryEstimate.estimate}
             loading={memoryEstimate.loading || estimateAwaitingProbe}
             stale={memoryEstimate.stale}
+            gpuDevices={estimateGpuDevices}
+            residentGpuIds={residentPlacementGpuIds({
+              isActiveModel,
+              loadedCpuFallback,
+              loadedGpuLayers,
+              loadedGpuIds,
+              loadedGpuIndexKind,
+              loadedSplitRatio,
+              gpuIndexKind,
+            })}
+            placementMode={
+              target.isGguf && (pinnedGpuIds ?? gpuSelectionContext.ids ?? []).length > 1
+                ? memoryBudgetGovernsLaunch ? "auto" : "manual"
+                : undefined
+            }
             gpuCapacityGb={memoryGpuCapacityGb}
             totalCapacityGb={memoryTotalCapacityGb}
             systemRamCapacityGb={inferenceGpu.systemRamTotalGb}
