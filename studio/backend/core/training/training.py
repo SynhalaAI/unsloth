@@ -3854,6 +3854,12 @@ class TrainingBackend:
                         )
 
             elif etype == "error":
+                from core.training.parallel_plan import plain_training_error
+
+                event = {
+                    **event,
+                    "error": plain_training_error(event.get("error", "Unknown error")),
+                }
                 self._progress.is_training = False
                 self._progress.error = event.get("error", "Unknown error")
                 # Nothing left to save: drop an in-flight watchdog to its grace, not the save backstop.

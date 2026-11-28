@@ -7,16 +7,27 @@ A standard step keeps every gradient until optimizer.step(), so full finetuning 
 per weight and the optimizer state at once. When the planner predicts that this does not fit but the step
 fits without the stored gradients, each weight is stepped by the user's own optimizer as soon as its gradient
 is accumulated (a post-accumulate-grad hook), and the gradient is freed right away. AdamW / adamw_8bit / paged
-optimizers keep their math, state, LR schedule, bfloat16 stochastic rounding and checkpoint format. Only
-max_grad_norm changes: each tensor is clipped on its own (a global norm needs every gradient first). While the
-global norm stays under max_grad_norm the result is bitwise the standard step.
+optimizers keep their math, state, LR schedule, bfloat16 stochastic rounding and checkpoint format.
+
+max_grad_norm clips by the global norm, which is only known once every gradient has arrived, after most weights
+were stepped. So it is estimated while gradients arrive: this step's sum of squares so far, scaled by how much of
+the previous step's total the same tensors held. The estimate is never below the norm seen so far, converges to
+the exact norm as the last gradients arrive, and is exact for the weights stepped at optimizer.step() (tied and
+reused ones). The first step (no previous step yet) measures the norm with a gradient-only pass first.
+UNSLOTH_AUTO_FIT_CLIP = exact measures every step that way (a second forward and backward per step), = lagged uses
+the previous step's norm, = per_tensor clips each tensor by its own norm.
+While the global norm stays under max_grad_norm the result is bitwise the standard step.
 
 When even that does not fit, LOMO's update is used instead: plain SGD stepped the same way, with no optimizer
 state. This changes the optimizer.
 
-Engages only with gradient_accumulation_steps = 1 (more micro-batches must keep their gradients), full
-finetuning, one process and no fp16 GradScaler. UNSLOTH_AUTO_FIT_OPTIMIZER = 0 turns it off; = in_backward or
-= lomo forces a tier where it is eligible, = adalomo uses lomo-optim's AdaLomo.
+Engages for full finetuning without an fp16 GradScaler, either in one process with gradient_accumulation_steps = 1
+(more micro-batches must keep their gradients), or under FSDP2 (Unsloth's native FSDP2 or accelerate's FSDP2
+plugin, torch 2.5+), where each rank steps its shards right after their reduce-scatter and gradient accumulation
+works too (the hooks run on the synchronized micro-batch only); the planner then budgets one rank. DDP, FSDP1,
+DeepSpeed, tensor / pipeline / context parallelism, HSDP and FSDP2 CPU offload are refused.
+UNSLOTH_AUTO_FIT_OPTIMIZER = 0 turns it off; = in_backward or = lomo forces a tier where it is eligible, = adalomo
+uses lomo-optim's AdaLomo.
 
 Also re-sizes lomo-optim AdaLomo's factored state for parameters with more than two dimensions (depthwise
 convolutions, fused experts), which it sizes as if they were matrices and then fails on the first step.
@@ -27,6 +38,7 @@ import json
 import os
 import sys
 import weakref
+from collections.abc import Mapping
 
 import torch
 
@@ -46,6 +58,8 @@ _MARK = "_unsloth_updates_in_backward"
 _INSTALLED = "_unsloth_auto_fit_installed"
 _TIER = "_unsloth_auto_fit_tier"
 _TIER_FILE = "unsloth_auto_fit.json"  # in each checkpoint: the optimizer tier it was trained with
+_CLIP_ENV = "UNSLOTH_AUTO_FIT_CLIP"
+_CLIP_MODES = ("estimate", "exact", "lagged", "per_tensor")
 
 
 def auto_fit_mode():
@@ -56,6 +70,21 @@ def auto_fit_mode():
     if value in _FORCED:
         return value
     return "auto"
+
+
+def clip_mode():
+    """How the in-backward step applies max_grad_norm: 'estimate' (default), 'exact', 'lagged' or 'per_tensor'."""
+    value = os.environ.get(_CLIP_ENV, "").strip().lower()
+    if value in _CLIP_MODES:
+        return value
+    if os.environ.get("UNSLOTH_AUTO_FIT_EXACT_CLIP", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        return "exact"
+    return "estimate"
 
 
 def _optim_name(args):
@@ -148,14 +177,16 @@ def _in_block_trial():
 
 
 def _norms(grads):
-    """float32 L2 norm of each gradient, in one multi-tensor launch where torch has it."""
+    """float32 L2 norm of each gradient (float64 for float64 gradients), in one multi-tensor launch where torch
+    has it."""
+    dtype = torch.float64 if any(g.dtype == torch.float64 for g in grads) else torch.float32
     foreach_norm = getattr(torch, "_foreach_norm", None)
     if foreach_norm is not None:
         try:
-            return list(foreach_norm(grads, 2.0, dtype = torch.float32))
+            return list(foreach_norm(grads, 2.0, dtype = dtype))
         except (TypeError, RuntimeError):
             pass
-    return [torch.linalg.vector_norm(g, 2.0, dtype = torch.float32) for g in grads]
+    return [torch.linalg.vector_norm(g, 2.0, dtype = dtype) for g in grads]
 
 
 def _queue_callback(callback):
@@ -199,6 +230,78 @@ def _sync(p):
             torch.cuda.synchronize(p.device)
 
 
+def _local(t):
+    """The local shard of a DTensor (FSDP2's sharded parameters and gradients), else the tensor itself. Norms and
+    clipping read local shards: a DTensor norm launches its own collective per tensor."""
+    local = getattr(t, "_local_tensor", None)
+    return local if isinstance(local, torch.Tensor) else t
+
+
+def _is_dtensor(t):
+    return isinstance(getattr(t, "_local_tensor", None), torch.Tensor)
+
+
+def _fsdp_calls_grad_hooks():
+    """Whether this torch's FSDP2 runs a sharded parameter's post-accumulate-grad hooks once its reduce-scattered
+    gradient is assigned (foreach_reduce, torch 2.5+; torch 2.4's fully_shard does not). Read from the source where
+    it is readable, else by version."""
+    try:
+        try:
+            from torch.distributed.fsdp._fully_shard import _fsdp_collectives as module
+        except ImportError:
+            from torch.distributed._composable.fsdp import _fsdp_collectives as module
+        import inspect
+        return "_post_accumulate_grad_hooks" in inspect.getsource(module.foreach_reduce)
+    except Exception:
+        pass
+    try:
+        major, minor = (int(x) for x in torch.__version__.split(".")[:2])
+        return (major, minor) >= (2, 5)
+    except Exception:
+        return False
+
+
+def _fsdp_layout(model):
+    """FSDP2 parameter groups of a fully_shard model, in no particular order: (lists of sharded params, the shard
+    process group). FSDP2 reduce-scatters each group's gradients together and then runs the hooks of its sharded
+    params in order, on the post-reduce stream (the root group's inside the root's post-backward final callback).
+    Refused: HSDP (a replicate dimension: the post-reduce stream is the all-reduce stream and the norm needs the
+    replicate group too), an FSDP2 all-reduce hook, CPU offload (gradients land on the host), several groups."""
+    groups, pgs = [], []
+    seen = set()
+    for module in model.modules() if model is not None else ():
+        get_state = getattr(module, "_get_fsdp_state", None)
+        if not callable(get_state):
+            continue
+        try:
+            state = get_state()
+        except Exception:
+            continue
+        param_groups = getattr(state, "_fsdp_param_groups", None)
+        if param_groups is None:
+            single = getattr(state, "_fsdp_param_group", None)
+            param_groups = [single] if single is not None else []
+        for group in param_groups:
+            if group is None or id(group) in seen:
+                continue
+            seen.add(id(group))
+            mesh_info = getattr(group, "mesh_info", None)
+            if getattr(mesh_info, "replicate_mesh_dim", None) is not None:
+                raise RuntimeError("HSDP (FSDP2 with a replicate dimension)")
+            if getattr(group, "_all_reduce_hook", None) is not None:
+                raise RuntimeError("an FSDP2 all-reduce hook")
+            if any(getattr(fp, "offload_to_cpu", False) for fp in group.fsdp_params):
+                raise RuntimeError("FSDP2 CPU offload (the gradients are reduced to the host)")
+            groups.append([fp.sharded_param for fp in group.fsdp_params])
+            pg = getattr(mesh_info, "shard_process_group", None)
+            if pg is not None:
+                pgs.append(pg)
+    pg = pgs[0] if pgs else None
+    if any(q is not pg for q in pgs):
+        raise RuntimeError("FSDP2 groups on different process groups")
+    return groups, pg
+
+
 _ACTIVE = weakref.WeakValueDictionary()  # id(param) -> the InBackwardOptimizer that owns its hook
 
 
@@ -210,8 +313,26 @@ class InBackwardOptimizer(torch.optim.Optimizer):
     the clipping run as a few multi-tensor launches per block instead of several per weight; each weight's update
     is the one the standard step makes. Shares the wrapped optimizer's param_groups and state (the LR scheduler,
     bfloat16 stochastic rounding, bitsandbytes overrides and checkpoints see the optimizer the Trainer built).
-    step() only steps weights whose gradient did not pass through a hook. `max_grad_norm` > 0 clips each gradient
-    by its own norm. `batch_bytes` = 0 steps each weight on its own as soon as its gradient is ready."""
+    step() only steps weights whose gradient did not pass through a hook. `batch_bytes` = 0 steps each weight on its
+    own as soon as its gradient is ready.
+
+    `max_grad_norm` > 0 clips by the global norm (`clip`: see clip_mode). A batch stepped before every gradient has
+    arrived uses an estimate: S, this step's sum of squared norms so far, times T / P, where T is the previous
+    step's total and P the previous step's sum over the same tensors. It is never below sqrt(S) (so never clips
+    less than the norm already seen implies), is exact when the gradients keep their relative sizes, and is the
+    exact norm for everything stepped by flush() at optimizer.step(). Under `measuring()` the hooks only measure (no step, gradients
+    freed), so the next pass can clip with the exact norm; the first step does that when `calibrate` is set.
+
+    FSDP2 (`fully_shard`, torch 2.5+; pass `model`): FSDP2 runs a sharded parameter's post-accumulate-grad hooks after
+    it assigns the reduce-scattered (averaged) gradient shard, on the post-reduce stream. Each FSDP2 group is one
+    batch, stepped at the hook of its last sharded parameter, on that stream, with the gradients freed
+    stream-safely. Norms read local shards; one all-reduce per group (on the device, no host sync) sums the squared
+    norms over the shard group, so every clip mode sees the full gradients' norms. Parameters replaced after this
+    optimizer was built (accelerate shards the model after Trainer.create_optimizer) get their hooks at the next
+    armed() / measuring(). `sync_gate` (e.g. `lambda: accelerator.sync_gradients`) makes a hook on a micro-batch
+    that does not step leave the gradient to accumulate (FSDP2 under no_sync runs no hooks until the synchronized
+    micro-batch; reducing every micro-batch runs them each time). Under compiled autograd FSDP2 skips the hooks,
+    and step() steps every gradient."""
 
     def __init__(
         self,
@@ -219,6 +340,8 @@ class InBackwardOptimizer(torch.optim.Optimizer):
         max_grad_norm = 0.0,
         model = None,
         batch_bytes = None,
+        clip = None,
+        sync_gate = None,
     ):
         kind = _step_kind(optimizer)
         if kind is None:
@@ -226,6 +349,30 @@ class InBackwardOptimizer(torch.optim.Optimizer):
         self.optimizer = optimizer
         self._kind = kind
         self.max_grad_norm = float(max_grad_norm or 0.0)
+        self.clip = clip if clip in _CLIP_MODES else clip_mode()
+        # Measure the first step's norm with a gradient-only pass (the trainer path runs it).
+        self.calibrate = True
+        # Gradient accumulation under FSDP2, where a step cannot be measured twice: keep the gradients until
+        # optimizer.step() (exact clipping) on the first step ("first") or every step ("all"). The earlier
+        # micro-batches' gradients are held anyway, so this costs no peak memory.
+        self.defer = None
+        self._measuring = False
+        self._known_sq = None  # this step's exact squared norm, from a measuring pass
+        self._prev_sq = {}  # id(param) -> its squared norm in the previous step
+        self._prev_total = None  # the previous step's total squared norm
+        self._cur_sq = {}
+        self._prev_seen = {}  # device -> sum of _prev_sq over the tensors seen this step
+        self.measured_steps = 0
+        self._sync_gate = sync_gate
+        self._model_ref = weakref.ref(model) if model is not None else None
+        self._fsdp = False
+        self._pg = None
+        self._fsdp_last = set()  # id(sharded param) whose hook ends its FSDP2 group's batch
+        self._replicated = (
+            set()
+        )  # id(param) native FSDP2 keeps whole and averages at the end of backward
+        self._world = 1
+        self._hooked = frozenset()
         self._armed = False
         self._done = set()
         self._norm_sq = {}
@@ -253,9 +400,94 @@ class InBackwardOptimizer(torch.optim.Optimizer):
                 (p.numel() * p.element_size() for g in groups for p in g["params"]), default = 0
             )
         self.batch_bytes = int(batch_bytes)
+        self._attach(model)
+
+    def _trainable_ids(self):
+        return frozenset(id(p) for g in self.param_groups for p in g["params"] if p.requires_grad)
+
+    def _attach(self, model):
+        """Hooks on the current parameters, the reuse watch on `model`, and the FSDP2 layout when they are sharded."""
+        for handle in self._handles:
+            handle.remove()
+        self._handles = []
+        self._where = None
+        self._fsdp, self._pg, self._fsdp_last, self._replicated, self._world = (
+            False,
+            None,
+            set(),
+            set(),
+            1,
+        )
+        trainable = [p for g in self.param_groups for p in g["params"] if p.requires_grad]
+        if any(_is_dtensor(p) for p in trainable):
+            self._setup_fsdp(model, trainable)
         self._register_hooks()
         if model is not None:
             self._watch_reuse(model)
+        self._hooked = self._trainable_ids()
+
+    def _refresh(self):
+        """accelerate's FSDP2 prepare replaces the parameters in param_groups after the optimizer is built."""
+        if self._trainable_ids() != self._hooked:
+            model = self._model_ref() if self._model_ref is not None else None
+            self._attach(model)
+
+    def _setup_fsdp(self, model, trainable):
+        if model is None:
+            raise ValueError(
+                "Unsloth: pass the fully_shard model to step the optimizer inside backward under FSDP2."
+            )
+        if not _fsdp_calls_grad_hooks():
+            raise RuntimeError(
+                f"Unsloth: torch {torch.__version__}'s FSDP2 does not run post-accumulate-grad hooks on sharded "
+                "parameters (torch 2.5 added them), so the optimizer cannot step inside backward."
+            )
+        try:
+            groups, pg = _fsdp_layout(model)
+        except RuntimeError as e:
+            raise RuntimeError(
+                f"Unsloth: stepping the optimizer inside backward does not support {e}."
+            ) from None
+        mine = {id(p) for p in trainable}
+        managed = set()
+        for params in groups:
+            ids = [id(p) for p in params if id(p) in mine]
+            managed.update(ids)
+            if ids:
+                self._fsdp_last.add(ids[-1])
+        unmanaged = [p for p in trainable if id(p) not in managed]
+        # (native FSDP2 also keeps float32 weights such as A_log / dt_bias as Replicate DTensors, averaged the same way)
+        stray = [
+            p
+            for p in unmanaged
+            if _is_dtensor(p) and not getattr(p, "_unsloth_fsdp2_float32_replicate", False)
+        ]
+        if unmanaged and (stray or not _is_native_fsdp2(model)):
+            raise RuntimeError(
+                "Unsloth: stepping the optimizer inside backward under FSDP2 needs every trainable parameter in a "
+                "fully_shard group (an unsharded one is averaged over ranks only after backward)."
+            )
+        # Native FSDP2 keeps a few small trainable weights whole (float32 norms) and averages their gradients over
+        # the ranks when their backward ends: they are stepped at optimizer.step(), after that average.
+        self._replicated = {id(p) for p in unmanaged}
+        self._pg = pg
+        self._fsdp = True
+        try:
+            import torch.distributed as dist
+            self._world = dist.get_world_size(pg) if dist.is_initialized() else 1
+        except Exception:
+            self._world = 1
+
+    def _all_reduce(self, t):
+        """Sum over the FSDP2 shard group, on the device (no host sync). Every rank calls it for the same batches."""
+        if not self._fsdp or self._pg is None:
+            return t
+        import torch.distributed as dist
+
+        if not (dist.is_available() and dist.is_initialized()):
+            return t
+        dist.all_reduce(t, op = dist.ReduceOp.SUM, group = self._pg)
+        return t
 
     # Forwarded, so the wrapper and the wrapped optimizer can never disagree (load_state_dict replaces both).
     @property
@@ -316,6 +548,8 @@ class InBackwardOptimizer(torch.optim.Optimizer):
     def _reset(self):
         self._done = set()
         self._norm_sq = {}
+        self._cur_sq = {}
+        self._prev_seen = {}
         self._calls = {}
         self._pending = []
         self._pending_ids = set()
@@ -413,6 +647,11 @@ class InBackwardOptimizer(torch.optim.Optimizer):
     @contextlib.contextmanager
     def armed(self):
         previous = self._armed
+        if not previous:
+            self._refresh()
+            # One armed region is one micro-batch (Unsloth arms each training_step): a module is reused when it runs
+            # twice within it, not when gradient accumulation runs the next micro-batch.
+            self._calls = {}
         self._armed = True
         try:
             yield self
@@ -422,6 +661,47 @@ class InBackwardOptimizer(torch.optim.Optimizer):
             raise
         finally:
             self._armed = previous
+
+    @contextlib.contextmanager
+    def measuring(self):
+        """Hooks only measure: each gradient's norm is recorded and the gradient freed, nothing is stepped. On exit
+        the step's exact norm is kept for the stepping pass that follows."""
+        previous = self._armed
+        if not previous:
+            self._refresh()
+            self._calls = {}
+        self._armed, self._measuring = True, True
+        ok = False
+        try:
+            yield self
+            ok = True
+        finally:
+            try:
+                if ok:
+                    self._flush_pending()
+                    left = [
+                        p
+                        for g in self.optimizer.param_groups
+                        for p in g["params"]
+                        if p.grad is not None
+                    ]
+                    if left:
+                        self._account(left)
+                    self._free_grads(left)
+                    self._known_sq = self._total_sq()
+                    self.measured_steps += 1
+            finally:
+                self._measuring = False
+                self._armed = previous
+                self._reset()
+                if not ok:
+                    self._known_sq = None
+
+    def wants_measure(self):
+        """True when the next training step should run a measuring pass first."""
+        if self.max_grad_norm <= 0 or self.clip == "per_tensor" or self.defer is not None:
+            return False
+        return self.clip == "exact" or (self.calibrate and self._prev_total is None)
 
     def _locate(self, p):
         groups = self.optimizer.param_groups
@@ -448,13 +728,29 @@ class InBackwardOptimizer(torch.optim.Optimizer):
         grad = p.grad
         if grad is None or self._locate(p) is None:
             return
+        if self._sync_gate is not None and not self._sync_gate():
+            return  # a micro-batch that does not step: the gradient accumulates until the synchronized one
+        if id(p) in self._replicated:
+            return  # averaged over ranks after its backward: stepped by flush()
+        if self.defer == "all" or (self.defer == "first" and self._prev_total is None):
+            return  # stepped by flush() with the exact norm
         if self._reused(p):
             return  # more gradients may still arrive: stepped by flush()
-        if id(p) in self._done:
+        if id(p) in self._done and not self._measuring:
             raise self._second_gradient(p)
         if id(p) in self._pending_ids:
             return  # accumulated again before its batch was stepped: stepped once, with the sum
-        nbytes = grad.numel() * grad.element_size()
+        local = _local(grad)
+        nbytes = local.numel() * local.element_size()
+        if self._fsdp:
+            # FSDP2 runs a group's hooks back to back after its reduce-scatter: the last one steps the batch. Never
+            # split by size: shard sizes differ across ranks, and every rank must all-reduce the same batches.
+            self._pending.append(p)
+            self._pending_ids.add(id(p))
+            self._pending_bytes += nbytes
+            if id(p) in self._fsdp_last:
+                self._flush_pending()
+            return
         if self._pending and self._pending_bytes + nbytes > self.batch_bytes:
             self._flush_pending()  # a batch never exceeds batch_bytes (one larger weight steps alone)
         self._pending.append(p)
@@ -496,24 +792,115 @@ class InBackwardOptimizer(torch.optim.Optimizer):
         params = [p for p in params if p.grad is not None and self._locate(p) is not None]
         if not params:
             return
+        if self._measuring:
+            self._account(params)
+            self._free_grads(params)
+            return
         for p in params:
             if id(p) in self._done:
                 raise self._second_gradient(p)
-        for p in params:
-            self._done.add(id(p))
+        self._clip(self._account(params))
+        self._step_only(params)
+
+    def _account(self, params):
+        """Each gradient's float32 norm (one multi-tensor launch per device), added to this step's running sum of
+        squares and recorded for the next step's estimate. Under FSDP2 the squares of the local shards are summed over
+        the shard group in one all-reduce per batch (with the previous step's squares of the same tensors), so
+        everything below sees the full gradients. Returns {device: (local grads, norms, squares)}."""
         by_device = {}
         for p in params:
-            by_device.setdefault(p.grad.device, []).append(p)
+            by_device.setdefault(_local(p.grad).device, []).append(p)
+        info = {}
+        estimate = (
+            self.max_grad_norm > 0
+            and self.clip in ("estimate", "exact")
+            and self._prev_total is not None
+        )
         for device, group in by_device.items():
-            grads = [p.grad.detach() for p in group]
+            # Local shards (FSDP2): a DTensor norm or multiply would launch hidden collectives per tensor.
+            grads = [_local(p.grad.detach()) for p in group]
             norms = torch.stack(_norms(grads))
-            square = (norms * norms).sum()
+            sq = norms * norms
             key = str(norms.device)
+            if self._replicated and any(id(p) in self._replicated for p in group):
+                # A whole weight's gradient is the same on every rank: each counts 1 / world of it in the sums below.
+                share = [1.0 / self._world if id(p) in self._replicated else 1.0 for p in group]
+                sq = sq * torch.tensor(share, dtype = sq.dtype, device = sq.device)
+            parts = sq.unbind(0)
+            for p, q in zip(group, parts):
+                self._cur_sq[id(p)] = (
+                    q  # this rank's share: the next step's P is reduced the same way
+                )
+            # The previous step's squares of these tensors (a tensor new this step counts as unchanged).
+            previous = (
+                torch.stack(
+                    [self._prev_sq.get(id(p), q).to(sq.device) for p, q in zip(group, parts)]
+                ).sum()
+                if estimate
+                else None
+            )
+            if self._fsdp:
+                both = torch.cat(
+                    [sq, previous.reshape(1) if previous is not None else sq.new_zeros(1)]
+                )
+                both = self._all_reduce(both)
+                sq, previous = both[:-1], (both[-1] if previous is not None else None)
+                norms = sq.sqrt()
+            square = sq.sum()
             self._norm_sq[key] = square if key not in self._norm_sq else self._norm_sq[key] + square
-            if self.max_grad_norm > 0:
-                # torch.nn.utils.clip_grad_norm_'s coefficient, from each gradient's own norm.
-                coef = torch.clamp(self.max_grad_norm / (norms + 1e-6), max = 1.0)
-                torch._foreach_mul_(grads, list(coef.unbind(0)))
+            if previous is not None:
+                self._prev_seen[key] = (
+                    previous if key not in self._prev_seen else self._prev_seen[key] + previous
+                )
+            info[key] = (grads, norms, sq)
+        return info
+
+    def _total_sq(self):
+        squares = list(self._norm_sq.values())
+        if not squares:
+            return None
+        device = squares[0].device
+        return torch.stack([v.to(device) for v in squares]).sum()
+
+    def _clip(
+        self,
+        info,
+        final = False,
+    ):
+        """Scale the gradients in `info` by torch.nn.utils.clip_grad_norm_'s coefficient max / (norm + 1e-6), at most 1,
+        with the global norm this step will have (`final`: every gradient of the step is accounted, so it is exact)."""
+        max_norm = self.max_grad_norm
+        if max_norm <= 0:
+            return
+        for key, (grads, norms, sq) in info.items():
+            if self.clip == "per_tensor" and self._known_sq is None:
+                coef = list(torch.clamp(max_norm / (norms + 1e-6), max = 1.0).unbind(0))
+                torch._foreach_mul_(grads, coef)
+                continue
+            seen = self._total_sq().to(norms.device)  # this step so far, this batch included
+            if self._known_sq is not None:
+                total = self._known_sq.to(norms.device)
+            elif final or self._prev_total is None:
+                total = seen
+            elif self.clip == "lagged":
+                total = torch.maximum(seen, self._prev_total.to(norms.device))
+            else:
+                # (exact without a measuring pass, as when the step cannot be repeated, estimates the same way)
+                prev_seen = sum(
+                    (v.to(norms.device) for v in self._prev_seen.values()), torch.zeros_like(seen)
+                )
+                ratio = self._prev_total.to(norms.device) / prev_seen.clamp_min(1e-30)
+                total = torch.where(prev_seen > 0, torch.maximum(seen, seen * ratio), seen)
+            coef = torch.clamp(max_norm / (total.sqrt() + 1e-6), max = 1.0)
+            try:
+                torch._foreach_mul_(grads, coef)
+            except (TypeError, RuntimeError):
+                for g in grads:
+                    g.mul_(coef.to(g.dtype))
+
+    def _step_only(self, params):
+        for p in params:
+            self._done.add(id(p))
         with _no_global_step_hooks():
             if self._kind == "bitsandbytes":
                 for p in params:
@@ -521,7 +908,22 @@ class InBackwardOptimizer(torch.optim.Optimizer):
                     self._step_bitsandbytes(gi, pi, p)
             else:
                 self._step_torch(params)
+        self._free_grads(params)
+
+    def _free_grads(self, params):
+        """Drop the gradients. Under FSDP2 they were allocated on the reduce-scatter stream (or cast on the post-reduce
+        stream) and read on the current one: recording it keeps the allocator from handing the block to the next
+        reduce-scatter before the update has read it (a no-op when the streams are the same)."""
+        stream = None
         for p in params:
+            grad = p.grad
+            if grad is None:
+                continue
+            local = _local(grad)
+            if self._fsdp and local.is_cuda:
+                if stream is None:
+                    stream = torch.cuda.current_stream(local.device)
+                local.record_stream(stream)
             p.grad = None
 
     def _step_torch(self, params):
@@ -559,31 +961,36 @@ class InBackwardOptimizer(torch.optim.Optimizer):
 
     def flush(self):
         """Step the weights left for the end: the last batch, reused ones, and gradients that reached .grad
-        without a hook."""
-        self._flush_pending()
-        left = []
+        without a hook. Every gradient of the step is known by now, so these are clipped with the exact norm."""
+        left = [p for p in self._pending if p.grad is not None and self._locate(p) is not None]
+        waiting = {id(p) for p in left}
+        self._pending, self._pending_ids, self._pending_bytes = [], set(), 0
         for group in self.optimizer.param_groups:
             for p in group["params"]:
-                if p.grad is None:
+                if p.grad is None or id(p) in waiting:
                     continue
-                if id(p) not in self._done:
-                    if self._reused(p):
-                        self.deferred_steps += 1
-                    else:
-                        self.late_steps += 1
-                # A weight the hook already stepped raises in _step_params: it received a second gradient.
+                if id(p) in self._done:
+                    raise self._second_gradient(p)  # the hook already stepped it: a second gradient
+                if self._reused(p) or id(p) in self._replicated:
+                    self.deferred_steps += 1
+                else:
+                    self.late_steps += 1
                 left.append(p)
-        # In batches of at most batch_bytes, each freed before the next: a multi-tensor step's temporaries span
-        # its whole batch, and the planner budgets them for one batch.
+        if not left:
+            return
+        self._clip(self._account(left), final = True)
+        # In batches of at most batch_bytes: a multi-tensor step's temporaries span its whole batch, and the
+        # planner budgets them for one batch.
         batch, size = [], 0
         for p in left:
-            nbytes = p.grad.numel() * p.grad.element_size()
+            local = _local(p.grad)
+            nbytes = local.numel() * local.element_size()
             if batch and size + nbytes > self.batch_bytes:
-                self._step_params(batch)
+                self._step_only(batch)
                 batch, size = [], 0
             batch.append(p)
             size += nbytes
-        self._step_params(batch)
+        self._step_only(batch)
 
     def total_norm(self):
         """L2 norm over every gradient this step saw (before clipping)."""
@@ -601,6 +1008,11 @@ class InBackwardOptimizer(torch.optim.Optimizer):
                 loss = closure()
         self.flush()
         self.hook_steps += len(self._done)
+        total = self._total_sq()
+        if total is not None:
+            # This step's norms are the next step's reference for the estimate.
+            self._prev_sq, self._prev_total = self._cur_sq, total.detach()
+        self._known_sq = None
         self._reset()
         return loss
 
@@ -740,18 +1152,22 @@ def plan_auto_fit(
 ):
     """Memory prediction for one training step (bytes beyond what is allocated now).
 
-    Returns a dict with `standard`, `in_backward`, `lomo` (bytes each needs), `usable`, and the parts."""
+    Returns a dict with `standard`, `in_backward`, `lomo` (bytes each needs), `usable`, and the parts. Under FSDP2
+    everything is per rank: weights, gradients and optimizer state are 1 / world of the full sizes, and each rank
+    also holds one or two gathered (unsharded) blocks while it computes."""
     args = getattr(trainer, "args", None)
     params = _trainable(model)
-    grads = sum(p.numel() * p.element_size() for p in params)
-    largest = max((p.numel() for p in params), default = 0)
-    largest_bytes = max((p.numel() * p.element_size() for p in params), default = 0)
+    kind, _ = _distributed(trainer, model)
+    world = _world_size() if kind == "fsdp2" else 1
+    grads = sum(p.numel() * p.element_size() for p in params) // world
+    largest = max((p.numel() for p in params), default = 0) // world
+    largest_bytes = max((p.numel() * p.element_size() for p in params), default = 0) // world
     optim_name = _optim_name(args)
     custom = getattr(trainer, "optimizer_cls_and_kwargs", None)
     if optimizer_cls is None and custom is not None:
         optimizer_cls = custom[0]
         optim_name = ""
-    states = _state_bytes(optim_name, optimizer_cls, params, model)
+    states = _state_bytes(optim_name, optimizer_cls, params, model) // world
     label = (optim_name + " " + getattr(optimizer_cls, "__name__", "")).lower()
     # Measured on Llama-3.2-3B and Qwen3-0.6B / Qwen3-4B full finetuning (adamw_8bit, Unsloth checkpointing):
     # the standard step peaks at gradients + state + about the activations. torch's foreach AdamW (without the
@@ -771,12 +1187,32 @@ def plan_auto_fit(
     activations = _activation_bytes(model, seq, batch)
     margin = activations // 16 + (256 << 20)  # split allocator blocks + a fixed safety margin
     # Reused weights (tied, shared, looped) keep their gradient until the step in both in-backward tiers.
-    deferred = _reused_bytes(model, params)
-    standard = grads + states + max(activations, step_temp) + margin
-    in_backward = states + deferred + max(activations, live) + margin
-    lomo = deferred + max(activations, live_lomo) + margin
+    deferred = _reused_bytes(model, params) // world
+    resident = 0
+    if world > 1:
+        resident, transient = _fsdp_gathered(trainer, model)
+        activations += transient
+        # Each FSDP2 group is one batch (never split by size): its local gradient shards are alive together, and
+        # a multi-tensor update spans the whole group.
+        group = max(_fsdp_group_bytes(model), default = 0) // world
+        group_numel = max(_fsdp_group_bytes(model, numel = True), default = 0) // world
+        live = max(live, group * 2 + (0 if per_weight else group))
+        live_lomo = max(live_lomo, group * 2 + group_numel * 8)
+    # Gradient accumulation under FSDP2: the hooks step on the synchronized micro-batch only, so the earlier
+    # micro-batches' gradients are held in every tier: as shards when every micro-batch is reduce-scattered, else
+    # (no_sync) as FSDP2's whole, unsharded accumulators.
+    held = held_standard = 0
+    accumulation = int(getattr(args, "gradient_accumulation_steps", 1) or 1)
+    if world > 1 and accumulation > 1:
+        if _fsdp_reduces_every_micro_batch(trainer, model):
+            held = grads
+        else:
+            held = held_standard = grads * world
+    standard = grads + states + held_standard + resident + max(activations, step_temp) + margin
+    in_backward = states + deferred + held + resident + max(activations, live) + margin
+    lomo = deferred + held + resident + max(activations, live_lomo) + margin
     if usable_bytes is None:
-        usable_bytes = _usable_bytes(params)
+        usable_bytes = _usable_bytes(params) if world == 1 else _usable_bytes(params, world)
     return dict(
         usable = usable_bytes,
         standard = standard,
@@ -785,6 +1221,8 @@ def plan_auto_fit(
         grads = grads,
         states = states,
         deferred = deferred,
+        held = held,
+        resident = resident,
         params = sum(p.numel() for p in params),
         seq = seq,
         batch = batch,
@@ -797,16 +1235,153 @@ def _sr_on(params):
     return any(p.dtype == torch.bfloat16 for p in params)
 
 
-def _usable_bytes(params):
-    device = next((p.device for p in params if p.device.type == "cuda"), None)
+def _fsdp_reduces_every_micro_batch(trainer, model):
+    """Under gradient accumulation: Unsloth's native FSDP2 GA mode "each", or accelerate's sync_each_batch."""
+    if _is_native_fsdp2(model):
+        try:
+            from ..models.fsdp2_native import _ga_mode
+            return _ga_mode(model) == "each"
+        except Exception:
+            return True
+    state = getattr(getattr(trainer, "accelerator", None), "gradient_state", None)
+    kwargs = getattr(state, "plugin_kwargs", None) or {}
+    return bool(kwargs.get("sync_each_batch", False))
+
+
+def _fsdp_group_bytes(model, numel = False):
+    """Full size of each FSDP2 group's trainable weights in their storage dtype (or element counts): the shard
+    groups are FSDP2's own once sharded, else the decoder blocks plus the root group (everything else)."""
+    size = (lambda p: p.numel()) if numel else (lambda p: p.numel() * p.element_size())
+    if any(_is_dtensor(p) for p in model.parameters()):
+        try:
+            groups, _ = _fsdp_layout(model)
+        except RuntimeError:
+            return []
+        return [sum(size(p) for p in g if p.requires_grad) for g in groups]
+    names = _fsdp_blocks(model)
+    inside, out = set(), []
+    for name, module in model.named_modules():
+        if name in names:
+            params = [p for p in module.parameters() if p.requires_grad]
+            inside.update(id(p) for p in params)
+            out.append(sum(size(p) for p in params))
+    out.append(sum(size(p) for p in model.parameters() if p.requires_grad and id(p) not in inside))
+    return out
+
+
+def _fsdp_gathered(trainer, model):
+    """(resident, transient) bytes of whole (gathered) weights FSDP2 keeps on each rank while computing.
+
+    The root group (weights outside the decoder blocks: embeddings, final norm, an untied head) is never resharded
+    after the forward, so it stays whole for the whole step; so do blocks that do not reshard after the forward
+    (reshard_after_forward = False: Unsloth's native fit layout, UNSLOTH_FSDP2_RESHARD_AFTER_FORWARD=0, accelerate's
+    plugin option). Blocks that reshard are whole one at a time, plus the next one prefetched."""
+
+    def full_bytes(params, dtype = None):
+        return sum(
+            p.numel() * (dtype.itemsize if dtype is not None else p.element_size()) for p in params
+        )
+
+    sharded = any(_is_dtensor(p) for p in model.parameters())
+    if sharded:
+        resident, blocks = 0, []
+        root = id(model)
+        for module in model.modules():
+            get_state = getattr(module, "_get_fsdp_state", None)
+            if not callable(get_state):
+                continue
+            try:
+                state = get_state()
+            except Exception:
+                continue
+            groups = getattr(state, "_fsdp_param_groups", None)
+            if groups is None:
+                single = getattr(state, "_fsdp_param_group", None)
+                groups = [single] if single is not None else []
+            for group in groups:
+                if group is None:
+                    continue
+                dtype = getattr(getattr(group, "mp_policy", None), "param_dtype", None)
+                size = full_bytes([fp.sharded_param for fp in group.fsdp_params], dtype)
+                if id(module) == root or getattr(group, "post_forward_mesh_info", None) is None:
+                    resident += size
+                else:
+                    blocks.append(size)
+        return resident, 2 * max(blocks, default = 0)
+    plugin = _fsdp_plugin(trainer)
+    dtype = getattr(getattr(plugin, "mixed_precision_policy", None), "param_dtype", None)
+    names = _fsdp_blocks(model)
+    inside, block_sizes = set(), []
+    for name, module in model.named_modules():
+        if name in names:
+            params = list(module.parameters())
+            inside.update(id(p) for p in params)
+            block_sizes.append(full_bytes(params, dtype))
+    root_size = full_bytes([p for p in model.parameters() if id(p) not in inside], dtype)
+    if getattr(plugin, "reshard_after_forward", True) is False:
+        return root_size + sum(block_sizes), 0
+    return root_size, 2 * max(block_sizes, default = 0)
+
+
+def _fsdp_blocks(model):
+    """The repeated decoder blocks (FSDP2 shards one unit per block)."""
+    import re
+
+    blocks = set()
+    for name, _ in model.named_modules():
+        m = re.search(r"(?:^|\.)layers\.(\d+)$", name)
+        if m:
+            blocks.add(name)
+    if not blocks:  # no decoder stack by name: one unit per child that holds weights
+        blocks = {
+            name for name, child in model.named_children() if any(True for _ in child.parameters())
+        }
+    return blocks
+
+
+def _usable_bytes(params, world = 1):
+    device = next((_local(p).device for p in params if _local(p).device.type == "cuda"), None)
+    if device is None and world > 1 and torch.cuda.is_available():
+        device = torch.device(
+            "cuda", torch.cuda.current_device()
+        )  # accelerate moves and shards the model later
     if device is None:
         return None
     try:
         from ..models._utils import usable_cuda_bytes
-        return usable_cuda_bytes(device)
+        free = usable_cuda_bytes(device)
     except Exception:
         free, _ = torch.cuda.mem_get_info(device)
-        return int(free)
+        free = int(free)
+    if world > 1:
+        # Weights not sharded yet (accelerate's FSDP2 shards them after the optimizer is built): 1 / world of them
+        # stays on this GPU. Whole on this GPU now: the rest is freed; still on the host: the shard is still to come.
+        whole = sum(
+            p.numel() * p.element_size() for p in params if not _is_dtensor(p) and p.is_cuda
+        )
+        host = sum(
+            p.numel() * p.element_size() for p in params if not _is_dtensor(p) and not p.is_cuda
+        )
+        free += whole - whole // world - host // world
+        free = _min_over_ranks(free, device)
+    return free
+
+
+def _min_over_ranks(value, device):
+    """The smallest value over the ranks: every FSDP2 rank must pick the same tier (an in-backward rank runs
+    all-reduces a standard one never joins, and AdamW and SGD shards would train differently)."""
+    try:
+        import torch.distributed as dist
+
+        if not (dist.is_available() and dist.is_initialized()) or dist.get_world_size() <= 1:
+            return value
+        backend = str(dist.get_backend()).lower()
+        on = device if "nccl" in backend else torch.device("cpu")
+        t = torch.tensor([int(value)], dtype = torch.int64, device = on)
+        dist.all_reduce(t, op = dist.ReduceOp.MIN)
+        return int(t.item())
+    except Exception:
+        return value
 
 
 def _single_process(trainer):
@@ -845,6 +1420,90 @@ def _single_process(trainer):
     return True
 
 
+def _is_native_fsdp2(model):
+    try:
+        from ..models.fsdp2_native import is_native_fsdp2
+        return bool(is_native_fsdp2(model))
+    except Exception:
+        return False
+
+
+def _fsdp_plugin(trainer):
+    state = getattr(getattr(trainer, "accelerator", None), "state", None)
+    return getattr(state, "fsdp_plugin", None)
+
+
+def _env_size(name):
+    try:
+        return int(os.environ.get(name, "1") or 1)
+    except ValueError:
+        return 1
+
+
+def _distributed(trainer, model):
+    """(None, None) for one process; ("fsdp2", None) for FSDP2 sharding the in-backward step supports (Unsloth's
+    native FSDP2 or accelerate's FSDP2 plugin); (None, why) when refused."""
+    if _single_process(trainer):
+        return None, None
+    args = getattr(trainer, "args", None)
+    if getattr(trainer, "is_deepspeed_enabled", False) or getattr(args, "deepspeed", None):
+        return None, "DeepSpeed (it builds and steps its own optimizer)"
+    for name, what in (
+        ("UNSLOTH_TP_SIZE", "tensor parallelism"),
+        ("UNSLOTH_PP_SIZE", "pipeline parallelism"),
+        ("UNSLOTH_CP_SIZE", "context parallelism"),
+    ):
+        if _env_size(name) > 1:
+            return None, f"{what} ({name})"
+    accelerator = getattr(trainer, "accelerator", None)
+    if accelerator is not None and accelerator.__dict__.get("_unsloth_pp_stage") is not None:
+        return None, "pipeline parallelism"
+    config = getattr(accelerator, "parallelism_config", None)
+    for attr, what in (
+        ("tp_size", "tensor parallelism"),
+        ("cp_size", "context parallelism"),
+        ("dp_replicate_size", "HSDP (FSDP2 with a replicate dimension)"),
+    ):
+        if int(getattr(config, attr, 1) or 1) > 1:
+            return None, what
+    plugin = _fsdp_plugin(trainer)
+    native = _is_native_fsdp2(model)
+    if native or (plugin is not None and int(getattr(plugin, "fsdp_version", 1) or 1) == 2):
+        offload = getattr(plugin, "cpu_offload", None) if plugin is not None else None
+        if offload is not None and "CPUOffloadPolicy" in type(offload).__name__:
+            return None, "FSDP2 CPU offload (the gradients are reduced to the host)"
+        for p in _trainable(model):
+            if _is_dtensor(p):
+                if _local(p).device.type != "cuda" and torch.cuda.is_available():
+                    return None, "FSDP2 CPU offload (the gradients are reduced to the host)"
+                mesh = getattr(p, "device_mesh", None)
+                if mesh is not None and getattr(mesh, "ndim", 1) > 1:
+                    return None, "FSDP2 over a multi-dimensional mesh (HSDP or tensor parallelism)"
+        if not _fsdp_calls_grad_hooks():
+            return (
+                None,
+                f"FSDP2 on torch {torch.__version__} (post-accumulate-grad hooks on shards need torch 2.5)",
+            )
+        return "fsdp2", None
+    if (
+        plugin is not None
+        or getattr(args, "fsdp", None)
+        or getattr(trainer, "is_fsdp_enabled", False)
+    ):
+        return None, "FSDP1 (it reduces flat parameters after backward)"
+    return None, "DDP (it all-reduces gradients after backward)"
+
+
+def _world_size():
+    try:
+        import torch.distributed as dist
+        if dist.is_available() and dist.is_initialized():
+            return dist.get_world_size()
+    except Exception:
+        pass
+    return 1
+
+
 def _full_finetuning(model):
     seen = set()
     while model is not None and id(model) not in seen:
@@ -870,10 +1529,12 @@ def _scaler_active(trainer):
 def _blocker(trainer, model, forced):
     """Why neither tier may engage for this trainer (None: eligible)."""
     args = getattr(trainer, "args", None)
-    if int(getattr(args, "gradient_accumulation_steps", 1) or 1) != 1:
+    kind, why = _distributed(trainer, model)
+    if why is not None:
+        return f"distributed training: {why}"
+    if int(getattr(args, "gradient_accumulation_steps", 1) or 1) != 1 and kind != "fsdp2":
+        # Under FSDP2 the hooks run only on the synchronized micro-batch (no_sync) or are gated to it.
         return "gradient_accumulation_steps > 1 (every micro-batch's gradient must be kept until the step)"
-    if not _single_process(trainer):
-        return "distributed training (DDP / FSDP / DeepSpeed) reduces gradients after backward"
     if getattr(args, "fp16", False) or _scaler_active(trainer):
         return "fp16 mixed precision (the GradScaler skips whole steps on overflow)"
     if not forced and not _full_finetuning(model):
@@ -1001,7 +1662,8 @@ def _decide(trainer, model, mode):
         f"({_gb(plan['states'])}) and activations, {_gb(plan['usable'])} free."
     )
     clip = (
-        f" max_grad_norm = {args.max_grad_norm} now clips each tensor by its own norm."
+        f" max_grad_norm = {args.max_grad_norm} clips by the global norm, estimated while gradients arrive"
+        f" (the first step measures it; {_CLIP_ENV}=exact measures every step with a second forward and backward)."
         if (getattr(args, "max_grad_norm", 0) or 0) > 0
         else ""
     )
@@ -1094,6 +1756,143 @@ def _wrap_clip(trainer):
     accelerator.clip_grad_norm_ = clip_grad_norm_
 
 
+_GENERATING = (
+    "GRPO",
+    "RLOO",
+    "OnlineDPO",
+    "PPO",
+    "XPO",
+    "NashMD",
+    "GKD",
+    "GOLD",
+    "MiniLLM",
+    "Distillation",
+)
+
+
+def _can_repeat_step(trainer):
+    """True when training_step can run twice on the same inputs with the same result: its inputs are not generated
+    inside the step (GRPO / RLOO sample completions in _prepare_inputs, online trainers in training_step)."""
+    try:
+        from transformers import Trainer
+    except Exception:
+        return False
+    cls = type(trainer)
+    if getattr(cls, "_prepare_inputs", None) is not getattr(Trainer, "_prepare_inputs", None):
+        return False
+    if hasattr(trainer, "_generate_and_score_completions"):
+        return False
+    return not any(any(k in klass.__name__ for k in _GENERATING) for klass in cls.__mro__)
+
+
+_BUFFER_COPY_BYTES = 256 << 20
+
+
+def _snapshot_buffers(model):
+    """(module, name, buffer, version, copy) for every buffer: a forward can update buffers in place (BatchNorm's
+    running statistics) or rebind them. Inference tensors are skipped: they cannot be updated in place. Copies are kept up to _BUFFER_COPY_BYTES in total (LLM buffers are a few
+    MB: rotary frequencies, masks)."""
+    out, budget = [], _BUFFER_COPY_BYTES
+    if model is None:
+        return out
+    for module in model.modules():
+        for name, buffer in list(module._buffers.items()):
+            if buffer is None:
+                continue
+            try:
+                version = buffer._version
+            except Exception:
+                version = None
+            nbytes = buffer.numel() * buffer.element_size()
+            copy = None
+            if version is not None and nbytes <= budget:
+                copy = buffer.detach().clone()
+                budget -= nbytes
+            out.append((module, name, buffer, version, copy))
+    return out
+
+
+def _restore_buffers(saved):
+    """Put every buffer back as it was. False when one changed in place without a copy to restore it from."""
+    complete = True
+    for module, name, buffer, version, copy in saved:
+        if module._buffers.get(name) is not buffer:
+            module._buffers[name] = buffer
+        if copy is not None:
+            # Always: batch_norm updates its running statistics inside the kernel, without bumping _version.
+            with torch.no_grad():
+                buffer.copy_(copy)
+        elif version is not None and buffer._version != version:
+            complete = False
+    return complete
+
+
+@contextlib.contextmanager
+def _repeatable(trainer, model):
+    """Run a training step that must leave no trace: the same random state afterwards (dropout draws the same
+    masks in the real pass), the model's buffers (running statistics) and the trainer's counters and logged
+    metrics unchanged. Yields a list that holds False after the pass when a buffer could not be restored."""
+    devices = (
+        sorted({p.device.index or 0 for p in model.parameters() if p.device.type == "cuda"})
+        if model is not None
+        else []
+    )
+    cpu = torch.random.get_rng_state()
+    cuda = [(d, torch.cuda.get_rng_state(d)) for d in devices]
+    numbers = {k: v for k, v in trainer.__dict__.items() if type(v) in (int, float)}
+    buffers = _snapshot_buffers(model)
+    restored = [True]
+    metrics = trainer.__dict__.get("_metrics")
+    # TRL's {mode: defaultdict(list)}: the dicts themselves are kept (and their types), only their contents restored.
+    saved = None
+    if isinstance(metrics, dict):
+        saved = {
+            k: (dict(v), {kk: list(vv) for kk, vv in v.items() if isinstance(vv, list)})
+            if isinstance(v, dict)
+            else (v, None)
+            for k, v in metrics.items()
+        }
+    try:
+        yield restored
+    finally:
+        torch.random.set_rng_state(cpu)
+        for d, state in cuda:
+            torch.cuda.set_rng_state(state, d)
+        restored[0] = _restore_buffers(buffers)
+        del buffers
+        for k, v in numbers.items():
+            trainer.__dict__[k] = v
+        if saved is not None:
+            for k in [k for k in metrics if k not in saved]:
+                del metrics[k]
+            for k, (value, lists) in saved.items():
+                if lists is None:
+                    metrics[k] = value
+                    continue
+                inner = metrics.get(k)
+                if not isinstance(inner, dict):
+                    metrics[k] = inner = dict(value)
+                inner.clear()
+                inner.update(value)
+                for kk, items in lists.items():
+                    inner[kk][:] = items
+
+
+def _fresh_views(obj):
+    """The same inputs as new tensor objects sharing their storage: torch.compile marks dynamic dimensions on the
+    tensors a pass sees, and the real pass must see its inputs as they were, or every compiled graph recompiles once.
+    detach(), not view(): a view keeps `_base`, and a dynamic-shape graph compiled on it guards on
+    `L['x']._base.size()`, which fails on the real pass's base tensors and recompiles every graph once."""
+    if isinstance(obj, torch.Tensor):
+        # An input that requires grad keeps its autograd link (a view): detaching it would change the backward.
+        return obj.view(obj.shape) if obj.requires_grad else obj.detach()
+    if isinstance(obj, (list, tuple)) and type(obj) in (list, tuple):
+        return type(obj)(_fresh_views(o) for o in obj)
+    if isinstance(obj, Mapping):
+        return {k: _fresh_views(v) for k, v in obj.items()}
+    return obj
+
+
 def _arm_training_step(trainer, wrapper):
     original = trainer.training_step
     if getattr(original, "_unsloth_in_backward", False):
@@ -1102,11 +1901,51 @@ def _arm_training_step(trainer, wrapper):
     else:
         previous = trainer.__dict__.get("training_step")  # another instance-level wrapper, or None
     wrapper_ref = weakref.ref(wrapper)
+    trainer_ref = weakref.ref(trainer)
+    repeatable = _can_repeat_step(trainer)
+    accumulates = (
+        int(getattr(getattr(trainer, "args", None), "gradient_accumulation_steps", 1) or 1) > 1
+    )
+    if accumulates and wrapper.max_grad_norm > 0 and wrapper.clip != "per_tensor":
+        # FSDP2 with gradient accumulation: the first step (or every step for exact) is stepped at
+        # optimizer.step() with the exact norm; the gradients of the earlier micro-batches are held anyway.
+        wrapper.calibrate = False
+        wrapper.defer = "all" if wrapper.clip == "exact" else "first"
+        repeatable = False
+    if not repeatable:
+        wrapper.calibrate = False
+        if wrapper.max_grad_norm > 0 and wrapper.clip == "exact" and not accumulates:
+            wrapper.clip = "estimate"
+            print(
+                f"Unsloth: {_CLIP_ENV}=exact needs to run each training step twice, but this trainer generates "
+                "its inputs inside the step, so max_grad_norm uses the estimated global norm instead."
+            )
 
     def training_step(*args, **kwargs):
         opt = wrapper_ref()
         if opt is None:
             return original(*args, **kwargs)
+        if repeatable and opt.wants_measure():
+            # A gradient-only pass (the class's training_step, below instance-level wrappers that count batches):
+            # it measures the exact global norm, steps nothing and frees each gradient as it arrives.
+            owner = trainer_ref()
+            model = args[0] if args else kwargs.get("model")
+            with _repeatable(owner, model) as restored, opt.measuring():
+                type(owner).training_step(
+                    owner,
+                    *(args[:1] + tuple(_fresh_views(a) for a in args[1:])),
+                    **{k: v if k == "model" else _fresh_views(v) for k, v in kwargs.items()},
+                )
+            if not restored[0]:
+                # A buffer larger than the copy budget changed in the forward: it now holds two updates for this
+                # batch. Do not measure again; later steps estimate the norm.
+                opt.calibrate = False
+                if opt.clip == "exact":
+                    opt.clip = "estimate"
+                print(
+                    "Unsloth: the model's forward updates a large buffer in place, so max_grad_norm is no longer "
+                    "measured with a second pass; it uses the estimated global norm."
+                )
         with opt.armed():
             return original(*args, **kwargs)
 
@@ -1158,9 +1997,17 @@ def _convert(
         print(f"Unsloth: not stepping {name} inside backward: it is not a per-weight optimizer.")
         return optimizer
     max_norm = float(getattr(trainer.args, "max_grad_norm", 0) or 0)
-    wrapper = InBackwardOptimizer(
-        base, max_grad_norm = max_norm, model = getattr(trainer, "model", None)
-    )
+    model = getattr(trainer, "model", None)
+    sync_gate = None
+    if _distributed(trainer, model)[0] == "fsdp2":
+        # Unsloth's native FSDP2 can reduce-scatter every micro-batch: step only on the synchronized one.
+        accelerator_ref = weakref.ref(trainer.accelerator)
+
+        def sync_gate():
+            accelerator = accelerator_ref()
+            return accelerator is None or bool(getattr(accelerator, "sync_gradients", True))
+
+    wrapper = InBackwardOptimizer(base, max_grad_norm = max_norm, model = model, sync_gate = sync_gate)
     setattr(trainer, _MARK, True)
     setattr(trainer, _TIER, tier)
     trainer._unsloth_in_backward_optimizer = wrapper
