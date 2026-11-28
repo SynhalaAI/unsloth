@@ -79,11 +79,12 @@ _OPS = []
 
 
 def gguf_ops():
-    """Namespace of (dequantize, linear, linear_backward_input, supports, name), resolved once. A plain global
-    read, so compiled code traces straight into the ops. Default: the pure torch reference, which Inductor fuses
-    into the compiled block; `UNSLOTH_GGUF_KERNELS=zoo` routes to unsloth_zoo.gguf_kernels (on a 50-step Qwen3.5-4B
-    Q4_K_M LoRA run on an A100 the reference trained at 1.2x the dequantized model's step time, the zoo kernels at
-    2.1x)."""
+    """Namespace of (dequantize, linear, linear_backward_input, grouped_mm, supports, name), resolved once. A plain
+    global read, so compiled code traces straight into the ops. `UNSLOTH_GGUF_KERNELS`: unset / "auto" picks
+    unsloth_zoo.gguf_kernels when that zoo launches its dequantize kernel from compiled graphs
+    (`COMPILE_TRACED_DEQUANTIZE`), else the pure torch reference; "zoo" forces the zoo kernels, "reference" the
+    reference. On a 30-step Qwen3.5-4B Q4_K_M LoRA run (RTX PRO 6000) the zoo kernels train at 1.06x the
+    dequantized model's step time, the reference at 1.17x; MoE expert stacks gain far more (grouped GEMM)."""
     if not _OPS:
         _OPS.append(_resolve_ops())
     return _OPS[0]
@@ -99,13 +100,17 @@ def _resolve_ops():
         grouped_mm = None,
         supports = _ref.is_supported,
     )
-    if os.environ.get("UNSLOTH_GGUF_KERNELS", "reference").strip().lower() != "zoo":
+    choice = os.environ.get("UNSLOTH_GGUF_KERNELS", "auto").strip().lower()
+    if choice not in ("auto", "zoo", ""):
         return reference
     try:
         import unsloth_zoo.gguf_kernels as zoo_kernels
     except Exception:
         return reference
     if not all(callable(getattr(zoo_kernels, name, None)) for name in _REQUIRED_ZOO_OPS):
+        return reference
+    if choice != "zoo" and not getattr(zoo_kernels, "COMPILE_TRACED_DEQUANTIZE", False):
+        # An older zoo runs every decode as a Python custom op: slower than the reference in training.
         return reference
     zoo_types = getattr(zoo_kernels, "SUPPORTED_TYPES", None)
     zoo_types = None if zoo_types is None else frozenset(int(t) for t in zoo_types)
@@ -192,27 +197,90 @@ def _effective_weight(packed, ggml_type, shape, dtype, inverse):
     return weight if inverse is None else weight.index_select(1, inverse)
 
 
+# True while a gradient-checkpoint backward re-runs a layer's forward (mirrored from unsloth_zoo's recompute
+# marker, see `_mirror_checkpoint_recompute`): that forward's backward runs right after it, so a Linear can keep
+# the weight it decoded for the forward until then (one layer's 16-bit weights at a time) instead of decoding it
+# a third time for dX. A plain global, so a compiled layer guards on it.
+_IN_CHECKPOINT_RECOMPUTE = [False]
+
+
+# UNSLOTH_GGUF_RECOMPUTE_REUSE=0 decodes for dX again (the memory of one layer's 16-bit weights back, one more
+# decode per Linear per step).
+_RECOMPUTE_REUSE = os.environ.get("UNSLOTH_GGUF_RECOMPUTE_REUSE", "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+
+
+def _reuse_recompute_weight():
+    return _RECOMPUTE_REUSE and _IN_CHECKPOINT_RECOMPUTE[0]
+
+
+def _mirror_checkpoint_recompute():
+    """Wrap unsloth_zoo's gradient-checkpoint recompute marker so `_IN_CHECKPOINT_RECOMPUTE` follows it."""
+    try:
+        from unsloth_zoo import gradient_checkpointing as zoo_gc
+    except Exception:
+        return False
+    original = getattr(zoo_gc, "_gradient_checkpoint_recompute_marker", None)
+    if original is None:
+        return False
+    if getattr(original, "_unsloth_gguf_mirror", False):
+        return True
+
+    @contextlib.contextmanager
+    def marker(*args, **kwargs):
+        previous = _IN_CHECKPOINT_RECOMPUTE[0]
+        _IN_CHECKPOINT_RECOMPUTE[0] = True
+        try:
+            with original(*args, **kwargs):
+                yield
+        finally:
+            _IN_CHECKPOINT_RECOMPUTE[0] = previous
+
+    marker._unsloth_gguf_mirror = True
+    marker.__wrapped__ = original
+    zoo_gc._gradient_checkpoint_recompute_marker = marker
+    return True
+
+
 class _GGUFLinearFunction(torch.autograd.Function):
-    """Frozen packed base: forward and dX only. Nothing 16-bit is saved for backward; dX decodes again. `inverse`:
-    argsort of an input permutation, applied to the dequantized columns (bitwise the dense model's product)."""
+    """Frozen packed base: forward and dX only. Nothing 16-bit is saved for backward and dX decodes again, except
+    in a gradient-checkpoint recompute (`keep_weight`), whose backward follows at once: the decoded weight is
+    saved for it. `inverse`: argsort of an input permutation, applied to the dequantized columns (bitwise the
+    dense model's product)."""
 
     @staticmethod
-    def forward(ctx, x, packed, bias, ggml_type, shape, inverse):
-        ctx.save_for_backward(packed, inverse)
+    def forward(
+        ctx,
+        x,
+        packed,
+        bias,
+        ggml_type,
+        shape,
+        inverse,
+        keep_weight = False,
+    ):
         ctx.ggml_type, ctx.shape = ggml_type, shape
         with torch.no_grad():
-            if inverse is None:
+            if inverse is None and not keep_weight:
+                ctx.save_for_backward(packed, inverse, None)
                 return gguf_ops().linear(x, packed, ggml_type, shape, bias)
             weight = _effective_weight(packed, ggml_type, shape, x.dtype, inverse)
+            ctx.save_for_backward(packed, inverse, weight if keep_weight else None)
             return torch.nn.functional.linear(x, weight, None if bias is None else bias.to(x.dtype))
 
     @staticmethod
     def backward(ctx, grad_output):
-        packed, inverse = ctx.saved_tensors
+        packed, inverse, weight = ctx.saved_tensors
         grad_x = grad_bias = None
         if ctx.needs_input_grad[0]:
             with torch.no_grad():
-                if inverse is None:
+                if weight is not None and weight.dtype == grad_output.dtype:
+                    grad_x = torch.matmul(grad_output, weight)
+                elif inverse is None:
                     grad_x = gguf_ops().linear_backward_input(
                         grad_output, packed, ctx.ggml_type, ctx.shape
                     )
@@ -223,7 +291,7 @@ class _GGUFLinearFunction(torch.autograd.Function):
                     grad_x = torch.matmul(grad_output, weight)
         if ctx.needs_input_grad[2]:
             grad_bias = grad_output.reshape(-1, grad_output.shape[-1]).sum(0)
-        return grad_x, None, grad_bias, None, None, None
+        return grad_x, None, grad_bias, None, None, None, None
 
 
 class UnslothGGUFLinear(nn.Linear):
@@ -252,7 +320,7 @@ class UnslothGGUFLinear(nn.Linear):
         nn.Module.__init__(module)
         module.in_features = int(in_features)
         module.out_features = int(out_features)
-        module.ggml_type = int(ggml_type)
+        module.ggml_type = ggml_type
         expected = (module.out_features, _ref.row_bytes(module.ggml_type, module.in_features))
         if packed.dtype != torch.uint8 or tuple(packed.shape) != expected:
             raise ValueError(
@@ -271,6 +339,7 @@ class UnslothGGUFLinear(nn.Linear):
         if compute_dtype is not None and compute_dtype.is_floating_point:
             module.compute_dtype = compute_dtype
         gguf_ops()  # resolved before any trace reaches forward
+        _mirror_checkpoint_recompute()
         return module
 
     def _set_input_permutation(self, permutation):
@@ -278,9 +347,23 @@ class UnslothGGUFLinear(nn.Linear):
         inverse = None if permutation is None else torch.argsort(permutation)
         self.register_buffer("input_inverse", inverse, persistent = False)
 
+    # Layers of one decoder class mix ggml types and sizes (Q4_K_M: Q6_K on some down_proj). torch.compile guards an
+    # int module attribute as a constant, then on the next layer turns it into a SymInt: the zoo kernels then break the
+    # graph (and the reference loses its per-type code). A str attribute is always specialized, and the shape is
+    # read off the (static) packed parameter, so every layer compiles to constants.
+    @property
+    def ggml_type(self):
+        return int(self._ggml_type_key)
+
+    @ggml_type.setter
+    def ggml_type(self, value):
+        self._ggml_type_key = str(int(value))
+
     @property
     def shape(self):
-        return (self.out_features, self.in_features)
+        packed = self._parameters["weight_packed"]
+        block_elems, block_bytes = _ref.GGML_BLOCK[self.ggml_type]
+        return (packed.shape[0], packed.shape[1] // block_bytes * block_elems)
 
     @property
     def ggml_type_name(self):
@@ -313,7 +396,13 @@ class UnslothGGUFLinear(nn.Linear):
             x.requires_grad or (bias is not None and bias.requires_grad)
         ):
             return _GGUFLinearFunction.apply(
-                x, self.weight_packed, bias, self.ggml_type, self.shape, inverse
+                x,
+                self.weight_packed,
+                bias,
+                self.ggml_type,
+                self.shape,
+                inverse,
+                _reuse_recompute_weight(),
             )
         if inverse is None:
             return gguf_ops().linear(x, self.weight_packed, self.ggml_type, self.shape, bias)
@@ -453,10 +542,16 @@ def gguf_expert_param_class():
             param = torch.Tensor._make_subclass(cls, data, False)
             param.ggml_type = int(ggml_type)
             param.packed_cols = int(packed_cols)
-            # The base class's companions: GGUF blocks carry their own scales.
-            param.packed_scales = kwargs.get("packed_scales")
-            if param.packed_scales is None:
-                param.packed_scales = data.new_empty((0,))
+            # The base class's companions: GGUF blocks carry their own block scales; `packed_scales` holds the
+            # file's optional per-expert weight scale (llama.cpp's `<name>.scale`, float32 (E,)), else is empty.
+            scales = kwargs.get("packed_scales")
+            if scales is None or scales.numel() == 0:
+                scales = torch.empty((0,), dtype = torch.float32, device = data.device)
+            elif scales.numel() != E:
+                raise ValueError(
+                    f"Unsloth: a GGUF expert stack of {E} experts takes {E} weight scales, got {scales.numel()}"
+                )
+            param.packed_scales = scales.reshape(-1).to(torch.float32)
             param.packed_global = None
             param.packed_transposed = False
             param.packed_dtype = kwargs.get("packed_dtype", torch.bfloat16)
@@ -475,7 +570,13 @@ def gguf_expert_param_class():
                 return None
             E, N, _ = self.data.shape
             blocks = self.as_subclass(torch.Tensor)
-            return grouped(x, blocks, self.ggml_type, (E, N, self.packed_cols), counts, transpose_b)
+            out = grouped(x, blocks, self.ggml_type, (E, N, self.packed_cols), counts, transpose_b)
+            scales, _ = self._companions()
+            if out is None or scales.numel() == 0:
+                return out
+            # x @ (s_e W_e) = s_e (x @ W_e), in both directions; rows are sorted by expert.
+            rows = torch.repeat_interleave(scales, counts.to(scales.device), output_size = x.shape[0])
+            return (out.float() * rows[:, None]).to(out.dtype)
 
         def _init_kwargs(self):
             kwargs = super()._init_kwargs()
@@ -493,7 +594,16 @@ def gguf_expert_param_class():
             out = None,
         ):
             E, N, _ = codes.shape
-            dense = gguf_ops().dequantize(codes, self.ggml_type, (E, N, self.packed_cols), dtype)
+            if scales is not None and scales.numel():
+                # The per-expert weight scale, applied in float32 and rounded once.
+                dense = gguf_ops().dequantize(
+                    codes, self.ggml_type, (E, N, self.packed_cols), torch.float32
+                )
+                dense = (dense * scales.to(dense.device).view(-1, 1, 1)).to(dtype)
+            else:
+                dense = gguf_ops().dequantize(
+                    codes, self.ggml_type, (E, N, self.packed_cols), dtype
+                )
             if transpose:
                 dense = dense.transpose(-2, -1).contiguous()
             if out is not None:
@@ -636,11 +746,238 @@ def gguf_packed_config_scope(fn):
         _install_autoconfig_hook()
         token = _GGUF_CONFIG_SOURCE.set((os.fspath(model_name), kwargs["gguf_file"]))
         try:
-            return fn(*args, **kwargs)
+            with _extra_gguf_config_archs():
+                return fn(*args, **kwargs)
         finally:
             _GGUF_CONFIG_SOURCE.reset(token)
 
     return wrapper
+
+
+@contextlib.contextmanager
+def _extra_gguf_config_archs():
+    """Within: transformers' GGUF config reader also knows the architectures in
+    `gguf_packed_archs.EXTRA_GGUF_CONFIG_ARCHS` (Inkling 2), which it has no config mapping for."""
+    try:
+        import transformers.integrations.gguf.gguf_config_mapping as config_module
+        from .gguf_packed_archs import EXTRA_GGUF_CONFIG_ARCHS
+        table = config_module.GGUF_CONFIG_ARCHS
+    except Exception:
+        # transformers without the fast GGUF reader: the request is refused with its own message later.
+        yield
+        return
+    added = [arch for arch in EXTRA_GGUF_CONFIG_ARCHS if arch not in table]
+    for arch in added:
+        table[arch] = EXTRA_GGUF_CONFIG_ARCHS[arch]
+    try:
+        yield
+    finally:
+        for arch in added:
+            table.pop(arch, None)
+
+
+# ----------------------------------------------------------------------------------------------------------
+# Split GGUFs and per-tensor / per-expert weight scales
+# ----------------------------------------------------------------------------------------------------------
+
+_SPLIT_RE = None
+
+
+def gguf_split_paths(path):
+    """Every shard of a llama.cpp split GGUF (`name-00001-of-00009.gguf`), in order; `[path]` for a single file."""
+    global _SPLIT_RE
+    import re
+
+    if _SPLIT_RE is None:
+        _SPLIT_RE = re.compile(r"^(.*)-(\d{5})-of-(\d{5})\.gguf$")
+    match = _SPLIT_RE.match(os.fspath(path))
+    if match is None:
+        return [os.fspath(path)]
+    stem, count = match.group(1), int(match.group(3))
+    paths = [f"{stem}-{i:05d}-of-{count:05d}.gguf" for i in range(1, count + 1)]
+    missing = [p for p in paths if not os.path.exists(p)]
+    if missing:
+        raise FileNotFoundError(
+            f"Unsloth: the split GGUF {os.path.basename(os.fspath(path))} needs all {count} shards next to it; "
+            f"missing {', '.join(os.path.basename(p) for p in missing[:3])}."
+        )
+    return paths
+
+
+def _merged_header(path):
+    """One `GgufHeader` over every shard of a split file (tensor order kept), plus {tensor name: its shard's
+    header}. Offsets stay relative to each shard; `_split_state_dict` reads them from the right file."""
+    from transformers.integrations.gguf.reader import GgufHeader
+
+    headers = [GgufHeader.from_file(p) for p in gguf_split_paths(path)]
+    owner = {info.name: header for header in headers for info in header.tensors}
+    first = headers[0]
+    if len(headers) == 1:
+        return first, owner
+    tensors = tuple(info for header in headers for info in header.tensors)
+    return first._replace(tensors = tensors), owner
+
+
+def _split_state_dict(owners, header):
+    """Every tensor of `header` (the merged, split-aware header), each read from its own shard's file."""
+    from transformers.integrations.gguf.reader import load_gguf_state_dict
+
+    by_shard = {}
+    for info in header.tensors:
+        shard = owners[info.name]
+        by_shard.setdefault(id(shard), (shard, []))[1].append(info)
+    state_dict = {}
+    for shard, infos in by_shard.values():
+        state_dict.update(load_gguf_state_dict(shard._replace(tensors = tuple(infos))))
+    return state_dict
+
+
+def _weight_scale_tensors(header):
+    """{weight tensor name: its `.scale` TensorInfo} for llama.cpp's optional per-tensor ({1}, 2-D weight) or
+    per-expert ({n_expert}, 3-D stack) F32 scale: llama.cpp multiplies the weight's matmul output by it
+    (`build_lora_mm` / `build_lora_mm_id`), so the effective weight is `scale * W` (per expert for a stack)."""
+    by_name = {info.name: info for info in header.tensors}
+    scales = {}
+    for name, info in by_name.items():
+        if not name.endswith(".scale"):
+            continue
+        weight = by_name.get(name[: -len(".scale")] + ".weight")
+        if weight is None:
+            continue
+        experts = weight.shape[0] if len(weight.shape) == 3 else 1
+        numel = 1
+        for dim in info.shape:
+            numel *= dim
+        if info.ggml_type != 0 or numel != experts or len(weight.shape) not in (2, 3):
+            continue
+        scales[weight.name] = info
+    return scales
+
+
+def _read_scale(header, info):
+    import numpy as np
+    data = np.memmap(
+        header.path,
+        dtype = np.float32,
+        mode = "r",
+        offset = header.data_start + info.offset,
+        shape = (info.nbytes // 4,),
+    )
+    return torch.from_numpy(np.array(data, dtype = np.float32))
+
+
+def _apply_weight_scales(quantizer, model):
+    """Fold the file's `.scale` tensors into the weights they scale: a packed GGUF expert stack keeps the per-expert
+    scale beside its blocks (applied in float32 on every decode); a dense parameter is multiplied in float32."""
+    scales = getattr(quantizer, "_unsloth_weight_scales", None)
+    if not scales:
+        return 0
+    import copy
+
+    from transformers.core_model_loading import WeightConverter, WeightRenaming, rename_source_key
+
+    mapping = copy.deepcopy(quantizer.mapping)
+    renamings = [entry for entry in mapping if isinstance(entry, WeightRenaming)]
+    converters = [entry for entry in mapping if isinstance(entry, WeightConverter)]
+    owners = quantizer._unsloth_tensor_owner
+    targets = {}
+    for weight_name, info in scales.items():
+        param_name, pattern = rename_source_key(weight_name, renamings, converters)
+        targets.setdefault(param_name, []).append((weight_name, info, pattern))
+    applied = 0
+    for param_name, sources in targets.items():
+        converter = next((c for c in converters if sources[0][2] in c.source_patterns), None)
+        if len(sources) != 1 or (converter is not None and len(converter.source_patterns) != 1):
+            raise NotImplementedError(
+                f"Unsloth: `gguf_packed = True` cannot apply the GGUF weight scales of {param_name}, which is built "
+                "from several tensors. Load without `gguf_packed` instead."
+            )
+        weight_name, info, _ = sources[0]
+        scale = _read_scale(owners[info.name], info)
+        module_name, _, leaf = param_name.rpartition(".")
+        try:
+            module = model.get_submodule(module_name)
+        except AttributeError:
+            continue
+        if (
+            leaf == "weight"
+            and hasattr(module, "ggml_type")
+            and module._parameters.get("weight") is not None
+            and (module._parameters["weight"].dtype == torch.uint8)
+        ):
+            # A packed 2-D GGUF Linear / Embedding (transformers' GgufLinear / GgufEmbedding): made dense below with
+            # the scale folded in, since no Inkling or Qwen file ships one and the packed linear kernels carry none.
+            module._unsloth_gguf_weight_scale_pending = scale
+            applied += 1
+            continue
+        param = module._parameters.get(leaf)
+        if param is None:
+            continue
+        if param.dtype == torch.uint8 and param.dim() == 3:
+            # A packed expert placeholder: GgufExpertParam takes the scale from here.
+            module.__dict__.setdefault("_unsloth_gguf_expert_scales", {})[leaf] = scale
+        else:
+            view = (
+                scale.view(-1, *([1] * (param.dim() - 1)))
+                if scale.numel() > 1
+                else scale.reshape(())
+            )
+            with torch.no_grad():
+                param.data = (param.data.float() * view.to(param.device)).to(param.dtype)
+        applied += 1
+    return applied
+
+
+def _keep_float32_casts(conversions, model, dtype):
+    """transformers' GGUF loader casts every tensor to the load dtype last (`Cast`), which ignores the model's
+    `_keep_in_fp32_modules_strict` (Inkling 2's router, residual queries, short convolutions, message gates are
+    float32 modules and compute so). Keep those tensors float32, as transformers' own checkpoint load does."""
+    import transformers.integrations.gguf.gguf_conversion_mapping as mapping_module
+
+    cast_cls = getattr(mapping_module, "Cast", None)
+    patterns = set()
+    if dtype in (torch.float16, torch.bfloat16):
+        patterns |= set(getattr(model, "_keep_in_fp32_modules_strict", None) or ())
+    if dtype == torch.float16:
+        patterns |= set(getattr(model, "_keep_in_fp32_modules", None) or ())
+    if cast_cls is None or not patterns:
+        return conversions
+    import re
+
+    keep = re.compile("|".join(f"(?:{p.replace('*', '.*')})" for p in sorted(patterns)))
+
+    class _CastKeepFloat32(cast_cls):
+        @torch.no_grad
+        def convert(
+            self,
+            input_dict,
+            source_patterns,
+            target_patterns,
+            full_layer_name = None,
+            **kwargs,
+        ):
+            name = full_layer_name if full_layer_name is not None else target_patterns[0]
+            tensor = next(iter(input_dict.values()))
+            tensor = tensor[0] if isinstance(tensor, list) else tensor
+            if tensor.dtype != torch.uint8 and tensor.is_floating_point() and keep.search(name):
+                return {name: tensor.to(torch.float32)}
+            return super().convert(
+                input_dict,
+                source_patterns,
+                target_patterns,
+                full_layer_name = full_layer_name,
+                **kwargs,
+            )
+
+    for conversion in conversions:
+        operations = getattr(conversion, "operations", None)
+        if not operations:
+            continue
+        for i, op in enumerate(operations):
+            if type(op) is cast_cls:
+                keep_op = _CastKeepFloat32(op.dtype)
+                operations[i] = keep_op
+    return conversions
 
 
 class _UnslothGgufKernel:
@@ -664,10 +1001,93 @@ def _gguf_architecture(path):
     return metadata.get("general.architecture")
 
 
+# Tensors newer llama.cpp converters (and so `save_pretrained_gguf`) write as one: `[first | second]` stacked on rows,
+# each half exactly what the unfused file stores under its own name. Leaf name -> (first, second, rows of first from
+# the same block's tensors).
+def _rows_of_attn_qkv(block, fused_rows):
+    # attn_gate is in_proj_z: one row per value element, which ssm_out (out_proj) consumes as its columns.
+    out_proj = block.get("ssm_out.weight")
+    return None if out_proj is None else fused_rows - out_proj.shape[-1]
+
+
+def _rows_of_ssm_beta(block, fused_rows):
+    # beta and alpha each carry one row per value head.
+    return fused_rows // 2 if fused_rows % 2 == 0 else None
+
+
+_FUSED_ROW_SPLITS = {
+    "attn_qkv_gate.weight": ("attn_qkv.weight", "attn_gate.weight", _rows_of_attn_qkv),
+    "ssm_beta_alpha.weight": ("ssm_beta.weight", "ssm_alpha.weight", _rows_of_ssm_beta),
+}
+
+
+def _block_leaf(name):
+    """`blk.3.attn_qkv_gate.weight` -> ("3", "attn_qkv_gate.weight"); ("", "") outside the blocks."""
+    if not name.startswith("blk."):
+        return "", ""
+    index, _, leaf = name[len("blk.") :].partition(".")
+    return index, leaf
+
+
+def _fused_source_name(name):
+    """`blk.3.attn_qkv.weight` -> `blk.3.attn_qkv_gate.weight` (the fused tensor a split half came from)."""
+    index, leaf = _block_leaf(name)
+    for fused, (first, second, _) in _FUSED_ROW_SPLITS.items():
+        if leaf in (first, second):
+            return f"blk.{index}.{fused}"
+    raise KeyError(name)
+
+
+def _split_fused_gguf_tensors(header):
+    """The header with each fused tensor listed as its two halves: row slices of the same bytes (GGUF blocks never
+    span rows), so the tensor map, the packed plan and the loaded bytes are exactly an unfused file's."""
+    if header is None or not any(
+        _block_leaf(info.name)[1] in _FUSED_ROW_SPLITS for info in header.tensors
+    ):
+        return header
+    blocks = {}
+    for info in header.tensors:
+        index, leaf = _block_leaf(info.name)
+        if leaf:
+            blocks.setdefault(index, {})[leaf] = info
+    tensors = []
+    for info in header.tensors:
+        index, leaf = _block_leaf(info.name)
+        split = _FUSED_ROW_SPLITS.get(leaf)
+        if split is None:
+            tensors.append(info)
+            continue
+        first, second, first_rows_of = split
+        block, rows = blocks[index], int(info.shape[0])
+        first_rows = first_rows_of(block, rows) if len(info.shape) == 2 else None
+        if (
+            first_rows is None
+            or not 0 < first_rows < rows
+            or info.nbytes % rows
+            or first in block
+            or second in block
+        ):
+            raise NotImplementedError(
+                f"Unsloth: `gguf_packed = True` cannot split the fused GGUF tensor {info.name} "
+                f"{tuple(info.shape)}. Load without `gguf_packed` to use transformers' dense loader."
+            )
+        row_nbytes = info.nbytes // rows
+        for name, start, count in ((first, 0, first_rows), (second, first_rows, rows - first_rows)):
+            tensors.append(
+                info._replace(
+                    name = f"blk.{index}.{name}",
+                    shape = (count, *info.shape[1:]),
+                    offset = info.offset + start * row_nbytes,
+                    nbytes = count * row_nbytes,
+                )
+            )
+    return header._replace(tensors = tuple(tensors))
+
+
 def _check_every_parameter_fed(quantizer, model):
     """Refuse a load that would leave parameters randomly initialised: a GGUF layout the tensor map does not know
-    (for example Qwen3.5 files from a converter that fuses attn_qkv_gate / ssm_beta_alpha) loads with MISSING keys
-    otherwise."""
+    (for example a converter that fuses tensors under a name neither the map nor `_FUSED_ROW_SPLITS` knows) loads
+    with MISSING keys otherwise."""
     header, mapping = getattr(quantizer, "header", None), getattr(quantizer, "mapping", None)
     if header is None or not mapping:
         return
@@ -791,6 +1211,10 @@ def gguf_packed_load(gguf_path = None):
     saved_replace = quantizer_module.replace_with_gguf_modules
     saved_kernel_global = kernels_module._gguf_kernel
     saved_dequantize = kernels_module.dequantize
+    saved_get_state_dict = quantizer_cls.get_state_dict
+    saved_update_conversions = quantizer_cls.__dict__.get("update_weight_conversions")
+    config_archs = _extra_gguf_config_archs()
+    config_archs.__enter__()
     try:
         for ggml_type, block in _ref.GGML_BLOCK.items():
             if ggml_type not in _UNPACKED_TYPES:
@@ -803,10 +1227,58 @@ def gguf_packed_load(gguf_path = None):
 
         def read_header(self, gguf_file):
             _check_architecture(_gguf_architecture(gguf_file), mapping_module.GGUF_ARCHS)
-            return saved_read_header(self, gguf_file)
+            config = self.quantization_config
+            asked_dequantize = config.dequantize
+            result = saved_read_header(self, gguf_file)
+            if getattr(self, "header", None) is not None:
+                # Split files: one header over every shard. Weight scales: kept out of the tensor map and folded
+                # into their weights after the load.
+                header, owners = _merged_header(gguf_file)
+                # Fused attn_qkv_gate / ssm_beta_alpha (current llama.cpp converters) read as the unfused pair: row
+                # slices of the same bytes in the same shard.
+                header = _split_fused_gguf_tensors(header)
+                for info in header.tensors:
+                    if info.name not in owners:
+                        owners[info.name] = owners[_fused_source_name(info.name)]
+                scales = _weight_scale_tensors(header)
+                if scales:
+                    drop = {info.name for info in scales.values()}
+                    header = header._replace(
+                        tensors = tuple(i for i in header.tensors if i.name not in drop)
+                    )
+                self.header = header
+                self._unsloth_tensor_owner = owners
+                self._unsloth_weight_scales = scales
+                if (
+                    len(gguf_split_paths(gguf_file)) > 1
+                    and config.dequantize
+                    and not asked_dequantize
+                ):
+                    # The first shard of a split file holds metadata only, which read as "nothing quantized".
+                    config.dequantize = False
+                    self.validate_environment()
+            return result
+
+        def get_state_dict(self, checkpoint_file, model):
+            owners = getattr(self, "_unsloth_tensor_owner", None)
+            # Any tensor in a shard other than the merged header's own file (the first, often metadata only) needs
+            # the owner-aware reader, even when a single shard holds every tensor.
+            if (
+                getattr(self, "supported", False)
+                and owners
+                and any(h.path != self.header.path for h in owners.values())
+            ):
+                return _split_state_dict(owners, self.header)
+            state_dict = saved_get_state_dict(self, checkpoint_file, model)
+            scales = getattr(self, "_unsloth_weight_scales", None)
+            if scales and isinstance(state_dict, dict):
+                drop = {info.name for info in scales.values()}
+                state_dict = {k: v for k, v in state_dict.items() if k not in drop}
+            return state_dict
 
         def after_weight_loading(self, model, **kwargs):
             _check_every_parameter_fed(self, model)
+            _apply_weight_scales(self, model)
             model = saved_after(self, model, **kwargs)
             convert_gguf_packed_model(model, self.dtype)
             return model
@@ -822,7 +1294,23 @@ def gguf_packed_load(gguf_path = None):
             finally:
                 config.dequantize = dequantize
 
+        def update_weight_conversions(
+            self,
+            weight_conversions,
+            model = None,
+        ):
+            # transformers before 5.24 passes no model (and has no model with float32-strict modules to keep).
+            if model is None:
+                return saved_update_conversions(self, weight_conversions)
+            conversions = saved_update_conversions(self, weight_conversions, model)
+            if getattr(self, "supported", False) and isinstance(conversions, list):
+                conversions = _keep_float32_casts(conversions, model, self.dtype)
+            return conversions
+
         quantizer_cls.read_header = read_header
+        quantizer_cls.get_state_dict = get_state_dict
+        if saved_update_conversions is not None:
+            quantizer_cls.update_weight_conversions = update_weight_conversions
         quantizer_cls._process_model_after_weight_loading = after_weight_loading
         if saved_update_dtype is not None:
             quantizer_cls.update_dtype = update_dtype
@@ -843,6 +1331,10 @@ def gguf_packed_load(gguf_path = None):
         mapping_module.GGUF_ARCHS.clear()
         mapping_module.GGUF_ARCHS.update(saved_archs)
         quantizer_cls.read_header = saved_read_header
+        quantizer_cls.get_state_dict = saved_get_state_dict
+        if saved_update_conversions is not None:
+            quantizer_cls.update_weight_conversions = saved_update_conversions
+        config_archs.__exit__(None, None, None)
         quantizer_cls._process_model_after_weight_loading = saved_after
         if saved_update_dtype is not None:
             quantizer_cls.update_dtype = saved_update_dtype
@@ -894,17 +1386,18 @@ def convert_gguf_packed_model(model, dtype = None):
     for name, module in list(model.named_modules()):
         if isinstance(module, GgufEmbedding):
             key = module.weight
+            weight_scale = module.__dict__.pop("_unsloth_gguf_weight_scale_pending", None)
             if key not in dense_of:
-                dense_of[key] = _dense_parameter(
-                    _dequantize_gguf_rows(
-                        module.weight,
-                        module.ggml_type,
-                        module.num_embeddings,
-                        module.embedding_dim,
-                        dtype,
-                    ),
-                    dtype,
+                table = _dequantize_gguf_rows(
+                    module.weight,
+                    module.ggml_type,
+                    module.num_embeddings,
+                    module.embedding_dim,
+                    dtype if weight_scale is None else torch.float32,
                 )
+                if weight_scale is not None:
+                    table = table * weight_scale.to(table.device).reshape(())
+                dense_of[key] = _dense_parameter(table, dtype)
             dense = nn.Embedding(
                 module.num_embeddings, module.embedding_dim, device = "meta", dtype = dtype
             )
@@ -913,15 +1406,23 @@ def convert_gguf_packed_model(model, dtype = None):
             census["dequantized"].append(name)
         elif isinstance(module, GgufLinear):
             in_features, out_features = module.in_features, module.out_features
-            if module is output_embeddings or name.endswith("lm_head"):
+            weight_scale = module.__dict__.pop("_unsloth_gguf_weight_scale_pending", None)
+            if module is output_embeddings or name.endswith("lm_head") or weight_scale is not None:
                 # lm_head stays 16-bit, as with NF4.
+                # A 2-D weight with a GGUF weight scale: dense too, the scale folded in float32.
                 key = module.weight
                 if key not in dense_of:
                     weight = _dequantize_gguf_rows(
-                        module.weight, module.ggml_type, out_features, in_features, dtype
+                        module.weight,
+                        module.ggml_type,
+                        out_features,
+                        in_features,
+                        dtype if weight_scale is None else torch.float32,
                     )
                     if module.input_permutation is not None:
                         weight = weight.index_select(1, torch.argsort(module.input_permutation))
+                    if weight_scale is not None:
+                        weight = weight * weight_scale.to(weight.device).reshape(())
                     dense_of[key] = _dense_parameter(weight, dtype)
                 dense = nn.Linear(
                     in_features, out_features, bias = module.bias is not None, device = "meta"
@@ -956,14 +1457,22 @@ def convert_gguf_packed_model(model, dtype = None):
             )
         else:
             types_of = module.__dict__.pop("_unsloth_gguf_expert_types", None)
+            expert_scales = module.__dict__.pop("_unsloth_gguf_expert_scales", {})
             if not types_of:
                 continue
             cls = gguf_expert_param_class()
             for param_name, (ggml_type, cols) in types_of.items():
                 param = module._parameters[param_name]
+                scale = expert_scales.get(param_name)
                 module._parameters[param_name] = cls(
-                    param.data, ggml_type = ggml_type, packed_cols = cols, packed_dtype = dtype
+                    param.data,
+                    ggml_type = ggml_type,
+                    packed_cols = cols,
+                    packed_dtype = dtype,
+                    packed_scales = None if scale is None else scale.to(param.device),
                 )
+                if scale is not None:
+                    census["scaled_experts"] = census.get("scaled_experts", 0) + 1
                 census["packed_experts"] += 1
                 type_name = _ref.GGML_TYPE_NAMES.get(ggml_type, str(ggml_type))
                 census["types"][type_name] = census["types"].get(type_name, 0) + 1
@@ -1234,13 +1743,13 @@ def write_gguf_dense_base(
         os.replace(old, os.path.join(directory, new))
         renamed[f"model-{index:05d}.safetensors"] = new
     weight_map = {name: renamed[file] for name, file in weight_map.items()}
-    with open(os.path.join(directory, "model.safetensors.index.json"), "w") as f:
+    with open(os.path.join(directory, "model.safetensors.index.json"), "w", encoding = "utf-8") as f:
         json.dump({"metadata": {"total_size": total}, "weight_map": weight_map}, f, indent = 2)
     config = base.config.to_dict()
     config.pop("quantization_config", None)
     config.pop("unsloth_gguf_packed", None)
     config["torch_dtype"] = config["dtype"] = str(dtype).replace("torch.", "")
-    with open(os.path.join(directory, "config.json"), "w") as f:
+    with open(os.path.join(directory, "config.json"), "w", encoding = "utf-8") as f:
         json.dump(config, f, indent = 2, default = str)
     return directory
 
